@@ -50,8 +50,7 @@ def train(parser):
 		from keras_frcnn import resnet as nn
 		C.network = 'resnet50'
 	else:
-		print('Not a valid model')
-		raise ValueError
+		raise ValueError('Not a valid model')
 
 
 	# check if weight path was passed via command line

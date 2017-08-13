@@ -35,11 +35,6 @@ def get_img_output_length(width, height):
     return get_output_length(width), get_output_length(height) 
 
 def add_block(type, input_tensor, filters, block_name, strides=(2, 2), trainable=True, input_shape=None):
-    if K.image_dim_ordering() == 'tf':
-        bn_axis = 3
-    else:
-        bn_axis = 1
-
     conv_name_base = 'res' + block_name + '_'
     bn_name_base = 'bn' + block_name + '_'
 
@@ -49,90 +44,82 @@ def add_block(type, input_tensor, filters, block_name, strides=(2, 2), trainable
     elif n_layers == 2:
         kernels = [3,3]
     else:
-        print("Unhandled layer size in add_block!")
-        return None
+        raise ValueError("Unhandled layer size %d in add_block!" % n_layers)
 
-    # TODO: convert to partials
-    if type == "identity":
-        for layer in range(n_layers):
-            conv_layer = partial(Conv2D, filters[layer], (kernels[layer], kernels[layer]), padding='same', trainable=trainable)
-            x = Conv2D(filters[layer], (kernels[layer], kernels[layer]),
-                padding='same', trainable=trainable,
-                name = conv_name_base + str(layer))(x if layer != 0 else input_tensor)
+    bn_layer = partial(FixedBatchNormalization,
+        axis = 3 if K.image_dim_ordering() == 'tf' else 1)
 
-            x = FixedBatchNormalization(axis=bn_axis,
-                name = bn_name_base + str(layer))(x)
+    if 'td' in type:
+        k_init = 'glorot_uniform'
+    else:
+        k_init = 'normal'
 
-            if layer != n_layers - 1:
-                x = Activation('relu')(x)
+    for layer in range(n_layers):
+        conv_name = conv_name_base + str(layer)
+        bn_name = bn_name_base + str(layer)
 
-        x = Add()([x, input_tensor]) # residual
-        x = Activation('relu')(x)
+        conv_layer = partial(Conv2D, filters[layer],
+            (kernels[layer], kernels[layer]),
+            kernel_initializer = k_init,
+            padding='same', trainable=trainable)
 
-    elif type == "id-td":
-        for layer in range(n_layers):
-            x = TimeDistributed(Conv2D(filters[layer], (kernels[layer], kernels[layer]),
-                padding='same', trainable=trainable, kernel_initializer='normal'), 
-                name = conv_name_base + str(layer))(x if layer != 0 else input_tensor)
+        if type == "identity":
+            x = conv_layer(name = conv_name)(x if layer != 0 else input_tensor)
+            x = bn_layer(name = bn_name)(x)
+        
+        elif type == "id-td":
+            x = TimeDistributed(conv_layer(),
+                name = conv_name)(x if layer != 0 else input_tensor)
+            x = TimeDistributed(bn_layer(), name = bn_name)(x)
+        
+        elif type == "conv":
+            x = conv_layer(strides = strides if layer == 0 else (1, 1),
+                name = conv_name)(x if layer != 0 else input_tensor)
+            x = bn_layer(name = bn_name)(x)
+        
+        elif type == "conv-td":
+            if layer == 0 and input_shape is not None:
+                x = TimeDistributed(conv_layer(
+                    strides = strides if layer == 0 else (1, 1),
+                    input_shape = input_shape),
+                    name = conv_name)(input_tensor)
+            else:
+                x = TimeDistributed(conv_layer(
+                    strides = strides if layer == 0 else (1, 1)),
+                    name = conv_name)(x if layer != 0 else input_tensor)
+            
+            x = TimeDistributed(bn_layer(), name = bn_name)(x)
 
-            x = TimeDistributed(FixedBatchNormalization(axis=bn_axis),
-                name = bn_name_base + str(layer))(x)
+        else:
+            raise ValueError("Unrecognized type %s in add_block" % type)
 
-            if layer != n_layers - 1:
-                x = Activation('relu')(x)
+        if layer != n_layers - 1:
+            x = Activation('relu')(x)
 
+    if "id" in type:
         x = Add()([x, input_tensor])
         x = Activation('relu')(x)
 
     elif type == "conv":
-        for layer in range(n_layers):
-            x = Conv2D(filters[layer], (kernels[layer], kernels[layer]),
-                strides = strides if layer == 0 else (1, 1),
-                padding='same', trainable=trainable,
-                name = conv_name_base + str(layer))(x if layer != 0 else input_tensor)
-            x = FixedBatchNormalization(axis=bn_axis,
-                name = bn_name_base + str(layer))(x)
-            if layer != n_layers:
-                x = Activation('relu')(x)
-
         shortcut = Conv2D(filters[-1], (1, 1), strides=strides,
                     name=conv_name_base + 'shortcut', trainable=trainable)(input_tensor)
-        shortcut = FixedBatchNormalization(axis=bn_axis,
-                name=bn_name_base + 'shortcut')(shortcut)
+        shortcut = bn_layer(name=bn_name_base + 'shortcut')(shortcut)
 
         x = Add()([x, shortcut])
         x = Activation('relu')(x)
 
     elif type == "conv-td":
-        for layer in range(n_layers):
-            if layer != 0 or input_shape is None:
-                x = TimeDistributed(Conv2D(filters[layer], (kernels[layer], kernels[layer]),
-                    strides = strides if layer == 0 else (1, 1),
-                    padding='same', trainable=trainable, kernel_initializer='normal'),
-                    name = conv_name_base + str(layer))(x if layer != 0 else input_tensor)
-            else:
-                x = TimeDistributed(Conv2D(filters[layer], (kernels[layer], kernels[layer]),
-                    strides = strides if layer == 0 else (1, 1),
-                    input_shape = input_shape,
-                    padding='same', trainable=trainable, kernel_initializer='normal'),
-                    name = conv_name_base + str(layer))(x if layer != 0 else input_tensor)
-
-            x = TimeDistributed(FixedBatchNormalization(axis=bn_axis),
-                name = bn_name_base + str(layer))(x)
-            if layer != n_layers:
-                x = Activation('relu')(x)
-
         shortcut = TimeDistributed(Conv2D(filters[-1], (1, 1), strides=strides,
                     trainable=trainable, kernel_initializer='normal'), 
                     name=conv_name_base + 'shortcut')(input_tensor)
-        shortcut = TimeDistributed(FixedBatchNormalization(axis=bn_axis,
-                        name=bn_name_base + 'shortcut'))(shortcut)
+        shortcut = TimeDistributed(bn_layer(),
+                    name=bn_name_base + 'shortcut')(shortcut)
 
         x = Add()([x, shortcut])
         x = Activation('relu')(x)
 
     else:
-        print("Unrecognized type %s" % type)
+        raise ValueError("Bad type %s in add_block()" % type)
 
     return x
 
@@ -151,56 +138,36 @@ def nn_base(input_tensor=None, trainable=False, total_layers=50):
     else:
         img_input = input_tensor
 
-    if K.image_dim_ordering() == 'tf':
-        bn_axis = 3
-    else:
-        bn_axis = 1
-
     x = ZeroPadding2D((3, 3))(img_input)
 
     x = Conv2D(64, (7, 7), strides=(2, 2), name='conv1', trainable=trainable)(x)
-    x = FixedBatchNormalization(axis=bn_axis, name='bn_conv1')(x)
+    x = FixedBatchNormalization(axis=3 if K.image_dim_ordering() == 'tf' else 1,
+        name='bn1')(x)
     x = Activation('relu')(x)
     x = MaxPooling2D((3, 3), strides=(2, 2))(x)
 
+    def add_blocks(x, block_types, nb_filters, block_num, trainable):
+        for i, block_type in enumerate(block_types):
+            x = add_block(block_type, x, nb_filters, block_name=str(block_num)+chr(ord('a')+i), trainable=trainable)
+        return x
+
     if total_layers == 50:
-        nb_filters = [64, 64, 256]
-        x = add_block('conv', x, nb_filters, block_name='2a', strides=(1, 1), trainable=trainable)
-        x = add_block('identity', x, nb_filters, block_name='2b', trainable=trainable)
-        x = add_block('identity', x, nb_filters, block_name='2c', trainable=trainable)
-
-        nb_filters = [128, 128, 512]
-        x = add_block('conv', x, nb_filters, block_name='3a', trainable=trainable)
-        x = add_block('identity', x, nb_filters, block_name='3b', trainable=trainable)
-        x = add_block('identity', x, nb_filters, block_name='3c', trainable=trainable)
-        x = add_block('identity', x, nb_filters, block_name='3d', trainable=trainable)
-
-        nb_filters = [256, 256, 1024]
-        x = add_block('conv', x, nb_filters, block_name='4a', trainable=trainable)
-        x = add_block('identity', x, nb_filters, block_name='4b', trainable=trainable)
-        x = add_block('identity', x, nb_filters, block_name='4c', trainable=trainable)
-        x = add_block('identity', x, nb_filters, block_name='4d', trainable=trainable)
-        x = add_block('identity', x, nb_filters, block_name='4e', trainable=trainable)
-        x = add_block('identity', x, nb_filters, block_name='4f', trainable=trainable)
+        x = add_blocks(x, ('conv ' + 'identity '*2).split(),
+            nb_filters=[64, 64, 256], block_num=2, trainable=trainable)
+        x = add_blocks(x, ('conv ' + 'identity '*3).split(),
+            nb_filters=[128, 128, 512], block_num=3, trainable=trainable)
+        x = add_blocks(x, ('conv ' + 'identity '*5).split(),
+            nb_filters=[256, 256, 1024], block_num=4, trainable=trainable)
 
     elif total_layers == 18:
-        # TODO
-        nb_filters = [64, 64]
-        x = add_block('conv', x, nb_filters, block_name='2a', strides=(1, 1), trainable=trainable)
-        x = add_block('identity', x, nb_filters, block_name='2b', trainable=trainable)
-
-        nb_filters = [128, 128]
-        x = add_block('conv', x, nb_filters, block_name='3a', trainable=trainable)
-        x = add_block('identity', x, nb_filters, block_name='3b', trainable=trainable)
-
-        nb_filters = [256, 256]
-        x = add_block('conv', x, nb_filters, block_name='4a', trainable=trainable)
-        x = add_block('identity', x, nb_filters, block_name='4b', trainable=trainable)
+        pass
+        # TODO, [64, 64], [128, 128], [256, 256]
+    else:
+        raise ValueError("Number of layers %d not supported in nn_base()" % total_layers)
 
     return x
 
-
-def rpn(base_layers,num_anchors):
+def rpn(base_layers, num_anchors):
     """Region proposal network"""
 
     x = Conv2D(512, (3, 3), padding='same', activation='relu', kernel_initializer='normal', name='rpn_conv1')(base_layers)
@@ -212,8 +179,6 @@ def rpn(base_layers,num_anchors):
 
 def classifier(base_layers, input_rois, num_rois, nb_classes, trainable=False):
     """ROI classifier. Takes rois as input."""
-
-    # compile times on theano tend to be very high, so we use smaller ROI pooling regions to workaround
 
     def classifier_layers(x, input_shape, trainable=False):
         # compile times on theano tend to be very high, so we use smaller ROI pooling regions to workaround
@@ -243,8 +208,10 @@ def classifier(base_layers, input_rois, num_rois, nb_classes, trainable=False):
 
     out = TimeDistributed(Flatten())(out)
 
-    out_class = TimeDistributed(Dense(nb_classes, activation='softmax', kernel_initializer='zero'), name='dense_class_{}'.format(nb_classes))(out)
+    out_class = TimeDistributed(Dense(nb_classes, activation='softmax',
+        kernel_initializer='zero'), name='dense_class_{}'.format(nb_classes))(out)
     # note: no regression target for bg class
-    out_regr = TimeDistributed(Dense(4 * (nb_classes-1), activation='linear', kernel_initializer='zero'), name='dense_regress_{}'.format(nb_classes))(out)
+    out_regr = TimeDistributed(Dense(4 * (nb_classes-1), activation='linear',
+        kernel_initializer='zero'), name='dense_regress_{}'.format(nb_classes))(out)
     return [out_class, out_regr]
 
