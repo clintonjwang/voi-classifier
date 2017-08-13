@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 from __future__ import division
 import random
 import pprint
@@ -7,7 +9,7 @@ import numpy as np
 from optparse import OptionParser
 import pickle
 
-sys.path.append('/usr/local/lib/python2.7/site-packages')
+sys.path.append('/Users/clintonwang/miniconda3/envs/fast-tf/lib/python3.6/site-packages')
 
 from keras import backend as K
 from keras.optimizers import Adam, SGD, RMSprop
@@ -130,7 +132,7 @@ def train(parser):
 	model_classifier.compile(optimizer=optimizer_classifier, loss=[klosses.class_loss_cls, klosses.class_loss_regr(len(classes_count)-1)], metrics={'dense_class_{}'.format(len(classes_count)): 'accuracy'})
 	model_all.compile(optimizer='sgd', loss='mae')
 
-	epoch_length = 1000
+	epoch_length = 2 #1000
 	num_epochs = int(options.num_epochs)
 	iter_num = 0
 
@@ -277,7 +279,7 @@ def main():
 	parser.add_option("--vf", dest="vertical_flips", help="Augment with vertical flips in training. (Default=false).", action="store_true", default=False)
 	parser.add_option("--rot", "--rot_90", dest="rot_90", help="Augment with 90 degree rotations in training. (Default=false).",
 					  action="store_true", default=False)
-	parser.add_option("--num_epochs", dest="num_epochs", help="Number of epochs.", default=10) #2000
+	parser.add_option("--num_epochs", dest="num_epochs", help="Number of epochs.", default=3) #2000
 	parser.add_option("--config_filename", dest="config_filename", help=
 					"Location to store all the metadata related to the training (to be used when testing).",
 					default="config.pickle")

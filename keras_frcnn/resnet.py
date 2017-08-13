@@ -16,7 +16,7 @@ from keras_frcnn.RoiPoolingConv import RoiPoolingConv
 from keras_frcnn.FixedBatchNormalization import FixedBatchNormalization
 
 def get_weight_path():
-    if K.image_dim_ordering() == 'th':
+    if K.image_dim_ordering() == 'th': 
         return 'resnet50_weights_th_dim_ordering_th_kernels_notop.h5'
     else:
         return 'resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5'
@@ -34,14 +34,14 @@ def get_img_output_length(width, height):
 
     return get_output_length(width), get_output_length(height) 
 
-def add_block(type, input_tensor, filters, block_name, strides=(2, 2), trainable=True):
+def add_block(type, input_tensor, filters, block_name, strides=(2, 2), trainable=True, input_shape=None):
     if K.image_dim_ordering() == 'tf':
         bn_axis = 3
     else:
         bn_axis = 1
 
-    conv_name_base = 'res' + block_name + '_branch'
-    bn_name_base = 'bn' + block_name + '_branch'
+    conv_name_base = 'res' + block_name + '_'
+    bn_name_base = 'bn' + block_name + '_'
 
     n_layers = len(filters)
     if n_layers == 3:
@@ -55,10 +55,10 @@ def add_block(type, input_tensor, filters, block_name, strides=(2, 2), trainable
     # TODO: convert to partials
     if type == "identity":
         for layer in range(n_layers):
-            #conv_layer = partial(Conv2D, filters[layer], (kernels[layer], kernels[layer]), padding='same', trainable=trainable)
+            conv_layer = partial(Conv2D, filters[layer], (kernels[layer], kernels[layer]), padding='same', trainable=trainable)
             x = Conv2D(filters[layer], (kernels[layer], kernels[layer]),
                 padding='same', trainable=trainable,
-                name = conv_name_base + str(layer))(x if layer == 0 else input_tensor)
+                name = conv_name_base + str(layer))(x if layer != 0 else input_tensor)
 
             x = FixedBatchNormalization(axis=bn_axis,
                 name = bn_name_base + str(layer))(x)
@@ -73,7 +73,7 @@ def add_block(type, input_tensor, filters, block_name, strides=(2, 2), trainable
         for layer in range(n_layers):
             x = TimeDistributed(Conv2D(filters[layer], (kernels[layer], kernels[layer]),
                 padding='same', trainable=trainable, kernel_initializer='normal'), 
-                name = conv_name_base + str(layer))(x if layer == 0 else input_tensor)
+                name = conv_name_base + str(layer))(x if layer != 0 else input_tensor)
 
             x = TimeDistributed(FixedBatchNormalization(axis=bn_axis),
                 name = bn_name_base + str(layer))(x)
@@ -87,37 +87,46 @@ def add_block(type, input_tensor, filters, block_name, strides=(2, 2), trainable
     elif type == "conv":
         for layer in range(n_layers):
             x = Conv2D(filters[layer], (kernels[layer], kernels[layer]),
-                strides = strides if layer == 0 else (1, 1)
+                strides = strides if layer == 0 else (1, 1),
                 padding='same', trainable=trainable,
-                name = conv_name_base + str(layer))(x if layer == 0 else input_tensor)
+                name = conv_name_base + str(layer))(x if layer != 0 else input_tensor)
             x = FixedBatchNormalization(axis=bn_axis,
                 name = bn_name_base + str(layer))(x)
             if layer != n_layers:
                 x = Activation('relu')(x)
 
-        shortcut = Conv2D(nb_filter3, (1, 1), strides=strides,
-                    name=conv_name_base + '1', trainable=trainable)(input_tensor)
-        shortcut = FixedBatchNormalization(axis=bn_axis, name=bn_name_base + '1')(shortcut)
+        shortcut = Conv2D(filters[-1], (1, 1), strides=strides,
+                    name=conv_name_base + 'shortcut', trainable=trainable)(input_tensor)
+        shortcut = FixedBatchNormalization(axis=bn_axis,
+                name=bn_name_base + 'shortcut')(shortcut)
 
         x = Add()([x, shortcut])
         x = Activation('relu')(x)
 
     elif type == "conv-td":
         for layer in range(n_layers):
-            x = TimeDistributed(Conv2D(filters[layer], (kernels[layer], kernels[layer]),
-                strides = strides if layer == 0 else (1, 1)
-                padding='same', trainable=trainable, kernel_initializer='normal'),
-                name = conv_name_base + str(layer))(x if layer == 0 else input_tensor)
-            x = TimeDistributed(FixedBatchNormalization(axis=bn_axis,
+            if layer != 0 or input_shape is None:
+                x = TimeDistributed(Conv2D(filters[layer], (kernels[layer], kernels[layer]),
+                    strides = strides if layer == 0 else (1, 1),
+                    padding='same', trainable=trainable, kernel_initializer='normal'),
+                    name = conv_name_base + str(layer))(x if layer != 0 else input_tensor)
+            else:
+                x = TimeDistributed(Conv2D(filters[layer], (kernels[layer], kernels[layer]),
+                    strides = strides if layer == 0 else (1, 1),
+                    input_shape = input_shape,
+                    padding='same', trainable=trainable, kernel_initializer='normal'),
+                    name = conv_name_base + str(layer))(x if layer != 0 else input_tensor)
+
+            x = TimeDistributed(FixedBatchNormalization(axis=bn_axis),
                 name = bn_name_base + str(layer))(x)
             if layer != n_layers:
                 x = Activation('relu')(x)
 
-        shortcut = TimeDistributed(Conv2D(nb_filter3, (1, 1), strides=strides,
+        shortcut = TimeDistributed(Conv2D(filters[-1], (1, 1), strides=strides,
                     trainable=trainable, kernel_initializer='normal'), 
-                    name=conv_name_base + '1')(input_tensor)
+                    name=conv_name_base + 'shortcut')(input_tensor)
         shortcut = TimeDistributed(FixedBatchNormalization(axis=bn_axis,
-                        name=bn_name_base + '1'))(shortcut)
+                        name=bn_name_base + 'shortcut'))(shortcut)
 
         x = Add()([x, shortcut])
         x = Activation('relu')(x)
@@ -128,6 +137,7 @@ def add_block(type, input_tensor, filters, block_name, strides=(2, 2), trainable
     return x
 
 def nn_base(input_tensor=None, trainable=False, total_layers=50):
+    """Shared layers of the RPN and classifier. Uses ResNet50 architecture."""
     # Determine proper input shape
     if K.image_dim_ordering() == 'th':
         input_shape = (3, None, None)
@@ -190,22 +200,8 @@ def nn_base(input_tensor=None, trainable=False, total_layers=50):
     return x
 
 
-def classifier_layers(x, input_shape, trainable=False):
-    # compile times on theano tend to be very high, so we use smaller ROI pooling regions to workaround
-    # (hence a smaller stride in the region that follows the ROI pool)
-    if K.backend() == 'tensorflow':
-        x = add_block('conv-td', x, [512, 512, 2048], block_name='5a', input_shape=input_shape, strides=(2, 2), trainable=trainable)
-    elif K.backend() == 'theano':
-        x = add_block('conv-td', x, [512, 512, 2048], block_name='5a', input_shape=input_shape, strides=(1, 1), trainable=trainable)
-
-    x = add_block('id-td', x, [512, 512, 2048], block_name='5b', trainable=trainable)
-    x = add_block('id-td', x, [512, 512, 2048], block_name='5c', trainable=trainable)
-    x = TimeDistributed(AveragePooling2D((7, 7)), name='avg_pool')(x)
-
-    return x
-
-
 def rpn(base_layers,num_anchors):
+    """Region proposal network"""
 
     x = Conv2D(512, (3, 3), padding='same', activation='relu', kernel_initializer='normal', name='rpn_conv1')(base_layers)
 
@@ -214,9 +210,26 @@ def rpn(base_layers,num_anchors):
 
     return [x_class, x_regr, base_layers]
 
-def classifier(base_layers, input_rois, num_rois, nb_classes = 21, trainable=False):
+def classifier(base_layers, input_rois, num_rois, nb_classes, trainable=False):
+    """ROI classifier. Takes rois as input."""
 
     # compile times on theano tend to be very high, so we use smaller ROI pooling regions to workaround
+
+    def classifier_layers(x, input_shape, trainable=False):
+        # compile times on theano tend to be very high, so we use smaller ROI pooling regions to workaround
+        # (hence a smaller stride in the region that follows the ROI pool)
+        nb_filters = [512, 512, 2048]
+
+        if K.backend() == 'tensorflow':
+            x = add_block('conv-td', x, nb_filters, block_name='5a', input_shape=input_shape, strides=(2, 2), trainable=trainable)
+        elif K.backend() == 'theano':
+            x = add_block('conv-td', x, nb_filters, block_name='5a', input_shape=input_shape, strides=(1, 1), trainable=trainable)
+
+        x = add_block('id-td', x, nb_filters, block_name='5b', trainable=trainable)
+        x = add_block('id-td', x, nb_filters, block_name='5c', trainable=trainable)
+        x = TimeDistributed(AveragePooling2D((7, 7)), name='avg_pool')(x)
+
+        return x
 
     if K.backend() == 'tensorflow':
         pooling_regions = 14
