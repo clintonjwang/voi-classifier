@@ -70,9 +70,10 @@ def train(parser):
 		raise ValueError("Not supported for theano")
 
 	nb_channels = 3
+	dims = 3
 
 	img_input = Input(shape=(None, None, None, nb_channels))
-	roi_input = Input(shape=(None, 6)) # 4 for 2D images
+	roi_input = Input(shape=(None, dims*2)) # 4 for 2D images
 
 	shared_layers = nn.nn_base(img_input, trainable=True) # define the base network (resnet here, can be VGG, Inception, etc)
 
