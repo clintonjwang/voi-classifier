@@ -134,13 +134,13 @@ def test(parser):
 	visualise = True
 
 	for idx, img_name in enumerate(sorted(os.listdir(img_path))):
-		if not img_name.lower().endswith(('.bmp', '.jpeg', '.jpg', '.png', '.tif', '.tiff')):
+		if not img_name.lower().endswith(('.npy')):
 			continue
 		print(img_name)
 		st = time.time()
 		filepath = os.path.join(img_path,img_name)
 
-		img = cv2.imread(filepath)
+		img = np.load(filepath)
 
 		X, ratio = format_img(img, C)
 
@@ -228,8 +228,8 @@ def test(parser):
 
 		print('Elapsed time = {}'.format(time.time() - st))
 		print(all_dets)
-		cv2.imshow('img', img)
-		cv2.waitKey(0)
+		#cv2.imshow('img', img)
+		#cv2.waitKey(0)
 		# cv2.imwrite('./results_imgs/{}.png'.format(idx),img)
 
 def main():

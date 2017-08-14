@@ -47,12 +47,12 @@ def add_block(type, input_tensor, filters, block_name, strides=(2, 2), trainable
         raise ValueError("Unhandled layer size %d in add_block!" % n_layers)
 
     bn_layer = partial(FixedBatchNormalization,
-        axis = 3 if K.image_dim_ordering() == 'tf' else 1)
+            axis = 3 if K.image_dim_ordering() == 'tf' else 1)
 
     if 'td' in type:
-        k_init = 'glorot_uniform'
-    else:
         k_init = 'normal'
+    else:
+        k_init = 'glorot_uniform'
 
     for layer in range(n_layers):
         conv_name = conv_name_base + str(layer)
@@ -80,13 +80,11 @@ def add_block(type, input_tensor, filters, block_name, strides=(2, 2), trainable
         elif type == "conv-td":
             if layer == 0 and input_shape is not None:
                 x = TimeDistributed(conv_layer(
-                    strides = strides if layer == 0 else (1, 1),
+                    strides = strides,
                     input_shape = input_shape),
                     name = conv_name)(input_tensor)
             else:
-                x = TimeDistributed(conv_layer(
-                    strides = strides if layer == 0 else (1, 1)),
-                    name = conv_name)(x if layer != 0 else input_tensor)
+                x = TimeDistributed(conv_layer(), name = conv_name)(x)
             
             x = TimeDistributed(bn_layer(), name = bn_name)(x)
 
@@ -146,17 +144,19 @@ def nn_base(input_tensor=None, trainable=False, total_layers=50):
     x = Activation('relu')(x)
     x = MaxPooling2D((3, 3), strides=(2, 2))(x)
 
-    def add_blocks(x, block_types, nb_filters, block_num, trainable):
+    def add_blocks(x, block_types, nb_filters, block_num, trainable, stride=True):
         for i, block_type in enumerate(block_types):
-            x = add_block(block_type, x, nb_filters, block_name=str(block_num)+chr(ord('a')+i), trainable=trainable)
+            x = add_block(block_type, x, nb_filters,
+                block_name=str(block_num)+chr(ord('a')+i),
+                trainable=trainable, strides=(2,2) if stride else (1,1))
         return x
 
     if total_layers == 50:
-        x = add_blocks(x, ('conv ' + 'identity '*2).split(),
-            nb_filters=[64, 64, 256], block_num=2, trainable=trainable)
-        x = add_blocks(x, ('conv ' + 'identity '*3).split(),
+        x = add_blocks(x, ('conv' + ' identity'*2).split(),
+            nb_filters=[64, 64, 256], block_num=2, trainable=trainable, stride=False)
+        x = add_blocks(x, ('conv' + ' identity'*3).split(),
             nb_filters=[128, 128, 512], block_num=3, trainable=trainable)
-        x = add_blocks(x, ('conv ' + 'identity '*5).split(),
+        x = add_blocks(x, ('conv' + ' identity'*5).split(),
             nb_filters=[256, 256, 1024], block_num=4, trainable=trainable)
 
     elif total_layers == 18:

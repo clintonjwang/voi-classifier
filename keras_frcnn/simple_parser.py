@@ -1,14 +1,10 @@
-import cv2
 import numpy as np
 
 def get_data(input_path):
 	found_bg = False
 	all_imgs = {}
-
 	classes_count = {}
-
 	class_mapping = {}
-
 	visualise = True
 	
 	with open(input_path,'r') as f:
@@ -33,7 +29,7 @@ def get_data(input_path):
 			if filename not in all_imgs:
 				all_imgs[filename] = {}
 				
-				img = cv2.imread(filename)
+				img = np.load(filename)
 				(rows,cols) = img.shape[:2]
 				all_imgs[filename]['filepath'] = filename
 				all_imgs[filename]['width'] = cols

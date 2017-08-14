@@ -9,7 +9,7 @@ import numpy as np
 from optparse import OptionParser
 import pickle
 
-sys.path.append('/Users/clintonwang/miniconda3/envs/fast-tf/lib/python3.6/site-packages')
+#sys.path.append('/Users/clintonwang/miniconda3/envs/fast-tf/lib/python3.6/site-packages')
 
 from keras import backend as K
 from keras.optimizers import Adam, SGD, RMSprop
@@ -125,10 +125,11 @@ def train(parser):
 		print('Could not load pretrained model weights. Weights can be found in the keras application folder \
 			https://github.com/fchollet/keras/tree/master/keras/applications')
 
-	optimizer = Adam(lr=1e-5)
-	optimizer_classifier = Adam(lr=1e-5)
-	model_rpn.compile(optimizer=optimizer, loss=[klosses.rpn_loss_cls(num_anchors), klosses.rpn_loss_regr(num_anchors)])
-	model_classifier.compile(optimizer=optimizer_classifier, loss=[klosses.class_loss_cls, klosses.class_loss_regr(len(classes_count)-1)], metrics={'dense_class_{}'.format(len(classes_count)): 'accuracy'})
+	model_rpn.compile(optimizer=Adam(lr=1e-5),
+		loss=[klosses.rpn_loss_cls(num_anchors), klosses.rpn_loss_regr(num_anchors)])
+	model_classifier.compile(optimizer=Adam(lr=1e-5),
+		loss=[klosses.class_loss_cls, klosses.class_loss_regr(len(classes_count)-1)],
+		metrics={'dense_class_{}'.format(len(classes_count)): 'accuracy'})
 	model_all.compile(optimizer='sgd', loss='mae')
 
 	epoch_length = 2 #1000
