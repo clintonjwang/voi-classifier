@@ -1,7 +1,8 @@
 import cv2
 import numpy as np
 import copy
-
+from keras.preprocessing.image import ImageDataGenerator
+#http://machinelearningmastery.com/image-augmentation-deep-learning-keras/
 
 def augment(img_data, config, augment=True):
 	assert 'filepath' in img_data

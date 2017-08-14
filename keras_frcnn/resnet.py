@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-'''ResNet50 model for Keras.
+'''ResNet50 model for Keras in 3D.
 # Reference:
 - [Deep Residual Learning for Image Recognition](https://arxiv.org/abs/1512.03385)
 Adapted from code contributed by BigMoyan.
@@ -9,13 +9,15 @@ from __future__ import print_function
 from __future__ import absolute_import
 
 from functools import partial
-from keras.layers import Input, Add, Dense, Activation, Flatten, Conv2D, MaxPooling2D, ZeroPadding2D, \
+from keras.layers import Input, Add, Dense, Activation, Flatten, Conv3D, MaxPooling3D, ZeroPadding3D, \
     AveragePooling2D, TimeDistributed
 from keras import backend as K
 from keras_frcnn.RoiPoolingConv import RoiPoolingConv
 from keras_frcnn.FixedBatchNormalization import FixedBatchNormalization
 
 def get_weight_path():
+    return None
+    
     if K.image_dim_ordering() == 'th': 
         return 'resnet50_weights_th_dim_ordering_th_kernels_notop.h5'
     else:
