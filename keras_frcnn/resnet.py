@@ -15,9 +15,6 @@ from keras import backend as K
 from keras_frcnn.RoiPoolingConv import RoiPoolingConv
 from keras_frcnn.FixedBatchNormalization import FixedBatchNormalization
 
-def get_weight_path():
-    return None #'resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5'
-
 def get_img_output_length(width, height, depth):
     def get_output_length(input_length):
         input_length += 6 # zero_pad - needs checking
@@ -118,11 +115,7 @@ def add_block(type, input_tensor, filters, block_name, strides=(2,2,2), trainabl
 
 def nn_base(input_tensor=None, trainable=False, total_layers=50):
     """Shared layers of the RPN and classifier. Uses ResNet50 architecture."""
-    # Determine proper input shape
-    if K.image_dim_ordering() == 'th':
-        input_shape = (3, None, None)
-    else:
-        input_shape = (None, None, 3)
+    input_shape = (None, None, None, 3)
 
     if input_tensor is None:
         img_input = Input(shape=input_shape)
@@ -131,19 +124,18 @@ def nn_base(input_tensor=None, trainable=False, total_layers=50):
     else:
         img_input = input_tensor
 
-    x = ZeroPadding2D((3, 3))(img_input)
+    x = ZeroPadding3D((3,3,3))(img_input)
 
-    x = Conv2D(64, (7, 7), strides=(2, 2), name='conv1', trainable=trainable)(x)
-    x = FixedBatchNormalization(axis=3 if K.image_dim_ordering() == 'tf' else 1,
-        name='bn1')(x)
+    x = Conv3D(64, (7,7,7), strides=(2,2,2), name='conv1', trainable=trainable)(x)
+    x = FixedBatchNormalization(axis=4, name='bn1')(x)
     x = Activation('relu')(x)
-    x = MaxPooling2D((3, 3), strides=(2, 2))(x)
+    x = MaxPooling3D((3,3,3), strides=(2,2,2))(x)
 
     def add_blocks(x, block_types, nb_filters, block_num, trainable, stride=True):
         for i, block_type in enumerate(block_types):
             x = add_block(block_type, x, nb_filters,
                 block_name=str(block_num)+chr(ord('a')+i),
-                trainable=trainable, strides=(2,2) if stride else (1,1))
+                trainable=trainable, strides=(2,2,2) if stride else (1,1))
         return x
 
     if total_layers == 50:
@@ -168,7 +160,7 @@ def rpn(base_layers, num_anchors):
     x = Conv2D(512, (3,3,3), padding='same', activation='relu', kernel_initializer='normal', name='rpn_conv1')(base_layers)
 
     x_class = Conv2D(num_anchors, (1,1,1), activation='sigmoid', kernel_initializer='uniform', name='rpn_out_class')(x)
-    x_regr = Conv2D(num_anchors * 4, (1,1,1), activation='linear', kernel_initializer='zero', name='rpn_out_regress')(x)
+    x_regr = Conv2D(num_anchors * 6, (1,1,1), activation='linear', kernel_initializer='zero', name='rpn_out_regress')(x)
 
     return [x_class, x_regr, base_layers]
 

@@ -5,7 +5,7 @@ if K.backend() == 'tensorflow':
     import tensorflow as tf
 
 class RoiPoolingConv(Layer):
-    '''ROI pooling layer for 2D inputs.
+    '''ROI pooling layer for 3D inputs.
     See Spatial Pyramid Pooling in Deep Convolutional Networks for Visual Recognition,
     K. He, X. Zhang, S. Ren, J. Sun
     # Arguments
@@ -15,14 +15,13 @@ class RoiPoolingConv(Layer):
     # Input shape
         list of two 4D tensors [X_img,X_roi] with shape:
         X_img:
-        `(1, channels, rows, cols)` if dim_ordering='th'
-        or 4D tensor with shape:
-        `(1, rows, cols, channels)` if dim_ordering='tf'.
+        5D tensor with shape:
+        `(1, rows, cols, depth, channels)`
         X_roi:
-        `(1,num_rois,4)` list of rois, with ordering (x,y,w,h)
+        `(1,num_rois,4)` list of rois, with ordering (x,y,z,w,h,d)
     # Output shape
-        3D tensor with shape:
-        `(1, num_rois, channels, pool_size, pool_size)`
+        4D tensor with shape:
+        `(1, num_rois, channels, pool_size, pool_size, pool_size)`
     '''
     def __init__(self, pool_size, num_rois, **kwargs):
 
@@ -60,10 +59,10 @@ class RoiPoolingConv(Layer):
             d = K.cast(rois[0, roi_idx, 5], 'int32')
 
             # Potential error? Differs from original code
-            rs = tf.image.resize_images(img[:, x:x+w, y:y+h, z:z+d, :], (self.pool_size, self.pool_size))
+            rs = tf.image.resize_images(img[:, x:x+w, y:y+h, z:z+d, :], (self.pool_size, self.pool_size, self.pool_size))
             outputs.append(rs)
 
         final_output = K.concatenate(outputs, axis=0)
-        final_output = K.reshape(final_output, (1, self.num_rois, self.pool_size, self.pool_size, self.nb_channels))
+        final_output = K.reshape(final_output, (1, self.num_rois, self.pool_size, self.pool_size, self.pool_size, self.nb_channels))
 
         return final_output

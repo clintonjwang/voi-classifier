@@ -17,7 +17,6 @@ from keras_frcnn import config, data_generators
 from keras_frcnn import losses as klosses
 import keras_frcnn.roi_helpers as roi_helpers
 from keras.utils import generic_utils
-from keras_frcnn.simple_parser import get_data
 
 def train(parser):
 	# pass the settings from the command line, and persist them in the config object
@@ -27,7 +26,7 @@ def train(parser):
 		C.model_path = options.output_weight_path
 		C.num_rois = int(options.num_rois)
 		C.network = options.network
-		C.base_net_weights = None # C.base_net_weights = options.input_weight_path if options.input_weight_path else nn.get_weight_path()
+		C.base_net_weights = options.input_weight_path
 		C.class_mapping = class_mapping
 
 		with open(config_filename, 'wb') as config_f:
@@ -43,7 +42,7 @@ def train(parser):
 	else:
 		raise ValueError('%s is not a supported model' % options.network)
 
-	all_imgs, classes_count, class_mapping = get_data(options.train_path)
+	all_imgs, classes_count, class_mapping = data_generators.get_data(options.train_path)
 
 	if 'bg' not in classes_count:
 		classes_count['bg'] = 0
@@ -73,7 +72,7 @@ def train(parser):
 	dims = 3
 
 	img_input = Input(shape=(None, None, None, nb_channels))
-	roi_input = Input(shape=(None, dims*2)) # 4 for 2D images
+	roi_input = Input(shape=(None, dims*2))
 
 	shared_layers = nn.nn_base(img_input, trainable=True) # define the base network (resnet here, can be VGG, Inception, etc)
 
@@ -255,7 +254,8 @@ def main():
 	parser.add_option("--output_weight_path", dest="output_weight_path", help="Output path for weights.",
 					default='./model_frcnn.hdf5')
 	parser.add_option("--input_weight_path", dest="input_weight_path",
-					help="Input path for weights. If not specified, will try to load default weights provided by keras.")
+					help="Input path for weights.",
+					default=None)#'resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5')
 
 	train(parser)
 
