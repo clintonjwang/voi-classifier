@@ -1,5 +1,6 @@
 from keras.engine.topology import Layer
 import keras.backend as K
+from scipy.ndimage import interpolation
 
 if K.backend() == 'tensorflow':
     import tensorflow as tf
@@ -46,8 +47,6 @@ class RoiPoolingConv(Layer):
         img = x[0]
         rois = x[1]
 
-        input_shape = K.shape(img)
-
         outputs = []
 
         for roi_idx in range(self.num_rois):
@@ -58,8 +57,21 @@ class RoiPoolingConv(Layer):
             h = K.cast(rois[0, roi_idx, 4], 'int32')
             d = K.cast(rois[0, roi_idx, 5], 'int32')
 
-            # Potential error? Differs from original code
-            rs = tf.image.resize_images(img[:, x:x+w, y:y+h, z:z+d, :], (self.pool_size, self.pool_size, self.pool_size))
+            # TODO: workaround since tf.image.resize_images only supports 2D images - this seems wrong
+            #rs = interpolation.zoom(img[:, x:x+w, y:y+h, z:z+d, :], (self.pool_size, self.pool_size, self.pool_size))
+            resized_list = []
+            img = img[:, x:x+w, y:y+h, z:z+d, :]
+
+            for i in tf.unstack(img, num=self.pool_size, axis=3):
+                resized_list.append(tf.image.resize_images(i, [self.pool_size, self.pool_size]))
+            stack_img = tf.stack(resized_list, axis=3)
+
+            img = stack_img
+            resized_list = []
+            for i in tf.unstack(img, num=self.pool_size, axis=2):
+                resized_list.append(tf.image.resize_images(i, [self.pool_size, self.pool_size]))
+            rs = tf.stack(resized_list, axis=2)
+
             outputs.append(rs)
 
         final_output = K.concatenate(outputs, axis=0)

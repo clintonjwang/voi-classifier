@@ -10,14 +10,14 @@ from __future__ import absolute_import
 
 from functools import partial
 from keras.layers import Input, Add, Dense, Activation, Flatten, Conv3D, MaxPooling3D, ZeroPadding3D, \
-    AveragePooling2D, TimeDistributed
+    AveragePooling3D, TimeDistributed
 from keras import backend as K
 from keras_frcnn.RoiPoolingConv import RoiPoolingConv
 from keras_frcnn.FixedBatchNormalization import FixedBatchNormalization
 
 def get_img_output_length(width, height, depth):
     def get_output_length(input_length):
-        input_length += 6 # zero_pad - needs checking
+        input_length += 6 # zero_pad
         
         filter_sizes = [7, 3, 1, 1] # apply 4 strided convolutions
         stride = 2
@@ -65,7 +65,7 @@ def add_block(type, input_tensor, filters, block_name, strides=(2,2,2), trainabl
             x = TimeDistributed(bn_layer(), name = bn_name)(x)
         
         elif type == "conv":
-            x = conv_layer(strides = strides if layer == 0 else (1, 1),
+            x = conv_layer(strides = strides if layer == 0 else (1,1,1),
                 name = conv_name)(x if layer != 0 else input_tensor)
             x = bn_layer(name = bn_name)(x)
         
@@ -113,14 +113,12 @@ def add_block(type, input_tensor, filters, block_name, strides=(2,2,2), trainabl
 
     return x
 
-def nn_base(input_tensor=None, trainable=False, total_layers=50):
-    """Shared layers of the RPN and classifier. Uses ResNet50 architecture."""
-    input_shape = (None, None, None, 3)
-
+def nn_base(input_tensor=None, trainable=False, total_layers=18, nb_channels=None):
+    """Shared layers of the RPN and classifier. Uses modified ResNet architecture."""
     if input_tensor is None:
-        img_input = Input(shape=input_shape)
+        img_input = Input(shape=(None, None, None, nb_channels))
     elif not K.is_keras_tensor(input_tensor):
-        img_input = Input(tensor=input_tensor, shape=input_shape)
+        img_input = Input(tensor=input_tensor, shape=(None, None, None, nb_channels))
     else:
         img_input = input_tensor
 
@@ -135,7 +133,7 @@ def nn_base(input_tensor=None, trainable=False, total_layers=50):
         for i, block_type in enumerate(block_types):
             x = add_block(block_type, x, nb_filters,
                 block_name=str(block_num)+chr(ord('a')+i),
-                trainable=trainable, strides=(2,2,2) if stride else (1,1))
+                trainable=trainable, strides=(2,2,2) if stride else (1,1,1))
         return x
 
     if total_layers == 50:
@@ -147,7 +145,13 @@ def nn_base(input_tensor=None, trainable=False, total_layers=50):
             nb_filters=[256, 256, 1024], block_num=4, trainable=trainable)
 
     elif total_layers == 18:
-        pass
+        x = add_blocks(x, ('conv' + ' identity').split(),
+            nb_filters=[64, 64, 256], block_num=2, trainable=trainable, stride=False)
+        x = add_blocks(x, ('conv' + ' identity').split(),
+            nb_filters=[128, 128, 512], block_num=3, trainable=trainable)
+        x = add_blocks(x, ('conv' + ' identity').split(),
+            nb_filters=[256, 256, 1024], block_num=4, trainable=trainable)
+
         # TODO, [64, 64], [128, 128], [256, 256]
     else:
         raise ValueError("Number of layers %d not supported in nn_base()" % total_layers)
@@ -157,10 +161,10 @@ def nn_base(input_tensor=None, trainable=False, total_layers=50):
 def rpn(base_layers, num_anchors):
     """Region proposal network"""
 
-    x = Conv2D(512, (3,3,3), padding='same', activation='relu', kernel_initializer='normal', name='rpn_conv1')(base_layers)
+    x = Conv3D(512, (3,3,3), padding='same', activation='relu', kernel_initializer='normal', name='rpn_conv1')(base_layers)
 
-    x_class = Conv2D(num_anchors, (1,1,1), activation='sigmoid', kernel_initializer='uniform', name='rpn_out_class')(x)
-    x_regr = Conv2D(num_anchors * 6, (1,1,1), activation='linear', kernel_initializer='zero', name='rpn_out_regress')(x)
+    x_class = Conv3D(num_anchors, (1,1,1), activation='sigmoid', kernel_initializer='uniform', name='rpn_out_class')(x)
+    x_regr = Conv3D(num_anchors * 6, (1,1,1), activation='linear', kernel_initializer='zero', name='rpn_out_regress')(x)
 
     return [x_class, x_regr, base_layers]
 
@@ -179,7 +183,7 @@ def classifier(base_layers, input_rois, num_rois, nb_classes, trainable=False):
 
         x = add_block('id-td', x, nb_filters, block_name='5b', trainable=trainable)
         x = add_block('id-td', x, nb_filters, block_name='5c', trainable=trainable)
-        x = TimeDistributed(AveragePooling2D((7,7,7)), name='avg_pool')(x)
+        x = TimeDistributed(AveragePooling3D((7,7,7)), name='avg_pool')(x)
 
         return x
 
@@ -197,4 +201,3 @@ def classifier(base_layers, input_rois, num_rois, nb_classes, trainable=False):
     out_regr = TimeDistributed(Dense(4 * (nb_classes-1), activation='linear',
         kernel_initializer='zero'), name='dense_regress_{}'.format(nb_classes))(out)
     return [out_class, out_regr]
-

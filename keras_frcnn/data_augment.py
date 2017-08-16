@@ -1,20 +1,27 @@
 import cv2
 import numpy as np
 import copy
-from keras.preprocessing.image import ImageDataGenerator
+from scipy.ndimage import interpolation
+#from keras.preprocessing.image import ImageDataGenerator
 #http://machinelearningmastery.com/image-augmentation-deep-learning-keras/
 
 def augment(img_data, config, augment=True):
 	assert 'filepath' in img_data
 	assert 'bboxes' in img_data
-	assert 'width' in img_data
-	assert 'height' in img_data
+	assert 'w' in img_data
+	assert 'h' in img_data
+	assert 'd' in img_data
 
+	return img_data, np.load(img_data['filepath'])
+
+	img = np.load(img_data['filepath'])
 	img_data_aug = copy.deepcopy(img_data)
 
-	img = np.load(img_data_aug['filepath'])
+	angle = np.random.uniform(low=-10, high=10, size=50)
+	img_aug = interpolation.rotate(img, angle, axes)
 
 	if augment:
+		raise ValueError("augment() not coded yet.")
 		rows, cols = img.shape[:2]
 
 		if config.use_horizontal_flips and np.random.randint(0, 2) == 0:
@@ -69,6 +76,7 @@ def augment(img_data, config, augment=True):
 				elif angle == 0:
 					pass
 
-	img_data_aug['width'] = img.shape[1]
-	img_data_aug['height'] = img.shape[0]
+	img_data_aug['w'] = img.shape[0]
+	img_data_aug['h'] = img.shape[1]
+	img_data_aug['d'] = img.shape[2]
 	return img_data_aug, img

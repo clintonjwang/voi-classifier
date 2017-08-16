@@ -1,4 +1,4 @@
-./imgs/img1.npy,1,1,50,50,cyst
-./imgs/img2.npy,1,1,5,5,cyst
-./imgs/img2.npy,10,1,15,5,hcc
-./imgs/img3.npy,10,10,15,15,hcc
+./imgs/img1.npy,1,1,1,50,50,3,cyst
+./imgs/img2.npy,1,1,1,5,5,3,cyst
+./imgs/img2.npy,10,1,1,15,5,3,hcc
+./imgs/img3.npy,10,10,1,15,15,3,hcc

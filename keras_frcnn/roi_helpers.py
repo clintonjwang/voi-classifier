@@ -1,9 +1,7 @@
 import numpy as np
-import pdb
 import math
 from . import data_generators
 import copy
-import time
 
 
 def calc_iou(R, img_data, C, class_mapping):
@@ -108,6 +106,8 @@ def calc_iou(R, img_data, C, class_mapping):
 	return np.expand_dims(X, axis=0), np.expand_dims(Y1, axis=0), np.expand_dims(Y2, axis=0), IoUs
 
 def apply_regr(x, y, z, w, h, d, tx, ty, tz, tw, th, td):
+	raise ValueError("Should not be reachable")
+
 	try:
 		cx = x + w/2.
 		cy = y + h/2.
@@ -241,7 +241,7 @@ def non_max_suppression_fast(boxes, probs, overlap_thresh=0.9, max_boxes=300):
 	probs = probs[pick]
 	return boxes, probs
 
-def rpn_to_roi(rpn_layer, regr_layer, C, dim_ordering, use_regr=True, max_boxes=300,overlap_thresh=0.9):
+def rpn_to_roi(rpn_layer, regr_layer, C, use_regr=True, max_boxes=300,overlap_thresh=0.9):
 
 	regr_layer = regr_layer / C.std_scaling
 
@@ -250,8 +250,7 @@ def rpn_to_roi(rpn_layer, regr_layer, C, dim_ordering, use_regr=True, max_boxes=
 
 	assert rpn_layer.shape[0] == 1
 
-	elif dim_ordering == 'tf':
-		(rows, cols, slices) = rpn_layer.shape[1:4]
+	(rows, cols, slices) = rpn_layer.shape[1:4]
 
 	curr_layer = 0
 	A = np.zeros((4, rpn_layer.shape[1], rpn_layer.shape[2], rpn_layer.shape[3], rpn_layer.shape[4]))
