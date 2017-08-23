@@ -151,8 +151,7 @@ def nn_base(input_tensor=None, trainable=False, total_layers=18, nb_channels=Non
             nb_filters=[128, 128, 512], block_num=3, trainable=trainable)
         x = add_blocks(x, ('conv' + ' identity').split(),
             nb_filters=[256, 256, 1024], block_num=4, trainable=trainable)
-
-        # TODO, [64, 64], [128, 128], [256, 256]
+        
     else:
         raise ValueError("Number of layers %d not supported in nn_base()" % total_layers)
 

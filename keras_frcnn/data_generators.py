@@ -1,6 +1,6 @@
 from __future__ import absolute_import
 import numpy as np
-import cv2
+import pprint
 import random
 import copy
 from . import data_augment
@@ -62,7 +62,14 @@ def get_data(input_path):
 				val_to_switch = class_mapping['bg']
 				class_mapping['bg'] = len(class_mapping) - 1
 				class_mapping[key_to_switch] = val_to_switch
-		
+		else:
+			classes_count['bg'] = 0
+			class_mapping['bg'] = len(class_mapping)
+
+		print('Training images per class:')
+		pprint.pprint(classes_count)
+		print('Num classes (including bg) = {}'.format(len(classes_count)))
+
 		return all_data, classes_count, class_mapping
 
 
@@ -111,7 +118,8 @@ def get_lo_res_img(img, w, h, d, img_min_side):
 		resized_h = img_min_side
 		resized_d = int(f * d)
 
-	x_img = transform.downscale_local_mean(img, (round(w/resized_w), round(h/resized_h), round(d/resized_d), 1))
+	x_img = transform.downscale_local_mean(img, (int(round(w/resized_w)),
+		int(round(h/resized_h)), int(round(d/resized_d)), 1))
 
 	return x_img, x_img.shape[:3]
 
@@ -178,7 +186,6 @@ def calc_rpn(C, img_data, w, h, d, resized_w, resized_h, resized_d, img_length_c
 	print ("Checkpoint: GT box coordinates")
 	
 	# rpn ground truth
-
 	# for each anchor size and ratio
 	for anchor_size_idx in range(len(anchor_sizes)):
 		print ("%s: anchor size %d out of %d" % (img_data['filepath'], anchor_size_idx+1, len(anchor_sizes)))
@@ -375,8 +382,8 @@ def get_anchor_gt(all_img_data, class_count, C, img_length_calc_function, mode='
 				continue
 
 			# read in image, and optionally add augmentation
-			img_data_aug, x_img = data_augment.augment(img_data, C, augment=False) #mode == 'train'
-			(w, h, d) = (img_data_aug['w'], img_data_aug['h'], img_data_aug['d'])
+			img_data, x_img = data_augment.augment(img_data, C, augment=False) #mode == 'train'
+			(w, h, d) = (img_data['w'], img_data['h'], img_data['d'])
 			(x, y, z, _) = x_img.shape
 			assert x == w
 			assert y == h
@@ -388,22 +395,17 @@ def get_anchor_gt(all_img_data, class_count, C, img_length_calc_function, mode='
 			#x_img = cv2.resize(x_img, (resized_w, resized_h), interpolation=cv2.INTER_CUBIC) # does not work in 3D
 			#print ("Checkpoint: resize")
 
-			y_rpn_cls, y_rpn_regr = calc_rpn(C, img_data_aug, w, h, d,
+			y_rpn_cls, y_rpn_regr = calc_rpn(C, img_data, w, h, d,
 				resized_w, resized_h, resized_d, img_length_calc_function)
 
-			try:
-				# Zero-center by mean pixel, and preprocess image
-				x_img = x_img.astype(np.float32)
-				x_img[:, :, :, 0] -= C.img_channel_mean[0]
-				x_img[:, :, :, 1] -= C.img_channel_mean[1]
-				x_img[:, :, :, 2] -= C.img_channel_mean[2]
-				x_img /= C.img_scaling_factor
-				x_img = np.expand_dims(x_img, axis=0)
+			# Zero-center by mean pixel, and preprocess image
+			x_img = x_img.astype(np.float32)
+			x_img[:, :, :, 0] -= C.img_channel_mean[0]
+			x_img[:, :, :, 1] -= C.img_channel_mean[1]
+			x_img[:, :, :, 2] -= C.img_channel_mean[2]
+			x_img /= C.img_scaling_factor
+			x_img = np.expand_dims(x_img, axis=0)
 
-				y_rpn_regr[:, :, :, :, y_rpn_regr.shape[1]//2:] *= C.std_scaling
-
-				yield np.copy(x_img), [np.copy(y_rpn_cls), np.copy(y_rpn_regr)], img_data_aug
-
-			except Exception as e:
-				print("Exception 2"+str(e))
-				continue
+			y_rpn_regr[:, :, :, :, y_rpn_regr.shape[1]//2:] *= C.std_scaling
+			
+			yield np.copy(x_img), [np.copy(y_rpn_cls), np.copy(y_rpn_regr)], img_data
