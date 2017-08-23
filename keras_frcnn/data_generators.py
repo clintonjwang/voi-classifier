@@ -151,10 +151,8 @@ def calc_rpn(C, img_data, w, h, d, resized_w, resized_h, resized_d, img_length_c
 	anchor_sizes = C.anchor_box_scales
 	anchor_ratios = C.anchor_box_ratios
 	num_anchors = len(anchor_sizes) * len(anchor_ratios)
-	print ("in calc_rpn()")
 
 	# calculate the output map size based on the network architecture
-
 	(output_w, output_h, output_d) = img_length_calc_function(resized_w, resized_h, resized_d)
 
 	n_anchratios = len(anchor_ratios)
@@ -185,7 +183,7 @@ def calc_rpn(C, img_data, w, h, d, resized_w, resized_h, resized_d, img_length_c
 
 	print ("Checkpoint: GT box coordinates")
 	
-	# rpn ground truth
+	# rpn ground truth(?)
 	# for each anchor size and ratio
 	for anchor_size_idx in range(len(anchor_sizes)):
 		print ("%s: anchor size %d out of %d" % (img_data['filepath'], anchor_size_idx+1, len(anchor_sizes)))

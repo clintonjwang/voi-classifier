@@ -29,7 +29,10 @@ sess.add_tensor_filter("has_inf_or_nan", tf_debug.has_inf_or_nan)
 DIMS=3
 
 def train(parser, epoch_length = 2): #1000
-	"""Requires tensorflow"""
+	"""For some reason some versions of keras use theano ordering for tensorflow.
+	https://github.com/fchollet/keras/issues/3945
+	"""
+
 	def get_config_obj(class_mapping, config_filename):
 		C = config.Config()
 		C.rot_90 = bool(options.rot_90)
@@ -61,7 +64,7 @@ def train(parser, epoch_length = 2): #1000
 		return data_gen_train, data_gen_val
 
 	def setup_models(classes_count, C):
-		img_input = Input(shape=(None, None, None, C.nb_channels))
+		img_input = Input(shape=(C.nb_channels, None, None, None))
 		roi_input = Input(shape=(None, DIMS*2))
 
 		shared_layers = nn.nn_base(input_tensor=img_input, trainable=True) # define the base network (resnet here, can be VGG, Inception, etc)
@@ -151,63 +154,50 @@ def train(parser, epoch_length = 2): #1000
 		progbar = generic_utils.Progbar(epoch_length)
 		print('Epoch {}/{}'.format(epoch_num + 1, num_epochs))
 		count = 0
-		while count < 500: #True:
+		while count < 50: #True:
 			if count % 10 == 0:
 				print ("epoch_num loop %d" % count)
 			count+=1
 
-			if len(rpn_accuracy_rpn_monitor) == epoch_length and C.verbose:
-				mean_overlapping_bboxes = float(sum(rpn_accuracy_rpn_monitor))/len(rpn_accuracy_rpn_monitor)
-				rpn_accuracy_rpn_monitor = []
-				print('Average number of overlapping bounding boxes from RPN = {} for {} previous iterations'.format(mean_overlapping_bboxes, epoch_length))
-				if mean_overlapping_bboxes == 0:
-					print('RPN is not producing bounding boxes that overlap the ground truth boxes. Check RPN settings or keep training.')
-
-			print ("Loading images")
 			X, Y, img_data = next(data_gen_train)
 			print ("Checkpoint: load image")
 
 			#with tf.session() as sess:
 			#	tf.shape(...)
 
+			X=X.transpose([0,4,1,2,3])
+			Y[0]=Y[0].transpose([0,4,1,2,3])
+			Y[1]=Y[1].transpose([0,4,1,2,3])
+			print(X.shape)
+			print(K.image_dim_ordering())
+			loss_rpn = model_rpn.train_on_batch(X, Y)
 			#loss_rpn = model_rpn.fit(X, Y, callbacks=[TensorBoard()]) #train_on_batch(X, Y)
-			#print ("Checkpoint: train rpn")
+			print ("Checkpoint: train rpn")
 
 			P_rpn = model_rpn.predict_on_batch(X)
 			print ("Checkpoint: predict rois")
 
 			R = roi_helpers.rpn_to_roi(P_rpn[0], P_rpn[1], C, use_regr=True, overlap_thresh=0.7, max_boxes=300)
-			print ("Checkpoint: rpn to roi")
 
 			# note: calc_iou converts from (x1,y1,x2,y2) to (x,y,w,h) format
 			X2, Y1, Y2, _ = roi_helpers.calc_iou(R, img_data, C, class_mapping)
-			print ("Checkpoint: calculate IOU")
 
 			if X2 is None:
 				rpn_accuracy_rpn_monitor.append(0)
 				rpn_accuracy_for_epoch.append(0)
 				continue
-
 			neg_samples = np.where(Y1[0, :, -1] == 1)
+			neg_samples = neg_samples[0] if len(neg_samples) > 0 else []
 			pos_samples = np.where(Y1[0, :, -1] == 0)
-
-			if len(neg_samples) > 0:
-				neg_samples = neg_samples[0]
-			else:
-				neg_samples = []
-
-			if len(pos_samples) > 0:
-				pos_samples = pos_samples[0]
-			else:
-				pos_samples = []
-			
+			pos_samples = pos_samples[0] if len(pos_samples) > 0 else []
 			rpn_accuracy_rpn_monitor.append(len(pos_samples))
 			rpn_accuracy_for_epoch.append(len(pos_samples))
 
 			sel_samples = select_samples(pos_samples, neg_samples, C)
-
+			print ("Checkpoint: select samples")
 
 			loss_class = model_classifier.train_on_batch([X, X2[:, sel_samples, :]], [Y1[:, sel_samples, :], Y2[:, sel_samples, :]])
+			print ("Checkpoint: train classifier")
 
 			losses[iter_num, 0] = loss_rpn[1]
 			losses[iter_num, 1] = loss_rpn[2]
@@ -216,11 +206,10 @@ def train(parser, epoch_length = 2): #1000
 			losses[iter_num, 4] = loss_class[3]
 
 			iter_num += 1
-
 			progbar.update(iter_num, [('rpn_cls', np.mean(losses[:iter_num, 0])), ('rpn_regr', np.mean(losses[:iter_num, 1])),
 									  ('detector_cls', np.mean(losses[:iter_num, 2])), ('detector_regr', np.mean(losses[:iter_num, 3]))])
 
-
+			#gather summary stats for the epoch
 			if iter_num == epoch_length:
 				loss_rpn_cls = np.mean(losses[:, 0])
 				loss_rpn_regr = np.mean(losses[:, 1])
@@ -252,6 +241,13 @@ def train(parser, epoch_length = 2): #1000
 
 				break
 
+			if len(rpn_accuracy_rpn_monitor) == epoch_length and C.verbose:
+				mean_overlapping_bboxes = float(sum(rpn_accuracy_rpn_monitor))/len(rpn_accuracy_rpn_monitor)
+				rpn_accuracy_rpn_monitor = []
+				print('Average number of overlapping bounding boxes from RPN = {} for {} previous iterations'.format(mean_overlapping_bboxes, epoch_length))
+				if mean_overlapping_bboxes == 0:
+					print('RPN is not producing bounding boxes that overlap the ground truth boxes. Check RPN settings or keep training.')
+	
 	print('Training complete, exiting.')
 
 

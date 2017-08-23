@@ -4,6 +4,8 @@ from scipy.ndimage import interpolation
 
 if K.backend() == 'tensorflow':
     import tensorflow as tf
+else:
+    import theano
 
 class RoiPoolingConv(Layer):
     '''ROI pooling layer for 3D inputs.
@@ -25,20 +27,17 @@ class RoiPoolingConv(Layer):
         `(1, num_rois, channels, pool_size, pool_size, pool_size)`
     '''
     def __init__(self, pool_size, num_rois, **kwargs):
-
         self.dim_ordering = K.image_dim_ordering()
-        assert self.dim_ordering in {'tf'}, 'Only tensorflow allowed'
-
         self.pool_size = pool_size
         self.num_rois = num_rois
 
         super(RoiPoolingConv, self).__init__(**kwargs)
 
     def build(self, input_shape):
-        self.nb_channels = input_shape[0][4]
+        self.nb_channels = input_shape[0][1]
 
     def compute_output_shape(self, input_shape):
-        return None, self.num_rois, self.pool_size, self.pool_size, self.pool_size, self.nb_channels
+        return None, self.num_rois, self.nb_channels, self.pool_size, self.pool_size, self.pool_size
 
     def call(self, x, mask=None):
 
@@ -60,21 +59,33 @@ class RoiPoolingConv(Layer):
             # TODO: workaround since tf.image.resize_images only supports 2D images - this seems wrong
             #rs = interpolation.zoom(img[:, x:x+w, y:y+h, z:z+d, :], (self.pool_size, self.pool_size, self.pool_size))
             resized_list = []
-            img = img[:, x:x+w, y:y+h, z:z+d, :]
+            img = img[:, :, x:x+w, y:y+h, z:z+d]
 
-            for i in tf.unstack(img, num=self.pool_size, axis=3):
-                resized_list.append(tf.image.resize_images(i, [self.pool_size, self.pool_size]))
-            stack_img = tf.stack(resized_list, axis=3)
+            if K.backend() == 'tensorflow':
+                for i in tf.unstack(img, num=self.pool_size, axis=4):
+                    resized_list.append(tf.image.resize_images(i, [self.pool_size, self.pool_size]))
+                stack_img = tf.stack(resized_list, axis=4)
 
-            img = stack_img
-            resized_list = []
-            for i in tf.unstack(img, num=self.pool_size, axis=2):
-                resized_list.append(tf.image.resize_images(i, [self.pool_size, self.pool_size]))
-            rs = tf.stack(resized_list, axis=2)
+                img = stack_img
+                resized_list = []
+                for i in tf.unstack(img, num=self.pool_size, axis=3):
+                    resized_list.append(tf.image.resize_images(i, [self.pool_size, self.pool_size]))
+                rs = tf.stack(resized_list, axis=3)
+
+            else:
+                for i in theano.unpack(img, num=self.pool_size, axis=4):
+                    resized_list.append(tf.image.resize_images(i, [self.pool_size, self.pool_size]))
+                stack_img = theano.pack(resized_list, axis=4)
+
+                img = stack_img
+                resized_list = []
+                for i in tf.unstack(img, num=self.pool_size, axis=3):
+                    resized_list.append(tf.image.resize_images(i, [self.pool_size, self.pool_size]))
+                rs = tf.stack(resized_list, axis=3)
 
             outputs.append(rs)
 
         final_output = K.concatenate(outputs, axis=0)
-        final_output = K.reshape(final_output, (1, self.num_rois, self.pool_size, self.pool_size, self.pool_size, self.nb_channels))
+        final_output = K.reshape(final_output, (1, self.num_rois, self.nb_channels, self.pool_size, self.pool_size, self.pool_size))
 
         return final_output

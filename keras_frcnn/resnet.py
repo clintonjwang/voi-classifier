@@ -39,7 +39,7 @@ def add_block(type, input_tensor, filters, block_name, strides=(2,2,2), trainabl
     else:
         raise ValueError("Unhandled layer size %d in add_block!" % n_layers)
 
-    bn_layer = partial(FixedBatchNormalization, axis = 4)
+    bn_layer = partial(FixedBatchNormalization, axis=1)
 
     if 'td' in type:
         k_init = 'normal'
@@ -115,17 +115,19 @@ def add_block(type, input_tensor, filters, block_name, strides=(2,2,2), trainabl
 
 def nn_base(input_tensor=None, trainable=False, total_layers=18, nb_channels=None):
     """Shared layers of the RPN and classifier. Uses modified ResNet architecture."""
+    K.set_image_dim_ordering('th')
+    default_shape = (nb_channels, None, None, None)
+    
     if input_tensor is None:
-        img_input = Input(shape=(None, None, None, nb_channels))
+        img_input = Input(shape=default_shape)
     elif not K.is_keras_tensor(input_tensor):
-        img_input = Input(tensor=input_tensor, shape=(None, None, None, nb_channels))
+        img_input = Input(tensor=input_tensor, shape=default_shape)
     else:
         img_input = input_tensor
 
     x = ZeroPadding3D((3,3,3))(img_input)
-
     x = Conv3D(64, (7,7,7), strides=(2,2,2), name='conv1', trainable=trainable)(x)
-    x = FixedBatchNormalization(axis=4, name='bn1')(x)
+    x = FixedBatchNormalization(axis=1, name='bn1')(x)
     x = Activation('relu')(x)
     x = MaxPooling3D((3,3,3), strides=(2,2,2))(x)
 
@@ -158,12 +160,10 @@ def nn_base(input_tensor=None, trainable=False, total_layers=18, nb_channels=Non
     return x
 
 def rpn(base_layers, num_anchors):
-    """Region proposal network"""
-
+    """Region proposal network. Only works when the number of anchors is 3!"""
     x = Conv3D(512, (3,3,3), padding='same', activation='relu', kernel_initializer='normal', name='rpn_conv1')(base_layers)
-
-    x_class = Conv3D(num_anchors, (1,1,1), activation='sigmoid', kernel_initializer='uniform', name='rpn_out_class')(x)
-    x_regr = Conv3D(num_anchors * 6, (1,1,1), activation='linear', kernel_initializer='zero', name='rpn_out_regress')(x)
+    x_class = Conv3D(6, (1,1,1), activation='sigmoid', kernel_initializer='uniform', name='rpn_out_class')(x)
+    x_regr = Conv3D(33, (1,1,1), activation='linear', kernel_initializer='zero', name='rpn_out_regress')(x)
 
     return [x_class, x_regr, base_layers]
 
@@ -174,22 +174,17 @@ def classifier(base_layers, input_rois, num_rois, nb_classes, trainable=False):
         # compile times on theano tend to be very high, so we use smaller ROI pooling regions to workaround
         # (hence a smaller stride in the region that follows the ROI pool)
         nb_filters = [512, 512, 2048]
-
-        if K.backend() == 'tensorflow':
-            x = add_block('conv-td', x, nb_filters, block_name='5a', input_shape=input_shape, strides=(2,2,2), trainable=trainable)
-        elif K.backend() == 'theano':
-            x = add_block('conv-td', x, nb_filters, block_name='5a', input_shape=input_shape, strides=(1,1,1), trainable=trainable)
-
+        x = add_block('conv-td', x, nb_filters, block_name='5a', input_shape=input_shape, strides=(1,1,1), trainable=trainable)
         x = add_block('id-td', x, nb_filters, block_name='5b', trainable=trainable)
         x = add_block('id-td', x, nb_filters, block_name='5c', trainable=trainable)
         x = TimeDistributed(AveragePooling3D((7,7,7)), name='avg_pool')(x)
 
         return x
 
-    pooling_regions = 14
-    input_shape = (num_rois,14,14,14,1024)
+    pool_size = 7
+    input_shape = (num_rois, 1024, pool_size, pool_size, pool_size)
 
-    out_roi_pool = RoiPoolingConv(pooling_regions, num_rois)([base_layers, input_rois])
+    out_roi_pool = RoiPoolingConv(pool_size, num_rois)([base_layers, input_rois])
     out = classifier_layers(out_roi_pool, input_shape=input_shape, trainable=True)
 
     out = TimeDistributed(Flatten())(out)
