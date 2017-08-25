@@ -7,9 +7,9 @@ from scipy.ndimage import interpolation
 def augment(img_data, config, augment=True):
 	assert 'filepath' in img_data
 	assert 'bboxes' in img_data
-	assert 'w' in img_data
-	assert 'h' in img_data
-	assert 'd' in img_data
+	assert 'dx' in img_data
+	assert 'dy' in img_data
+	assert 'dz' in img_data
 
 	return img_data, np.load(img_data['filepath'])
 

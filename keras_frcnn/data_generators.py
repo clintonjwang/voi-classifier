@@ -36,11 +36,11 @@ def get_data(input_path):
 			if filename not in all_imgs:
 				all_imgs[filename] = {}
 				
-				(w,h,d) = np.load(filename).shape[:3]
+				(dx,dy,dz) = np.load(filename).shape[:3]
 				all_imgs[filename]['filepath'] = filename
-				all_imgs[filename]['w'] = w
-				all_imgs[filename]['h'] = h
-				all_imgs[filename]['d'] = d
+				all_imgs[filename]['dx'] = dx
+				all_imgs[filename]['dy'] = dy
+				all_imgs[filename]['dz'] = dz
 				all_imgs[filename]['bboxes'] = []
 				if np.random.randint(0,6) > 0:
 					all_imgs[filename]['imageset'] = 'trainval'
@@ -82,12 +82,12 @@ def union(au, bu, vol_intersection):
 
 
 def intersection(ai, bi):
-	w = min(ai[3], bi[3]) - max(ai[0], bi[0])
-	h = min(ai[4], bi[4]) - max(ai[1], bi[1])
-	d = min(ai[5], bi[5]) - max(ai[2], bi[2])
-	if w < 0 or h < 0 or d < 0:
+	dx = min(ai[3], bi[3]) - max(ai[0], bi[0])
+	dy = min(ai[4], bi[4]) - max(ai[1], bi[1])
+	dz = min(ai[5], bi[5]) - max(ai[2], bi[2])
+	if dx < 0 or dy < 0 or dz < 0:
 		return 0
-	return w*h*d
+	return dx*dy*dz
 
 
 def iou(a, b):
@@ -101,25 +101,28 @@ def iou(a, b):
 	return float(vol_i) / float(vol_u + 1e-6)
 
 
-def get_lo_res_img(img, w, h, d, img_min_side):
-	if w <= h and w <= d:
-		f = float(img_min_side) / w
+def get_lo_res_img(img, dx, dy, dz, img_min_side, dims_only):
+	if dx <= dy and dx <= dz:
+		f = float(img_min_side) / dx
 		resized_w = img_min_side
-		resized_h = int(f * h)
-		resized_d = int(f * d)
-	elif d <= w and d <= h:
-		f = float(img_min_side) / d
-		resized_w = int(f * w)
-		resized_h = int(f * h)
+		resized_h = int(f * dy)
+		resized_d = int(f * dz)
+	elif dz <= dx and dz <= dy:
+		f = float(img_min_side) / dz
+		resized_w = int(f * dx)
+		resized_h = int(f * dy)
 		resized_d = img_min_side
 	else:
-		f = float(img_min_side) / h
-		resized_w = int(f * w)
+		f = float(img_min_side) / dy
+		resized_w = int(f * dx)
 		resized_h = img_min_side
-		resized_d = int(f * d)
+		resized_d = int(f * dz)
 
-	x_img = transform.downscale_local_mean(img, (int(round(w/resized_w)),
-		int(round(h/resized_h)), int(round(d/resized_d)), 1))
+	if dims_only:
+		return resized_w, resized_h, resized_d
+
+	x_img = transform.downscale_local_mean(img, (int(round(dx/resized_w)),
+		int(round(dy/resized_h)), int(round(dz/resized_d)), 1))
 
 	return x_img, x_img.shape[:3]
 
@@ -145,7 +148,7 @@ class SampleSelector:
 		return class_not_in_img
 
 
-def calc_rpn(C, img_data, w, h, d, resized_w, resized_h, resized_d, img_length_calc_function):
+def calc_rpn(C, img_data, dx, dy, dz, resized_w, resized_h, resized_d, img_length_calc_function):
 	dims = 3
 	rpn_stride = float(C.rpn_stride)
 	anchor_sizes = C.anchor_box_scales
@@ -158,9 +161,9 @@ def calc_rpn(C, img_data, w, h, d, resized_w, resized_h, resized_d, img_length_c
 	n_anchratios = len(anchor_ratios)
 	
 	# initialise empty output objectives
-	y_rpn_overlap = np.zeros((output_h, output_w, output_d, num_anchors))
-	y_is_box_valid = np.zeros((output_h, output_w, output_d, num_anchors))
-	y_rpn_regr = np.zeros((output_h, output_w, output_d, num_anchors * dims * 2))
+	y_rpn_overlap = np.zeros((output_w, output_h, output_d, num_anchors))
+	y_is_box_valid = np.zeros((output_w, output_h, output_d, num_anchors))
+	y_rpn_regr = np.zeros((output_w, output_h, output_d, num_anchors * dims * 2))
 
 	num_bboxes = len(img_data['bboxes'])
 
@@ -174,19 +177,17 @@ def calc_rpn(C, img_data, w, h, d, resized_w, resized_h, resized_d, img_length_c
 	gta = np.zeros((num_bboxes, 6))
 	for bbox_num, bbox in enumerate(img_data['bboxes']):
 		# get the GT box coordinates, and resize to account for image resizing
-		gta[bbox_num, 0] = bbox['x1'] * (resized_w / float(w))
-		gta[bbox_num, 1] = bbox['x2'] * (resized_w / float(w))
-		gta[bbox_num, 2] = bbox['y1'] * (resized_h / float(h))
-		gta[bbox_num, 3] = bbox['y2'] * (resized_h / float(h))
-		gta[bbox_num, 4] = bbox['z1'] * (resized_d / float(d))
-		gta[bbox_num, 5] = bbox['z2'] * (resized_d / float(d))
-
-	print ("Checkpoint: GT box coordinates")
+		gta[bbox_num, 0] = bbox['x1'] * (resized_w / float(dx))
+		gta[bbox_num, 1] = bbox['x2'] * (resized_w / float(dx))
+		gta[bbox_num, 2] = bbox['y1'] * (resized_h / float(dy))
+		gta[bbox_num, 3] = bbox['y2'] * (resized_h / float(dy))
+		gta[bbox_num, 4] = bbox['z1'] * (resized_d / float(dz))
+		gta[bbox_num, 5] = bbox['z2'] * (resized_d / float(dz))
 	
 	# rpn ground truth(?)
 	# for each anchor size and ratio
 	for anchor_size_idx in range(len(anchor_sizes)):
-		print ("%s: anchor size %d out of %d" % (img_data['filepath'], anchor_size_idx+1, len(anchor_sizes)))
+		#print ("%s: anchor size %dz out of %dz" % (img_data['filepath'], anchor_size_idx+1, len(anchor_sizes)))
 		for anchor_ratio_idx in range(n_anchratios):
 			anchor_x = anchor_sizes[anchor_size_idx] * anchor_ratios[anchor_ratio_idx][0]
 			anchor_y = anchor_sizes[anchor_size_idx] * anchor_ratios[anchor_ratio_idx][1]
@@ -329,11 +330,11 @@ def calc_rpn(C, img_data, w, h, d, resized_w, resized_h, resized_d, img_length_c
 
 	if len(neg_locs[0]) + num_pos > num_regions:
 		val_locs = random.sample(range(len(neg_locs[0])), len(neg_locs[0]) - num_pos)
-		y_is_box_valid[0, neg_locs[0][val_locs], neg_locs[1][val_locs], neg_locs[2][val_locs], pos_locs[3][val_locs]] = 0
+		y_is_box_valid[0, neg_locs[0][val_locs], neg_locs[1][val_locs], neg_locs[2][val_locs], neg_locs[3][val_locs]] = 0
 
-	y_rpn_overlap = np.transpose(y_rpn_overlap, (0, 3, 2, 4, 1))
-	y_is_box_valid = np.transpose(y_is_box_valid, (0, 3, 2, 4, 1))
-	y_rpn_regr = np.transpose(y_rpn_regr, (0, 3, 2, 4, 1))
+	y_rpn_overlap = np.transpose(y_rpn_overlap, (0, 2, 3, 4, 1))
+	y_is_box_valid = np.transpose(y_is_box_valid, (0, 2, 3, 4, 1))
+	y_rpn_regr = np.transpose(y_rpn_regr, (0, 2, 3, 4, 1))
 
 	y_rpn_cls = np.concatenate([y_is_box_valid, y_rpn_overlap], axis=4)
 	y_rpn_regr = np.concatenate([np.repeat(y_rpn_overlap, dims+2, axis=4), y_rpn_regr], axis=4)
@@ -381,19 +382,20 @@ def get_anchor_gt(all_img_data, class_count, C, img_length_calc_function, mode='
 
 			# read in image, and optionally add augmentation
 			img_data, x_img = data_augment.augment(img_data, C, augment=False) #mode == 'train'
-			(w, h, d) = (img_data['w'], img_data['h'], img_data['d'])
+			(dx, dy, dz) = (img_data['dx'], img_data['dy'], img_data['dz'])
+			#print(x_img.shape)
 			(x, y, z, _) = x_img.shape
-			assert x == w
-			assert y == h
-			assert z == d
+			assert x == dx
+			assert y == dy
+			assert z == dz
 			#print("Checkpoint: augment")
 
 			# get a low-res version for processing
-			x_img, (resized_w, resized_h, resized_d) = get_lo_res_img(x_img, w, h, d, C.im_size)
+			x_img, (resized_w, resized_h, resized_d) = get_lo_res_img(x_img, dx, dy, dz, C.im_size, dims_only=False)
 			#x_img = cv2.resize(x_img, (resized_w, resized_h), interpolation=cv2.INTER_CUBIC) # does not work in 3D
 			#print ("Checkpoint: resize")
 
-			y_rpn_cls, y_rpn_regr = calc_rpn(C, img_data, w, h, d,
+			y_rpn_cls, y_rpn_regr = calc_rpn(C, img_data, dx, dy, dz,
 				resized_w, resized_h, resized_d, img_length_calc_function)
 
 			# Zero-center by mean pixel, and preprocess image
@@ -404,6 +406,5 @@ def get_anchor_gt(all_img_data, class_count, C, img_length_calc_function, mode='
 			x_img /= C.img_scaling_factor
 			x_img = np.expand_dims(x_img, axis=0)
 
-			y_rpn_regr[:, :, :, :, y_rpn_regr.shape[1]//2:] *= C.std_scaling
-			
+			y_rpn_regr[:, :, :, :, y_rpn_regr.shape[4]//2:] *= C.std_scaling
 			yield np.copy(x_img), [np.copy(y_rpn_cls), np.copy(y_rpn_regr)], img_data

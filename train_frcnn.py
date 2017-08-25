@@ -64,7 +64,10 @@ def train(parser, epoch_length = 2): #1000
 		return data_gen_train, data_gen_val
 
 	def setup_models(classes_count, C):
-		img_input = Input(shape=(C.nb_channels, None, None, None))
+		if nn.CHANNEL_AXIS==4:
+			img_input = Input(shape=(None, None, None, C.nb_channels))
+		else:
+			img_input = Input(shape=(C.nb_channels, None, None, None))
 		roi_input = Input(shape=(None, DIMS*2))
 
 		shared_layers = nn.nn_base(input_tensor=img_input, trainable=True) # define the base network (resnet here, can be VGG, Inception, etc)
@@ -148,39 +151,35 @@ def train(parser, epoch_length = 2): #1000
 
 	best_loss = np.Inf
 
-	print('Starting training')
+	print('\nStarting training:')
 	for epoch_num in range(num_epochs):
 
 		progbar = generic_utils.Progbar(epoch_length)
 		print('Epoch {}/{}'.format(epoch_num + 1, num_epochs))
 		count = 0
-		while count < 50: #True:
-			if count % 10 == 0:
-				print ("epoch_num loop %d" % count)
+		while count < 10: #True:
 			count+=1
 
 			X, Y, img_data = next(data_gen_train)
-			print ("Checkpoint: load image")
 
 			#with tf.session() as sess:
 			#	tf.shape(...)
-
-			X=X.transpose([0,4,1,2,3])
-			Y[0]=Y[0].transpose([0,4,1,2,3])
-			Y[1]=Y[1].transpose([0,4,1,2,3])
-			print(X.shape)
-			print(K.image_dim_ordering())
+			if nn.CHANNEL_AXIS==1:
+				X=X.transpose([0,4,1,2,3])
+				Y[0]=Y[0].transpose([0,4,1,2,3])
+				Y[1]=Y[1].transpose([0,4,1,2,3])
+			print('Y shape:', Y[0].shape, Y[1].shape) # Y[0] is rpn, Y[1] is regression (6*nb_anchor_types)
 			loss_rpn = model_rpn.train_on_batch(X, Y)
 			#loss_rpn = model_rpn.fit(X, Y, callbacks=[TensorBoard()]) #train_on_batch(X, Y)
 			print ("Checkpoint: train rpn")
 
 			P_rpn = model_rpn.predict_on_batch(X)
-			print ("Checkpoint: predict rois")
-
-			R = roi_helpers.rpn_to_roi(P_rpn[0], P_rpn[1], C, use_regr=True, overlap_thresh=0.7, max_boxes=300)
+			
+			R = roi_helpers.rpn_to_roi(P_rpn[0], P_rpn[1], C, use_regr=True, overlap_thresh=0.7, max_boxes=300, channel_axis=nn.CHANNEL_AXIS)
 
 			# note: calc_iou converts from (x1,y1,x2,y2) to (x,y,w,h) format
 			X2, Y1, Y2, _ = roi_helpers.calc_iou(R, img_data, C, class_mapping)
+			print ("Checkpoint: calc iou")
 
 			if X2 is None:
 				rpn_accuracy_rpn_monitor.append(0)

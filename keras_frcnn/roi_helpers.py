@@ -10,9 +10,9 @@ def calc_iou(R, img_data, C, class_mapping):
 	diffence in coordinates(?)
 	"""
 	bboxes = img_data['bboxes']
-	(w, h, d) = (img_data['width'], img_data['height'], img_data['depth'])
+	(w, h, d) = (img_data['dx'], img_data['dy'], img_data['dz'])
 	# get image dimensions for resizing
-	(resized_w, resized_h, resized_d) = data_generators.get_new_img_size(w, h, d, C.im_size)
+	(resized_w, resized_h, resized_d) = data_generators.get_lo_res_img(None, w, h, d, C.im_size, dims_only=True)
 
 	gta = np.zeros((len(bboxes), 6))
 
@@ -103,7 +103,7 @@ def calc_iou(R, img_data, C, class_mapping):
 			y_class_regr_label.append(copy.deepcopy(labels))
 
 	if len(x_roi) == 0:
-		return None, None, None, None, None, None
+		return None, None, None, None
 
 	X = np.array(x_roi)
 	Y1 = np.array(y_class_num)
@@ -139,39 +139,39 @@ def apply_regr(x, y, z, w, h, d, tx, ty, tz, tw, th, td):
 		return x, y, z, w, h, d
 
 def apply_regr_np(X, T):
-	try:
-		x = X[0, :, :]
-		y = X[1, :, :]
-		z = X[2, :, :]
-		w = X[3, :, :]
-		h = X[4, :, :]
-		d = X[5, :, :]
+	#try:
+	x = X[0, :, :, :]
+	y = X[1, :, :, :]
+	z = X[2, :, :, :]
+	w = X[3, :, :, :]
+	h = X[4, :, :, :]
+	d = X[5, :, :, :]
 
-		tx = T[0, :, :]
-		ty = T[1, :, :]
-		tz = T[2, :, :]
-		tw = T[3, :, :]
-		th = T[4, :, :]
-		td = T[5, :, :]
+	tx = T[0, :, :, :]
+	ty = T[1, :, :, :]
+	tz = T[2, :, :, :]
+	tw = T[3, :, :, :]
+	th = T[4, :, :, :]
+	td = T[5, :, :, :]
 
-		cx = x + w/2.
-		cy = y + h/2.
-		cz = z + d/2.
-		cx1 = tx * w + cx
-		cy1 = ty * h + cy
-		cz1 = tz * d + cz
+	cx = x + w/2.
+	cy = y + h/2.
+	cz = z + d/2.
+	cx1 = tx * w + cx
+	cy1 = ty * h + cy
+	cz1 = tz * d + cz
 
-		w1 = np.round(np.exp(tw.astype(np.float64)) * w)
-		h1 = np.round(np.exp(th.astype(np.float64)) * h)
-		d1 = np.round(np.exp(td.astype(np.float64)) * d)
-		x1 = np.round(cx1 - w1/2.)
-		y1 = np.round(cy1 - h1/2.)
-		z1 = np.round(cz1 - d1/2.)
+	w1 = np.round(np.exp(tw.astype(np.float64)) * w)
+	h1 = np.round(np.exp(th.astype(np.float64)) * h)
+	d1 = np.round(np.exp(td.astype(np.float64)) * d)
+	x1 = np.round(cx1 - w1/2.)
+	y1 = np.round(cy1 - h1/2.)
+	z1 = np.round(cz1 - d1/2.)
 
-		return np.stack([x1, y1, z1, w1, h1, d1])
-	except Exception as e:
-		print(e)
-		return X
+	return np.stack([x1, y1, z1, w1, h1, d1])
+	#except Exception as e:
+	#	print(e)
+	#	return X
 
 def non_max_suppression_fast(boxes, probs, overlap_thresh=0.9, max_boxes=300):
 	# code used from here: http://www.pyimagesearch.com/2015/02/16/faster-non-maximum-suppression-python/
@@ -247,7 +247,7 @@ def non_max_suppression_fast(boxes, probs, overlap_thresh=0.9, max_boxes=300):
 	probs = probs[pick]
 	return boxes, probs
 
-def rpn_to_roi(rpn_layer, regr_layer, C, use_regr=True, max_boxes=300,overlap_thresh=0.9):
+def rpn_to_roi(rpn_layer, regr_layer, C, use_regr=True, max_boxes=300, overlap_thresh=0.9, channel_axis=4):
 	"""Returns all generated ROIs"""
 	regr_layer = regr_layer / C.std_scaling
 
@@ -256,19 +256,27 @@ def rpn_to_roi(rpn_layer, regr_layer, C, use_regr=True, max_boxes=300,overlap_th
 
 	assert rpn_layer.shape[0] == 1
 
-	(rows, cols, slices) = rpn_layer.shape[1:4]
+	if channel_axis == 4:
+		(cols, rows, slices) = rpn_layer.shape[1:4]
+	else:
+		(cols, rows, slices) = rpn_layer.shape[2:]
 
 	curr_layer = 0
-	A = np.zeros((4, rpn_layer.shape[1], rpn_layer.shape[2], rpn_layer.shape[3], rpn_layer.shape[4]))
+	if channel_axis == 4:
+		A = np.zeros((6, rpn_layer.shape[1], rpn_layer.shape[2], rpn_layer.shape[3], rpn_layer.shape[4]))
+	else:
+		A = np.zeros((6, rpn_layer.shape[2], rpn_layer.shape[3], rpn_layer.shape[4], rpn_layer.shape[1]))
 
 	for anchor_size in anchor_sizes:
 		for anchor_ratio in anchor_ratios:
-
 			anchor_x = (anchor_size * anchor_ratio[0])/C.rpn_stride
 			anchor_y = (anchor_size * anchor_ratio[1])/C.rpn_stride
 			anchor_z = (anchor_size * anchor_ratio[2])/C.rpn_stride
-			regr = regr_layer[0, :, :, :, 4 * curr_layer:4 * curr_layer + 4]
-			regr = np.transpose(regr, (3, 0, 1, 2))
+			if channel_axis == 4:
+				regr = regr_layer[0, :, :, :, 6 * curr_layer:6 * curr_layer + 6]
+				regr = np.transpose(regr, (3, 0, 1, 2))
+			else:
+				regr = regr_layer[0, 6 * curr_layer:6 * curr_layer + 6, :, :, :]
 
 			X, Y, Z = np.meshgrid(np.arange(cols), np.arange(rows), np.arange(slices))
 
