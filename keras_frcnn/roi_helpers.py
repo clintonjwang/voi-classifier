@@ -2,6 +2,7 @@ import numpy as np
 import math
 from . import data_generators
 import copy
+import sys
 
 
 def calc_iou(R, img_data, C, class_mapping):
@@ -318,6 +319,7 @@ def rpn_to_roi(rpn_layer, regr_layer, C, use_regr=True, max_boxes=300, overlap_t
 	all_boxes = np.delete(all_boxes, idxs, 0)
 	all_probs = np.delete(all_probs, idxs, 0)
 
-	result = non_max_suppression_fast(all_boxes, all_probs, overlap_thresh=overlap_thresh, max_boxes=max_boxes)[0]
+	if len(all_boxes) == 0:
+		return None
 
-	return result
+	return non_max_suppression_fast(all_boxes, all_probs, overlap_thresh=overlap_thresh, max_boxes=max_boxes)[0]

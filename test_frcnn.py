@@ -11,19 +11,16 @@ from keras import backend as K
 from keras.layers import Input
 from keras.models import Model
 from keras_frcnn import roi_helpers
+import keras_frcnn.resnet as nn
 
 def test(parser):
 	(options, args) = parser.parse_args()
 
+	num_features = 1024
 	config_output_filename = options.config_filename
 
 	with open(config_output_filename, 'rb') as f_in:
 		C = pickle.load(f_in)
-
-	if C.network == 'resnet50':
-		import keras_frcnn.resnet as nn
-	elif C.network == 'vgg':
-		import keras_frcnn.vgg as nn
 
 	# turn off any data augmentation at test time
 	C.use_horizontal_flips = False
@@ -68,14 +65,16 @@ def test(parser):
 		return img, ratio
 
 	# Method to transform the coordinates of the bounding box to its original size
-	def get_real_coordinates(ratio, x1, y1, x2, y2):
+	def get_real_coordinates(ratio, x1, y1, z1, x2, y2, z2):
 
 		real_x1 = int(round(x1 // ratio))
 		real_y1 = int(round(y1 // ratio))
+		real_z1 = int(round(z1 // ratio))
 		real_x2 = int(round(x2 // ratio))
 		real_y2 = int(round(y2 // ratio))
+		real_z2 = int(round(z2 // ratio))
 
-		return (real_x1, real_y1, real_x2 ,real_y2)
+		return (real_x1, real_y1, real_z1, real_x2, real_y2, real_z2)
 
 	class_mapping = C.class_mapping
 
@@ -87,21 +86,17 @@ def test(parser):
 	class_to_color = {class_mapping[v]: np.random.randint(0, 255, 3) for v in class_mapping}
 	C.num_rois = int(options.num_rois)
 
-	if C.network == 'resnet50':
-		num_features = 1024
-	elif C.network == 'vgg':
-		num_features = 512
 
 	if K.image_dim_ordering() == 'th':
-		input_shape_img = (3, None, None)
-		input_shape_features = (num_features, None, None)
+		input_shape_img = (3, None, None, None)
+		input_shape_features = (num_features, None, None, None)
 	else:
-		input_shape_img = (None, None, 3)
-		input_shape_features = (None, None, num_features)
+		input_shape_img = (None, None, None, 3)
+		input_shape_features = (None, None, None, num_features)
 
 
 	img_input = Input(shape=input_shape_img)
-	roi_input = Input(shape=(C.num_rois, 4))
+	roi_input = Input(shape=(C.num_rois, 6))
 	feature_map_input = Input(shape=input_shape_features)
 
 	# define the base network (resnet here, can be VGG, Inception, etc)
@@ -212,7 +207,7 @@ def test(parser):
 			for jk in range(new_boxes.shape[0]):
 				(x1, y1, x2, y2) = new_boxes[jk,:]
 
-				(real_x1, real_y1, real_x2, real_y2) = get_real_coordinates(ratio, x1, y1, x2, y2)
+				(real_x1, real_y1, real_z1, real_x2, real_y2, real_z2) = get_real_coordinates(ratio, x1, y1, x2, y2)
 
 				cv2.rectangle(img,(real_x1, real_y1), (real_x2, real_y2), (int(class_to_color[key][0]), int(class_to_color[key][1]), int(class_to_color[key][2])),2)
 

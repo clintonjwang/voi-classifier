@@ -156,10 +156,8 @@ def train(parser, epoch_length = 2): #1000
 
 		progbar = generic_utils.Progbar(epoch_length)
 		print('Epoch {}/{}'.format(epoch_num + 1, num_epochs))
-		count = 0
-		while count < 10: #True:
-			count+=1
 
+		while True:
 			X, Y, img_data = next(data_gen_train)
 
 			#with tf.session() as sess:
@@ -168,23 +166,30 @@ def train(parser, epoch_length = 2): #1000
 				X=X.transpose([0,4,1,2,3])
 				Y[0]=Y[0].transpose([0,4,1,2,3])
 				Y[1]=Y[1].transpose([0,4,1,2,3])
-			print('Y shape:', Y[0].shape, Y[1].shape) # Y[0] is rpn, Y[1] is regression (6*nb_anchor_types)
+			#print('Y shape:', Y[0].shape, Y[1].shape) # Y[0] is rpn, Y[1] is regression (6*nb_anchor_types)
 			loss_rpn = model_rpn.train_on_batch(X, Y)
 			#loss_rpn = model_rpn.fit(X, Y, callbacks=[TensorBoard()]) #train_on_batch(X, Y)
-			print ("Checkpoint: train rpn")
+			#print("Checkpoint: train rpn")
 
 			P_rpn = model_rpn.predict_on_batch(X)
 			
 			R = roi_helpers.rpn_to_roi(P_rpn[0], P_rpn[1], C, use_regr=True, overlap_thresh=0.7, max_boxes=300, channel_axis=nn.CHANNEL_AXIS)
+			if R is None:
+				#print("Failed to generate any roi candidates for image " + img_data['filepath'])
+				break
 
 			# note: calc_iou converts from (x1,y1,x2,y2) to (x,y,w,h) format
 			X2, Y1, Y2, _ = roi_helpers.calc_iou(R, img_data, C, class_mapping)
-			print ("Checkpoint: calc iou")
+			print(".", end="")
 
 			if X2 is None:
 				rpn_accuracy_rpn_monitor.append(0)
 				rpn_accuracy_for_epoch.append(0)
+				if iter_num == epoch_length:
+					#print("Failed to generate any roi candidates for image " + img_data['filepath'])
+					break
 				continue
+
 			neg_samples = np.where(Y1[0, :, -1] == 1)
 			neg_samples = neg_samples[0] if len(neg_samples) > 0 else []
 			pos_samples = np.where(Y1[0, :, -1] == 0)

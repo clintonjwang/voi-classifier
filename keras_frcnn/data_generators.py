@@ -163,7 +163,7 @@ def calc_rpn(C, img_data, dx, dy, dz, resized_w, resized_h, resized_d, img_lengt
 	# initialise empty output objectives
 	y_rpn_overlap = np.zeros((output_w, output_h, output_d, num_anchors))
 	y_is_box_valid = np.zeros((output_w, output_h, output_d, num_anchors))
-	y_rpn_regr = np.zeros((output_w, output_h, output_d, num_anchors * dims * 2))
+	y_rpn_regr = np.zeros((output_w, output_h, output_d, num_anchors * dims*2))
 
 	num_bboxes = len(img_data['bboxes'])
 
@@ -337,7 +337,7 @@ def calc_rpn(C, img_data, dx, dy, dz, resized_w, resized_h, resized_d, img_lengt
 	y_rpn_regr = np.transpose(y_rpn_regr, (0, 2, 3, 4, 1))
 
 	y_rpn_cls = np.concatenate([y_is_box_valid, y_rpn_overlap], axis=4)
-	y_rpn_regr = np.concatenate([np.repeat(y_rpn_overlap, dims+2, axis=4), y_rpn_regr], axis=4)
+	y_rpn_regr = np.concatenate([np.repeat(y_rpn_overlap, dims*2, axis=4), y_rpn_regr], axis=4)
 
 	return np.copy(y_rpn_cls), np.copy(y_rpn_regr)
 
@@ -365,7 +365,7 @@ def threadsafe_generator(f):
 	return g
 
 def get_anchor_gt(all_img_data, class_count, C, img_length_calc_function, mode='train'):
-
+	"""A method to generate the ground truth anchors (those that match most closely with the ones specified)"""
 	# The following line is not useful with Python 3.5, it is kept for the legacy
 	# all_img_data = sorted(all_img_data)
 
