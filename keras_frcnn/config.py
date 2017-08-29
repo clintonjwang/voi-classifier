@@ -15,20 +15,20 @@ class Config:
 		self.rot_90 = False
 
 		# anchor box scales
-		self.anchor_box_scales = [128, 256, 512]
+		self.anchor_box_scales = [30,60]#[128, 256, 512]
 
 		# anchor box ratios
 		self.anchor_box_ratios = [[1, 1], [1, 2], [2, 1]]
 
 		# size to resize the smallest side of the image
-		self.im_size = 600
+		self.im_size = 100#600
 
 		# image channel-wise mean to subtract
-		self.img_channel_mean = [103.939, 116.779, 123.68]
+		self.img_channel_mean = [0,0,0]#[103.939, 116.779, 123.68]
 		self.img_scaling_factor = 1.0
 
 		# number of ROIs at once
-		self.num_rois = 4
+		self.num_rois = 4#32
 
 		# stride at the RPN (this depends on the network configuration)
 		self.rpn_stride = 16

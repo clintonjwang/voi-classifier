@@ -140,16 +140,16 @@ model_rpn.compile(optimizer='sgd', loss='mse')
 model_classifier.compile(optimizer='sgd', loss='mse')
 
 all_imgs = []
-
 classes = {}
-
-bbox_threshold = 0.8
-
+bbox_threshold = 0.4 #0.8
 visualise = True
+output = {}
+img_names = []
 
 for idx, img_name in enumerate(sorted(os.listdir(img_path))):
 	if not img_name.lower().endswith(('.npy')):
 		continue
+	img_names.append(img_name)
 	print(img_name)
 	st = time.time()
 	filepath = os.path.join(img_path,img_name)
@@ -164,7 +164,6 @@ for idx, img_name in enumerate(sorted(os.listdir(img_path))):
 	# get the feature maps and output from the RPN
 	[Y1, Y2, F] = model_rpn.predict(X)
 	
-
 	R = roi_helpers.rpn_to_roi(Y1, Y2, C, K.image_dim_ordering(), overlap_thresh=0.7)
 
 	# convert from (x1,y1,x2,y2) to (x,y,w,h)
@@ -194,6 +193,7 @@ for idx, img_name in enumerate(sorted(os.listdir(img_path))):
 		for ii in range(P_cls.shape[1]):
 
 			if np.max(P_cls[0, ii, :]) < bbox_threshold or np.argmax(P_cls[0, ii, :]) == (P_cls.shape[2] - 1):
+				#print("Continued!!")
 				continue
 
 			cls_name = class_mapping[np.argmax(P_cls[0, ii, :])]
@@ -231,7 +231,7 @@ for idx, img_name in enumerate(sorted(os.listdir(img_path))):
 			#cv2.rectangle(img,(real_x1, real_y1), (real_x2, real_y2), (int(class_to_color[key][0]), int(class_to_color[key][1]), int(class_to_color[key][2])),2)
 
 			#textLabel = '{}: {}'.format(key,int(100*new_probs[jk]))
-			all_dets.append((key,100*new_probs[jk]))
+			all_dets.append((key, 100*new_probs[jk], new_boxes[jk]))
 
 			#(retval,baseLine) = cv2.getTextSize(textLabel,cv2.FONT_HERSHEY_COMPLEX,1,1)
 			#textOrg = (real_x1, real_y1-0)
@@ -242,6 +242,12 @@ for idx, img_name in enumerate(sorted(os.listdir(img_path))):
 
 	print('Elapsed time = {}'.format(time.time() - st))
 	print(all_dets)
+	output[img_name] = all_dets
 	#cv2.imshow('img', img)
 	#cv2.waitKey(0)
 	#cv2.imwrite('./results_imgs/{}.png'.format(idx),img)
+
+
+with open('test_output.txt', 'w') as f:
+	for img_name in img_names:
+		f.write(str(img_name) + str(output[img_name]) + "\n\n")
