@@ -1,0 +1,3 @@
+./imgs/img1.npy,2,2,8,8,cyst
+./imgs/img2.npy,2,2,8,8,hcc
+./imgs/img3.npy,2,2,8,8,hcc
