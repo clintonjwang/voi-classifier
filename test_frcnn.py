@@ -13,6 +13,7 @@ from keras.models import Model
 from keras_frcnn import roi_helpers
 from skimage import transform
 
+nb_channels = 3
 sys.setrecursionlimit(40000)
 
 parser = OptionParser()
@@ -115,15 +116,13 @@ class_to_color = {class_mapping[v]: np.random.randint(0, 255, 3) for v in class_
 C.num_rois = int(options.num_rois)
 
 if C.network == 'resnet50':
-	num_features = 1024
-elif C.network == 'vgg':
 	num_features = 512
 
 if K.image_dim_ordering() == 'th':
 	input_shape_img = (3, None, None, None)
 	input_shape_features = (num_features, None, None, None)
 else:
-	input_shape_img = (None, None, None, 3)
+	input_shape_img = (None, None, None, nb_channels)
 	input_shape_features = (None, None, None, num_features)
 
 
@@ -243,7 +242,7 @@ for idx, img_name in enumerate(sorted(os.listdir(img_path))):
 		for jk in range(new_boxes.shape[0]):
 			(x1, y1, z1, x2, y2, z2) = new_boxes[jk,:]
 
-			(real_x1, real_y1, real_z1, real_x2, real_y2, real_z2) = get_real_coordinates(ratio, x1, y1, x2, y2)
+			(real_x1, real_y1, real_z1, real_x2, real_y2, real_z2) = get_real_coordinates(ratio, x1, y1, z1, x2, y2, z2)
 
 			#cv2.rectangle(img,(real_x1, real_y1), (real_x2, real_y2), (int(class_to_color[key][0]), int(class_to_color[key][1]), int(class_to_color[key][2])),2)
 
