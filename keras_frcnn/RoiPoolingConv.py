@@ -38,13 +38,13 @@ class RoiPoolingConv(Layer):
         if self.dim_ordering == 'th':
             self.nb_channels = input_shape[0][1]
         elif self.dim_ordering == 'tf':
-            self.nb_channels = input_shape[0][3]
+            self.nb_channels = input_shape[0][4]
 
     def compute_output_shape(self, input_shape):
         if self.dim_ordering == 'th':
-            return None, self.num_rois, self.nb_channels, self.pool_size, self.pool_size
+            return None, self.num_rois, self.nb_channels, self.pool_size, self.pool_size, self.pool_size
         else:
-            return None, self.num_rois, self.pool_size, self.pool_size, self.nb_channels
+            return None, self.num_rois, self.pool_size, self.pool_size, self.pool_size, self.nb_channels
 
     def call(self, x, mask=None):
 
@@ -61,11 +61,14 @@ class RoiPoolingConv(Layer):
 
             x = rois[0, roi_idx, 0]
             y = rois[0, roi_idx, 1]
-            w = rois[0, roi_idx, 2]
-            h = rois[0, roi_idx, 3]
+            z = rois[0, roi_idx, 2]
+            w = rois[0, roi_idx, 3]
+            h = rois[0, roi_idx, 4]
+            d = rois[0, roi_idx, 5]
             
             row_length = w / float(self.pool_size)
             col_length = h / float(self.pool_size)
+            slice_length = d / float(self.pool_size)
 
             num_pool_regions = self.pool_size
 
@@ -73,44 +76,86 @@ class RoiPoolingConv(Layer):
             # in theano. The theano implementation is much less efficient and leads to long compile times
 
             if self.dim_ordering == 'th':
+                raise ValueError("need to implement ROI pooling conv for theano")
                 for jy in range(num_pool_regions):
                     for ix in range(num_pool_regions):
-                        x1 = x + ix * row_length
-                        x2 = x1 + row_length
-                        y1 = y + jy * col_length
-                        y2 = y1 + col_length
+                        for iz in range(num_pool_regions):
+                            x1 = x + ix * row_length
+                            x2 = x1 + row_length
+                            y1 = y + jy * col_length
+                            y2 = y1 + col_length
+                            z1 = z + iz * slice_length
+                            z2 = z1 + slice_length
 
-                        x1 = K.cast(x1, 'int32')
-                        x2 = K.cast(x2, 'int32')
-                        y1 = K.cast(y1, 'int32')
-                        y2 = K.cast(y2, 'int32')
+                            x1 = K.cast(x1, 'int32')
+                            x2 = K.cast(x2, 'int32')
+                            z2 = K.cast(z2, 'int32')
+                            y1 = K.cast(y1, 'int32')
+                            y2 = K.cast(y2, 'int32')
+                            z2 = K.cast(z2, 'int32')
 
-                        x2 = x1 + K.maximum(1,x2-x1)
-                        y2 = y1 + K.maximum(1,y2-y1)
-                        
-                        new_shape = [input_shape[0], input_shape[1],
-                                     y2 - y1, x2 - x1]
+                            x2 = x1 + K.maximum(1,x2-x1)
+                            y2 = y1 + K.maximum(1,y2-y1)
+                            z2 = z1 + K.maximum(1,z2-z1)
+                            
+                            new_shape = [input_shape[0], input_shape[1], input_shape[2],
+                                         y2 - y1, x2 - x1, z2 - z1]
 
-                        x_crop = img[:, :, y1:y2, x1:x2]
-                        xm = K.reshape(x_crop, new_shape)
-                        pooled_val = K.max(xm, axis=(2, 3))
-                        outputs.append(pooled_val)
+                            x_crop = img[:, :, :, y1:y2, x1:x2, z1:z2]
+                            xm = K.reshape(x_crop, new_shape)
+                            #pooled_val = K.max(xm, axis=(2, 3))
+                            #outputs.append(pooled_val)
 
             elif self.dim_ordering == 'tf':
                 x = K.cast(x, 'int32')
                 y = K.cast(y, 'int32')
+                z = K.cast(z, 'int32')
                 w = K.cast(w, 'int32')
                 h = K.cast(h, 'int32')
+                d = K.cast(d, 'int32')
 
-                rs = tf.image.resize_images(img[:, y:y+h, x:x+w, :], (self.pool_size, self.pool_size))
-                outputs.append(rs)
+                #rs = tf.image.resize_images(img[:, y:y+h, x:x+w, :], (self.pool_size, self.pool_size))
+                img = img[:, x:x+w, y:y+h, z:z+d, :]
+
+                #TensorArr = tf.TensorArray(tf.int32, 1, dynamic_size=True, infer_shape=False)
+
+                #for i in range(self.pool_size):
+                #    resized_list.append(tf.image.resize_images(TensorArr.unstack(img).read(i), [self.pool_size, self.pool_size]))
+                #stack_img = tf.stack(resized_list, axis=3)
+
+                img_ch=[]
+                for ch in range(self.nb_channels):
+                    img_ch.append(img[:,:,:,:,ch])
+                    img_ch[ch] = tf.image.resize_images(img_ch[ch], [self.pool_size, self.pool_size])
+                img = tf.stack(img_ch, axis=4)
+                img = K.permute_dimensions(img, (0, 2, 3, 1, 4))
+
+                img_ch=[]
+                for ch in range(self.nb_channels):
+                    img_ch.append(img[:,:,:,:,ch])
+                    img_ch[ch] = tf.image.resize_images(img_ch[ch], [self.pool_size, self.pool_size])
+                img = tf.stack(img_ch, axis=4)
+                img = K.permute_dimensions(img, (0, 3, 1, 2, 4))
+
+                #for i in tf.unstack(img, num=self.pool_size, axis=3):
+                #    resized_list.append(tf.image.resize_images(i, [self.pool_size, self.pool_size]))
+                #stack_img = tf.stack(resized_list, axis=3)
+
+                #img = stack_img
+                #resized_list = []
+                #for i in tf.unstack(img, num=self.pool_size, axis=2):
+                #    resized_list.append(tf.image.resize_images(i, [self.pool_size, self.pool_size]))
+                #rs = tf.stack(resized_list, axis=2)
+                #rs = img[:, x:x+self.pool_size, y:y+self.pool_size, z:z+self.pool_size, :]
+
+                outputs.append(img)
 
         final_output = K.concatenate(outputs, axis=0)
-        final_output = K.reshape(final_output, (1, self.num_rois, self.pool_size, self.pool_size, self.nb_channels))
+        final_output = K.reshape(final_output, (1, self.num_rois, self.pool_size, self.pool_size, self.pool_size, self.nb_channels))
 
         if self.dim_ordering == 'th':
-            final_output = K.permute_dimensions(final_output, (0, 1, 4, 2, 3))
+            final_output = K.permute_dimensions(final_output, (0, 1, 5, 2, 3, 4))
         else:
-            final_output = K.permute_dimensions(final_output, (0, 1, 2, 3, 4))
+            final_output = K.permute_dimensions(final_output, (0, 1, 2, 3, 4, 5))
 
         return final_output

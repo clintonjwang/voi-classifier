@@ -8,6 +8,7 @@ def augment(img_data, config, augment=True):
 	assert 'bboxes' in img_data
 	assert 'width' in img_data
 	assert 'height' in img_data
+	assert 'd' in img_data
 
 	img_data_aug = copy.deepcopy(img_data)
 

@@ -11,6 +11,7 @@ from keras import backend as K
 from keras.layers import Input
 from keras.models import Model
 from keras_frcnn import roi_helpers
+from skimage import transform
 
 sys.setrecursionlimit(40000)
 
@@ -50,28 +51,38 @@ img_path = options.test_path
 def format_img_size(img, C):
 	""" formats the image size based on config """
 	img_min_side = float(C.im_size)
-	(height,width,_) = img.shape
+	(dx,dy,dz,_) = img.shape
 		
-	if width <= height:
-		ratio = img_min_side/width
-		new_height = int(ratio * height)
-		new_width = int(img_min_side)
+	if dx <= dy and dx <= dz:
+		f = float(img_min_side) / dx
+		resized_w = img_min_side
+		resized_h = int(f * dy)
+		resized_d = int(f * dz)
+	elif dz <= dx and dz <= dy:
+		f = float(img_min_side) / dz
+		resized_w = int(f * dx)
+		resized_h = int(f * dy)
+		resized_d = img_min_side
 	else:
-		ratio = img_min_side/height
-		new_width = int(ratio * width)
-		new_height = int(img_min_side)
-	img = cv2.resize(img, (new_width, new_height), interpolation=cv2.INTER_CUBIC)
-	return img, ratio	
+		f = float(img_min_side) / dy
+		resized_w = int(f * dx)
+		resized_h = img_min_side
+		resized_d = int(f * dz)
+
+	img = transform.downscale_local_mean(img, (int(round(dx/resized_w)),
+		int(round(dy/resized_h)), int(round(dz/resized_d)), 1))
+
+	return img, f	
 
 def format_img_channels(img, C):
 	""" formats the image channels based on config """
-	img = img[:, :, (2, 1, 0)]
+	img = img[:, :, :, (2, 1, 0)]
 	img = img.astype(np.float32)
-	img[:, :, 0] -= C.img_channel_mean[0]
-	img[:, :, 1] -= C.img_channel_mean[1]
-	img[:, :, 2] -= C.img_channel_mean[2]
+	img[:, :, :, 0] -= C.img_channel_mean[0]
+	img[:, :, :, 1] -= C.img_channel_mean[1]
+	img[:, :, :, 2] -= C.img_channel_mean[2]
 	img /= C.img_scaling_factor
-	img = np.transpose(img, (2, 0, 1))
+	img = np.transpose(img, (3, 0, 1, 2))
 	img = np.expand_dims(img, axis=0)
 	return img
 
@@ -82,14 +93,16 @@ def format_img(img, C):
 	return img, ratio
 
 # Method to transform the coordinates of the bounding box to its original size
-def get_real_coordinates(ratio, x1, y1, x2, y2):
+def get_real_coordinates(ratio, x1, y1, z1, x2, y2, z2):
 
 	real_x1 = int(round(x1 // ratio))
 	real_y1 = int(round(y1 // ratio))
+	real_z1 = int(round(z1 // ratio))
 	real_x2 = int(round(x2 // ratio))
 	real_y2 = int(round(y2 // ratio))
+	real_z2 = int(round(z2 // ratio))
 
-	return (real_x1, real_y1, real_x2 ,real_y2)
+	return (real_x1, real_y1, real_z1, real_x2, real_y2, real_z2)
 
 class_mapping = C.class_mapping
 
@@ -107,15 +120,15 @@ elif C.network == 'vgg':
 	num_features = 512
 
 if K.image_dim_ordering() == 'th':
-	input_shape_img = (3, None, None)
-	input_shape_features = (num_features, None, None)
+	input_shape_img = (3, None, None, None)
+	input_shape_features = (num_features, None, None, None)
 else:
-	input_shape_img = (None, None, 3)
-	input_shape_features = (None, None, num_features)
+	input_shape_img = (None, None, None, 3)
+	input_shape_features = (None, None, None, num_features)
 
 
 img_input = Input(shape=input_shape_img)
-roi_input = Input(shape=(C.num_rois, 4))
+roi_input = Input(shape=(C.num_rois, 6))
 feature_map_input = Input(shape=input_shape_features)
 
 # define the base network (resnet here, can be VGG, Inception, etc)
@@ -159,7 +172,7 @@ for idx, img_name in enumerate(sorted(os.listdir(img_path))):
 	X, ratio = format_img(img, C)
 
 	if K.image_dim_ordering() == 'tf':
-		X = np.transpose(X, (0, 2, 3, 1))
+		X = np.transpose(X, (0, 2, 3, 4, 1))
 
 	# get the feature maps and output from the RPN
 	[Y1, Y2, F] = model_rpn.predict(X)
@@ -167,8 +180,9 @@ for idx, img_name in enumerate(sorted(os.listdir(img_path))):
 	R = roi_helpers.rpn_to_roi(Y1, Y2, C, K.image_dim_ordering(), overlap_thresh=0.7)
 
 	# convert from (x1,y1,x2,y2) to (x,y,w,h)
-	R[:, 2] -= R[:, 0]
-	R[:, 3] -= R[:, 1]
+	R[:, 3] -= R[:, 0]
+	R[:, 4] -= R[:, 1]
+	R[:, 5] -= R[:, 2]
 
 	# apply the spatial pyramid pooling to the proposed regions
 	bboxes = {}
@@ -202,19 +216,22 @@ for idx, img_name in enumerate(sorted(os.listdir(img_path))):
 				bboxes[cls_name] = []
 				probs[cls_name] = []
 
-			(x, y, w, h) = ROIs[0, ii, :]
+			(x, y, z, w, h, d) = ROIs[0, ii, :]
 
 			cls_num = np.argmax(P_cls[0, ii, :])
 			try:
-				(tx, ty, tw, th) = P_regr[0, ii, 4*cls_num:4*(cls_num+1)]
+				(tx, ty, tz, tw, th, td) = P_regr[0, ii, 6*cls_num:6*(cls_num+1)]
 				tx /= C.classifier_regr_std[0]
 				ty /= C.classifier_regr_std[1]
-				tw /= C.classifier_regr_std[2]
-				th /= C.classifier_regr_std[3]
-				x, y, w, h = roi_helpers.apply_regr(x, y, w, h, tx, ty, tw, th)
+				tz /= C.classifier_regr_std[2]
+				tw /= C.classifier_regr_std[3]
+				th /= C.classifier_regr_std[4]
+				td /= C.classifier_regr_std[5]
+				x, y, z, w, h, d = roi_helpers.apply_regr(x, y, z, w, h, d, tx, ty, tz, tw, th, td)
 			except:
 				pass
-			bboxes[cls_name].append([C.rpn_stride*x, C.rpn_stride*y, C.rpn_stride*(x+w), C.rpn_stride*(y+h)])
+			bboxes[cls_name].append([C.rpn_stride*x, C.rpn_stride*y, C.rpn_stride*z,
+				C.rpn_stride*(x+w), C.rpn_stride*(y+h), C.rpn_stride*(z+d)])
 			probs[cls_name].append(np.max(P_cls[0, ii, :]))
 
 	all_dets = []
@@ -224,9 +241,9 @@ for idx, img_name in enumerate(sorted(os.listdir(img_path))):
 
 		new_boxes, new_probs = roi_helpers.non_max_suppression_fast(bbox, np.array(probs[key]), overlap_thresh=0.5)
 		for jk in range(new_boxes.shape[0]):
-			(x1, y1, x2, y2) = new_boxes[jk,:]
+			(x1, y1, z1, x2, y2, z2) = new_boxes[jk,:]
 
-			(real_x1, real_y1, real_x2, real_y2) = get_real_coordinates(ratio, x1, y1, x2, y2)
+			(real_x1, real_y1, real_z1, real_x2, real_y2, real_z2) = get_real_coordinates(ratio, x1, y1, x2, y2)
 
 			#cv2.rectangle(img,(real_x1, real_y1), (real_x2, real_y2), (int(class_to_color[key][0]), int(class_to_color[key][1]), int(class_to_color[key][2])),2)
 

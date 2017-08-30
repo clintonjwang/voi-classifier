@@ -18,7 +18,8 @@ class Config:
 		self.anchor_box_scales = [30,60]#[128, 256, 512]
 
 		# anchor box ratios
-		self.anchor_box_ratios = [[1, 1], [1, 2], [2, 1]]
+		self.anchor_box_ratios = [[1,1,1]] #, [1,1,2], [1,2,1], [2,1,1], [1,2,2], [2,2,1], [2,1,2]]
+		#self.anchor_box_ratios = [[1, 1], [1, 2], [2, 1]]
 
 		# size to resize the smallest side of the image
 		self.im_size = 100#600
@@ -37,7 +38,7 @@ class Config:
 
 		# scaling the stdev
 		self.std_scaling = 4.0
-		self.classifier_regr_std = [8.0, 8.0, 4.0, 4.0]
+		self.classifier_regr_std = [1]*6#[8.0, 8.0, 4.0, 4.0]
 
 		# overlaps for RPN
 		self.rpn_min_overlap = 0.3
