@@ -8,6 +8,7 @@ class FixedBatchNormalization(Layer):
     def __init__(self, epsilon=1e-3, axis=-1,
                  weights=None, beta_init='zero', gamma_init='one',
                  gamma_regularizer=None, beta_regularizer=None, **kwargs):
+
         self.supports_masking = True
         self.beta_init = initializers.get(beta_init)
         self.gamma_init = initializers.get(gamma_init)

@@ -1,4 +1,8 @@
+# Images
 *.npy
+
+# Train/test labels
+*.txt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
