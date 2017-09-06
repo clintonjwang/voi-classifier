@@ -38,25 +38,20 @@ def iou(a, b):
 
 	return float(area_i) / float(area_u + 1e-6)
 
-
-def get_new_img_size(dx, dy, dz, img_min_side=600):
+import math
+def get_new_img_size(dx, dy, dz, img_min_side=-1):
 	if dx <= dy and dx <= dz:
-		f = float(img_min_side) / dx
-		resized_w = img_min_side
-		resized_h = int(f * dy)
-		resized_d = int(f * dz)
+		f = float(dx // img_min_side)
 	elif dz <= dx and dz <= dy:
-		f = float(img_min_side) / dz
-		resized_w = int(f * dx)
-		resized_h = int(f * dy)
-		resized_d = img_min_side
+		f = float(dz // img_min_side)
 	else:
-		f = float(img_min_side) / dy
-		resized_w = int(f * dx)
-		resized_h = img_min_side
-		resized_d = int(f * dz)
+		f = float(dy // img_min_side)
 
-	return resized_w, resized_h, resized_d
+	resized_w = int(math.ceil(dx / f))
+	resized_h = int(math.ceil(dy / f))
+	resized_d = int(math.ceil(dz / f))
+
+	return resized_w, resized_h, resized_d, int(f)
 
 
 class SampleSelector:
@@ -330,12 +325,11 @@ def get_anchor_gt(all_img_data, class_count, C, img_length_calc_function, backen
 			assert rows == height
 			assert slices == depth
 
-			# get image dimensions for resizing
-			(resized_width, resized_height, resized_depth) = get_new_img_size(width, height, depth, C.im_size)
-
-			# resize the image so that smalles side is length = 600px
-			x_img = transform.downscale_local_mean(x_img, (int(round(width/resized_width)),
-				int(round(height/resized_height)), int(round(depth/resized_depth)), 1))
+			# downscale the image
+			(resized_width, resized_height, resized_depth, downscale_ratio) = get_new_img_size(width, height, depth, C.im_size)
+			x_img = transform.downscale_local_mean(x_img, (downscale_ratio, downscale_ratio, downscale_ratio, 1))
+			
+			assert x_img.shape[:3] == (resized_width, resized_height, resized_depth)
 			#x_img = cv2.resize(x_img, (resized_width, resized_height, resized_depth), interpolation=cv2.INTER_CUBIC)
 
 			try:
@@ -347,11 +341,11 @@ def get_anchor_gt(all_img_data, class_count, C, img_length_calc_function, backen
 
 			# Zero-center by mean pixel, and preprocess image
 
-			x_img = x_img[:,:,:, (2, 1, 0)]  # BGR -> RGB
+			#x_img = x_img[:,:,:, (2, 1, 0)]  # BGR -> RGB
 			x_img = x_img.astype(np.float32)
-			x_img[:, :, :, 0] -= C.img_channel_mean[0]
-			x_img[:, :, :, 1] -= C.img_channel_mean[1]
-			x_img[:, :, :, 2] -= C.img_channel_mean[2]
+			#x_img[:, :, :, 0] -= C.img_channel_mean[0]
+			#x_img[:, :, :, 1] -= C.img_channel_mean[1]
+			#x_img[:, :, :, 2] -= C.img_channel_mean[2]
 			x_img /= C.img_scaling_factor
 
 			x_img = np.transpose(x_img, (3, 0, 1, 2))

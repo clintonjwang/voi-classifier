@@ -111,15 +111,15 @@ data_gen_train = data_generators.get_anchor_gt(train_imgs, classes_count, C, nn.
 data_gen_val = data_generators.get_anchor_gt(val_imgs, classes_count, C, nn.get_img_output_length,K.image_dim_ordering(), mode='val')
 
 if K.image_dim_ordering() == 'th':
-	input_shape_img = (3, None, None, None)
+	input_shape_img = (C.nb_channels, None, None, None)
 else:
-	input_shape_img = (None, None, None, 3)
+	input_shape_img = (None, None, None, C.nb_channels)
 
 img_input = Input(shape=input_shape_img)
 roi_input = Input(shape=(None, 6))
 
 # define the base network (resnet here, can be VGG, Inception, etc)
-shared_layers = nn.nn_base(img_input, trainable=True)
+shared_layers = nn.nn_base(img_input, trainable=True, nb_channels=C.nb_channels)
 
 # define the RPN, built on the base layers
 num_anchors = len(C.anchor_box_scales) * len(C.anchor_box_ratios)

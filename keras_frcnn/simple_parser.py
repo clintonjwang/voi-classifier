@@ -28,6 +28,8 @@ def get_data(input_path):
 					found_bg = True
 				class_mapping[class_name] = len(class_mapping)
 
+			filename = "imgs\\"+filename
+
 			if filename not in all_imgs:
 				all_imgs[filename] = {}
 				

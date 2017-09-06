@@ -1,9 +1,9 @@
-./imgs/img1.npy,20,20,20,80,80,80,cyst
-./imgs/img2.npy,20,20,20,80,80,80,hcc
-./imgs/img3.npy,20,20,20,80,80,80,hcc
-./imgs/img1 - Copy.npy,21,21,21,79,79,79,cyst
-./imgs/img2 - Copy.npy,21,21,21,79,79,79,hcc
-./imgs/img3 - Copy.npy,21,21,21,79,79,79,hcc
-./imgs/img1 - Copy (2).npy,21,21,21,80,80,80,cyst
-./imgs/img2 - Copy (2).npy,21,21,21,80,80,80,hcc
-./imgs/img3 - Copy (2).npy,21,21,21,80,80,80,hcc
+img1.npy,20,20,20,80,80,80,cyst
+img2.npy,20,20,20,80,80,80,hcc
+img3.npy,20,20,20,80,80,80,hcc
+img1 - Copy.npy,21,21,21,79,79,79,cyst
+img2 - Copy.npy,21,21,21,79,79,79,hcc
+img3 - Copy.npy,21,21,21,79,79,79,hcc
+img1 - Copy (2).npy,21,21,21,80,80,80,cyst
+img2 - Copy (2).npy,21,21,21,80,80,80,hcc
+img3 - Copy (2).npy,21,21,21,80,80,80,hcc

@@ -8,6 +8,7 @@ class Config:
 		self.verbose = True
 
 		self.network = 'resnet50'
+		self.nb_channels = 2
 
 		# setting for data augmentation
 		self.use_horizontal_flips = False
@@ -22,7 +23,7 @@ class Config:
 		#self.anchor_box_ratios = [[1, 1], [1, 2], [2, 1]]
 
 		# size to resize the smallest side of the image
-		self.im_size = 100#600
+		self.im_size = 60#600
 
 		# image channel-wise mean to subtract
 		self.img_channel_mean = [0,0,0]#[103.939, 116.779, 123.68]

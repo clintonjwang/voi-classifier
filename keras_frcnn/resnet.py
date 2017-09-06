@@ -151,13 +151,13 @@ def conv_block_td(input_tensor, kernel_size, filters, stage, block, input_shape,
     x = Activation('relu')(x)
     return x
 
-def nn_base(input_tensor=None, trainable=False):
+def nn_base(input_tensor=None, trainable=False, nb_channels=-1):
 
     # Determine proper input shape
     if K.image_dim_ordering() == 'th':
-        input_shape = (3, None, None, None)
+        input_shape = (nb_channels, None, None, None)
     else:
-        input_shape = (None, None, None, 3)
+        input_shape = (None, None, None, nb_channels)
 
     if input_tensor is None:
         img_input = Input(shape=input_shape)

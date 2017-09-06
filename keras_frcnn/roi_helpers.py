@@ -10,7 +10,7 @@ def calc_iou(R, img_data, C, class_mapping):
 	bboxes = img_data['bboxes']
 	(width, height, depth) = (img_data['width'], img_data['height'], img_data['d'])
 	# get image dimensions for resizing
-	(resized_width, resized_height, resized_depth) = data_generators.get_new_img_size(width, height, depth, C.im_size)
+	(resized_width, resized_height, resized_depth, _) = data_generators.get_new_img_size(width, height, depth, C.im_size)
 
 	gta = np.zeros((len(bboxes), 6))
 
