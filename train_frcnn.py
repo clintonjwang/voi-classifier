@@ -29,7 +29,7 @@ parser.add_option("--hf", dest="horizontal_flips", help="Augment with horizontal
 parser.add_option("--vf", dest="vertical_flips", help="Augment with vertical flips in training. (Default=false).", action="store_true", default=False)
 parser.add_option("--rot", "--rot_90", dest="rot_90", help="Augment with 90 degree rotations in training. (Default=false).",
 				  action="store_true", default=False)
-parser.add_option("--num_epochs", dest="num_epochs", help="Number of epochs.", default=3) #2000
+parser.add_option("--num_epochs", dest="num_epochs", help="Number of epochs.", default=20) #2000
 parser.add_option("--config_filename", dest="config_filename", help=
 				"Location to store all the metadata related to the training (to be used when testing).",
 				default="config.pickle")
@@ -148,7 +148,7 @@ model_classifier.compile(optimizer=optimizer_classifier, loss=[losses.class_loss
 	losses.class_loss_regr(len(classes_count)-1)], metrics={'dense_class_{}'.format(len(classes_count)): 'accuracy'})
 model_all.compile(optimizer='sgd', loss='mae')
 
-epoch_length = 3#1000
+epoch_length = 20#1000
 num_epochs = int(options.num_epochs)
 iter_num = 0
 

@@ -23,7 +23,7 @@ class Config:
 		#self.anchor_box_ratios = [[1, 1], [1, 2], [2, 1]]
 
 		# size to resize the smallest side of the image
-		self.im_size = 60#600
+		self.im_size = 50#600
 
 		# image channel-wise mean to subtract
 		self.img_channel_mean = [0,0,0]#[103.939, 116.779, 123.68]

@@ -81,6 +81,9 @@ class SampleSelector:
 
 
 def calc_rpn(C, img_data, width, height, depth, resized_width, resized_height, resized_d, img_length_calc_function):
+	assert width/resized_width == height/resized_height and depth/resized_d == height/resized_height
+
+	ratio = width/resized_width
 
 	downscale = float(C.rpn_stride)
 	anchor_sizes = C.anchor_box_scales
@@ -110,12 +113,12 @@ def calc_rpn(C, img_data, width, height, depth, resized_width, resized_height, r
 	gta = np.zeros((num_bboxes, 6))
 	for bbox_num, bbox in enumerate(img_data['bboxes']):
 		# get the GT box coordinates, and resize to account for image resizing
-		gta[bbox_num, 0] = bbox['x1'] * (resized_width / float(width))
-		gta[bbox_num, 1] = bbox['x2'] * (resized_width / float(width))
-		gta[bbox_num, 2] = bbox['y1'] * (resized_height / float(height))
-		gta[bbox_num, 3] = bbox['y2'] * (resized_height / float(height))
-		gta[bbox_num, 4] = bbox['z1'] * (resized_d / float(depth))
-		gta[bbox_num, 5] = bbox['z2'] * (resized_d / float(depth))
+		gta[bbox_num, 0] = bbox['x1'] / ratio
+		gta[bbox_num, 1] = bbox['x2'] / ratio
+		gta[bbox_num, 2] = bbox['y1'] / ratio
+		gta[bbox_num, 3] = bbox['y2'] / ratio
+		gta[bbox_num, 4] = bbox['z1'] / ratio
+		gta[bbox_num, 5] = bbox['z2'] / ratio
 	
 	# rpn ground truth
 
@@ -329,7 +332,7 @@ def get_anchor_gt(all_img_data, class_count, C, img_length_calc_function, backen
 			(resized_width, resized_height, resized_depth, downscale_ratio) = get_new_img_size(width, height, depth, C.im_size)
 			x_img = transform.downscale_local_mean(x_img, (downscale_ratio, downscale_ratio, downscale_ratio, 1))
 			
-			assert x_img.shape[:3] == (resized_width, resized_height, resized_depth)
+			assert x_img.shape[:3] == (resized_height, resized_width, resized_depth)
 			#x_img = cv2.resize(x_img, (resized_width, resized_height, resized_depth), interpolation=cv2.INTER_CUBIC)
 
 			try:
