@@ -54,12 +54,12 @@ def ni_load(filename):
     
     img = nibabel.load(filename)
     img = nibabel.as_closest_canonical(img) # make sure it is in the correct orientation
-    
+
     dims = img.header['pixdim'][1:4]
     dim_units = img.header['xyzt_units']
     
     img = np.asarray(img.dataobj).astype(dtype='float64')
-    img = img[::-1,:,:] # Orient the image along the same axis as the binary masks.
+    img = img[::-1,:,:]
     img =  (255 * (img / np.amax(img))).astype(dtype='uint8')
     
     if dim_units == 2: #or np.sum(img) * dims[0] * dims[1] * dims[2] > 10000:
