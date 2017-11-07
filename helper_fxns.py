@@ -2,13 +2,15 @@ from convert_dicom import dicom_series_to_nifti
 from convert_siemens import dicom_to_nifti
 import matplotlib
 import matplotlib.pyplot as plt
+import transforms as tr
 import nibabel
 import numpy as np
 import os
+import pyelastix
 import requests
 
 ###########################
-### IMAGE PREPROCESSING
+### IMAGE LOADING
 ###########################
 
 def dcm_load(path2series):
@@ -67,17 +69,25 @@ def ni_load(filename):
     
     return img, dims
 
+
+###########################
+### IMAGE PREPROCESSING
+###########################
+
 def apply_mask(img, mask_file):
     """Apply the mask in mask_file to img and return the masked image."""
-    
+
     with open(mask_file, 'rb') as f:
         mask = f.read()
         mask = np.fromstring(mask, dtype='uint8')
-        mask = np.reshape(mask, img.shape, order='F')
-        mask = mask[:,::-1,:]
-    
-    img[mask <= 0] = 0
-    
+        mask = np.array(mask).reshape((img.shape[2], img.shape[1], img.shape[0]))
+        #mask = np.reshape(mask, img.shape, order='F')
+        mask = np.transpose(mask, (2,1,0))
+        #mask = mask[:,::-1,:]
+        
+    img[:,:,:,0][mask == 0] = 0
+    #img[mask <= 0] = 0
+
     return img
 
 def create_diff(art_img, pre_img):
@@ -88,13 +98,112 @@ def create_diff(art_img, pre_img):
     
     return diff
 
+def rescale(img, target_dims, cur_dims):
+    vox_scale = [float(cur_dims[i]/target_dims[i]) for i in range(3)]
+    img = tr.scale3d(img, vox_scale)
+    
+    return img, vox_scale
+
+def normalize(img):
+    #t2[mrn] = t2[mrn] * 255/np.amax(t2[mrn])
+    i_min = np.amin(img)
+    return (img - i_min) / (np.amax(img) - i_min) * 255
+
+def flipz(img_fn, voi_df):
+    def func(row):
+        if row["Filename"] == img_fn:
+            z1 = row['z1']
+            row['z1'] = img.shape[2]-row['z2']
+            row['z2'] = img.shape[2]-z1
+        return row
+    
+    img = np.load("full_imgs\\"+img_fn)
+    
+    return voi_df.apply(lambda row: func(row), axis=1)
+
+def reg_imgs(moving, fixed, params, rescale_only=False):    
+    fshape = fixed.shape
+    mshape = moving.shape
+    scale = [fshape[i]/mshape[i] for i in range(3)]
+    moving = tr.scale3d(moving, scale)
+    
+    assert moving.shape == fixed.shape, ("Shapes not aligned in reg_imgs", moving.shape, fixed.shape)
+    
+    if not rescale_only:
+        moving = np.ascontiguousarray(moving).astype('float32')
+        fixed = np.ascontiguousarray(fixed).astype('float32')
+
+        moving, _ = pyelastix.register(moving, fixed, params, verbose=0)
+        
+    return moving, scale
+
 
 ###########################
-### API REQUESTS
+### IMAGE AUGMENTATION
+##########################
+
+def augment(img, final_size, num_samples = 100, translate=None):
+    aug_imgs = []
+    
+    for _ in range(num_samples):
+        temp_img = img
+        angle = random.randint(0, 359)
+        temp_img = tr.rotate(temp_img, angle)
+        
+        #scales = [0.9, 1.1]
+        #scale = [random.uniform(scales[0],scales[1]), random.uniform(scales[0],scales[1]), random.uniform(scales[0],scales[1])]
+        #temp_img = tr.scale3d(temp_img, scale)
+        
+        if translate is not None:
+            trans = [random.randint(-translate[0], translate[0]),
+                     random.randint(-translate[1], translate[1]),
+                     random.randint(-translate[2], translate[2])]
+        else:
+            trans = [0,0,0]
+        
+        flip = [random.choice([-1, 1]), random.choice([-1, 1]), random.choice([-1, 1])]
+        
+        crops = [temp_img.shape[i] - final_size[i] for i in range(3)]
+        
+        aug_imgs.append(temp_img[math.floor(crops[0]/2)*flip[0] + trans[0] : -math.ceil(crops[0]/2)*flip[0] + trans[0] : flip[0],
+                                 math.floor(crops[1]/2)*flip[1] + trans[1] : -math.ceil(crops[1]/2)*flip[1] + trans[1] : flip[1],
+                                 math.floor(crops[2]/2)*flip[2] + trans[2] : -math.ceil(crops[2]/2)*flip[2] + trans[2] : flip[2], :])
+    
+    return aug_imgs
+    
+###########################
+### VOIs
 ###########################
 
-#TBD
+def scale_vois(x, y, z, pre_reg_scale, field=None, post_reg_scale=None):
+    scale = pre_reg_scale
+    x = (round(x[0]*scale[0]), round(x[1]*scale[0]))
+    y = (round(y[0]*scale[1]), round(y[1]*scale[1]))
+    z = (round(z[0]*scale[2]), round(z[1]*scale[2]))
+    
+    if field is not None:
+        xvoi_distortions = field[0][x[0]:x[1]+1, y[0]:y[1]+1, z[0]:z[1]+1]
+        yvoi_distortions = field[1][x[0]:x[1]+1, y[0]:y[1]+1, z[0]:z[1]+1]
+        zvoi_distortions = field[2][x[0]:x[1]+1, y[0]:y[1]+1, z[0]:z[1]+1]
 
+        x = (x[0] + int(np.amin(xvoi_distortions[0,:,:])), x[1] + int(np.amax(xvoi_distortions[-1,:,:])))
+        y = (y[0] + int(np.amin(yvoi_distortions[:,0,:])), y[1] + int(np.amax(yvoi_distortions[:,-1,:])))
+        z = (z[0] + int(np.amin(zvoi_distortions[:,:,0])), z[1] + int(np.amax(zvoi_distortions[:,:,-1])))
+    
+        scale = post_reg_scale
+        x = (round(x[0]*scale[0]), round(x[1]*scale[0]))
+        y = (round(y[0]*scale[1]), round(y[1]*scale[1]))
+        z = (round(z[0]*scale[2]), round(z[1]*scale[2]))
+    
+    return x, y, z
+
+def add_deltas(voi_df):
+    voi_df = voi_df.astype({"x1": int, "x2": int, "y1": int, "y2": int, "z1": int, "z2": int})
+    voi_df['dx'] = voi_df.apply(lambda row: row['x2'] - row['x1'], axis=1)
+    voi_df['dy'] = voi_df.apply(lambda row: row['y2'] - row['y1'], axis=1)
+    voi_df['dz'] = voi_df.apply(lambda row: row['z2'] - row['z1'], axis=1)
+    
+    return voi_df
 
 ###########################
 ### IMAGE FEATURES
