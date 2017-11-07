@@ -1,13 +1,15 @@
 from convert_dicom import dicom_series_to_nifti
 from convert_siemens import dicom_to_nifti
+import math
 import matplotlib
 import matplotlib.pyplot as plt
-import transforms as tr
 import nibabel
 import numpy as np
 import os
 import pyelastix
 import requests
+import random
+import transforms as tr
 
 ###########################
 ### IMAGE LOADING
@@ -23,15 +25,10 @@ def dcm_load(path2series):
     """
 
     try:
-    #tmp_fn = os.getcwd()+'\\tmp'
-    #tmp_fn = 'tmp'
-    #while os.path.isfile(tmp_fn+'.nii'):
-    #    tmp_fn += 'p'
         tmp_fn = "tmp.nii"
         dicom_series_to_nifti(path2series, tmp_fn)
         #dicom_to_nifti(path2series, tmp_fn)
 
-        #tmp_fn += ".nii"
         ret = ni_load(tmp_fn)
 
     except Exception as e:
@@ -170,7 +167,7 @@ def augment(img, final_size, num_samples = 100, translate=None):
                                  math.floor(crops[2]/2)*flip[2] + trans[2] : -math.ceil(crops[2]/2)*flip[2] + trans[2] : flip[2], :])
     
     return aug_imgs
-    
+
 ###########################
 ### VOIs
 ###########################
@@ -223,12 +220,40 @@ def get_hist(img):
     #std_intensity = np.std(diff[img > 0])
 
     return h, plt.gcf()
-
-
     
 #########################
 ### UTILITY
 #########################
+
+def plot_section_old(img, df, pad=30):
+    plt.subplot(121)
+    plt.imshow(np.transpose(img[df['x1']-pad:df['x2']+pad,
+                                df['y2']+pad:df['y1']-pad:-1,
+                                (df['z1']+df['z2'])//2, 0], (1,0)), cmap='gray')
+    plt.subplot(122)
+    plt.imshow(np.transpose(img[df['x1']-pad:df['x2']+pad,
+                                df['y2']+pad:df['y1']-pad:-1,
+                                (df['z1']+df['z2'])//2, 1], (1,0)), cmap='gray')
+
+def plot_section(img, df, pad=30, flipz="both"):
+    if flipz=="both":
+        plt.subplot(121)
+        plt.imshow(np.transpose(img[df['x1']-pad:df['x2']+pad,
+                                df['y2']+pad:df['y1']-pad:-1,
+                                (df['z1']+df['z2'])//2, 0], (1,0)), cmap='gray')
+        
+        plt.subplot(122)
+        plt.imshow(np.transpose(img[df['x1']-pad:df['x2']+pad,
+                                    df['y2']+pad:df['y1']-pad:-1,
+                                    img.shape[2]-(df['z1']+df['z2'])//2, 0], (1,0)), cmap='gray')
+
+def plot_section_xyz(img, x,y,z, pad=30):
+    plt.subplot(121)
+    plt.imshow(np.transpose(img[x[0]-pad:x[1]+pad, y[1]+pad:y[0]-pad:-1, (z[0]+z[1])//2,0], (1,0)), cmap='gray')
+    
+def plot_section_mrn(mrn,x,y,z, pad=30):
+    plt.subplot(211)
+    plt.imshow(np.transpose(art[mrn][x[0]-pad:x[1]+pad, y[1]+pad:y[0]-pad:-1, (z[0]+z[1])//2], (1,0)), cmap='gray')
 
 def flatten(l, times=1):
     for _ in range(times):
