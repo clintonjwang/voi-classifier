@@ -1,6 +1,9 @@
 */*
 api_retrieval.ipynb
-*.xlsx
+*.xls*
+*.csv
+*.pdf
+*.doc*
 
 # Images
 *.npy
