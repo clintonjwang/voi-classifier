@@ -195,12 +195,26 @@ def scale_vois(x, y, z, pre_reg_scale, field=None, post_reg_scale=None):
     return x, y, z
 
 def add_deltas(voi_df):
+    """No longer in use"""
     voi_df = voi_df.astype({"x1": int, "x2": int, "y1": int, "y2": int, "z1": int, "z2": int})
     voi_df['dx'] = voi_df.apply(lambda row: row['x2'] - row['x1'], axis=1)
     voi_df['dy'] = voi_df.apply(lambda row: row['y2'] - row['y1'], axis=1)
     voi_df['dz'] = voi_df.apply(lambda row: row['z2'] - row['z1'], axis=1)
     
     return voi_df
+
+def align_phases(img, voi, ven_voi):
+    """Translates venous phase to align with arterial phase"""
+    temp_ven = copy.deepcopy(img[:,:,:,1])
+    dx = ((voi["x1"] + voi["x2"]) - (ven_voi["x1"] + ven_voi["x2"])) // 2
+    dy = ((voi["y1"] + voi["y2"]) - (ven_voi["y1"] + ven_voi["y2"])) // 2
+    dz = ((voi["z1"] + voi["z2"]) - (ven_voi["z1"] + ven_voi["z2"])) // 2
+    
+    pad = int(max(abs(dx), abs(dy), abs(dz)))+1
+    temp_ven = np.pad(temp_ven, pad, 'constant')[pad+dx:-pad+dx, pad+dy:-pad+dy, pad+dz:-pad+dz]
+    
+    return np.stack([img[:,:,:,0], temp_ven], axis=3)
+
 
 ###########################
 ### IMAGE FEATURES

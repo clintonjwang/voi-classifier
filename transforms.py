@@ -9,8 +9,9 @@ def scale3d(img, scale):
 	[scalex, scaley, scalez] = scale
 
 	if len(img.shape) == 4:
-		inter = np.zeros([round(img.shape[0] * scalex), round(img.shape[1] * scaley), img.shape[2], img.shape[3]])
-		scaled = np.zeros([round(img.shape[0] * scalex), round(img.shape[1] * scaley), round(img.shape[2] * scalez), img.shape[3]])
+		inter = np.zeros([int(round(img.shape[0] * scalex)), int(round(img.shape[1] * scaley)), img.shape[2], img.shape[3]])
+		scaled = np.zeros([int(round(img.shape[0] * scalex)), int(round(img.shape[1] * scaley)),
+			int(round(img.shape[2] * scalez)), img.shape[3]])
 		for ch in range(img.shape[-1]):
 			for s in range(img.shape[2]):
 				inter[:,:,s,ch] = cv2.resize(img[:,:,s,ch], (0,0), fx=scaley, fy=scalex)
