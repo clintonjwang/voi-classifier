@@ -1,5 +1,6 @@
 from convert_dicom import dicom_series_to_nifti
 from convert_siemens import dicom_to_nifti
+import copy
 import math
 import matplotlib
 import matplotlib.pyplot as plt
@@ -171,6 +172,17 @@ def augment(img, final_size, num_samples = 100, translate=None):
 ###########################
 ### VOIs
 ###########################
+
+def align(img, voi, ven_voi):
+    temp_ven = copy.deepcopy(img[:,:,:,1])
+    dx = ((ven_voi["x1"] + ven_voi["x2"]) - (voi["x1"] + voi["x2"])) // 2
+    dy = ((ven_voi["y1"] + ven_voi["y2"]) - (voi["y1"] + voi["y2"])) // 2
+    dz = ((ven_voi["z1"] + ven_voi["z2"]) - (voi["z1"] + voi["z2"])) // 2
+    
+    pad = int(max(abs(dx), abs(dy), abs(dz)))+1
+    temp_ven = np.pad(temp_ven, pad, 'constant')[pad+dx:-pad+dx, pad+dy:-pad+dy, pad+dz:-pad+dz]
+    
+    return np.stack([img[:,:,:,0], temp_ven], axis=3)
 
 def scale_vois(x, y, z, pre_reg_scale, field=None, post_reg_scale=None):
     scale = pre_reg_scale
