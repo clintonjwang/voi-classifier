@@ -140,7 +140,7 @@ def reg_imgs(moving, fixed, params, rescale_only=False):
 ### IMAGE AUGMENTATION
 ##########################
 
-def augment(img, final_size, num_samples = 100, translate=None):
+def augment(img, final_size, num_samples = 100, exceed_ratio=1, translate=None):
     aug_imgs = []
     
     for _ in range(num_samples):
@@ -148,9 +148,10 @@ def augment(img, final_size, num_samples = 100, translate=None):
         angle = random.randint(0, 359)
         temp_img = tr.rotate(temp_img, angle)
         
-        #scales = [0.9, 1.1]
-        #scale = [random.uniform(scales[0],scales[1]), random.uniform(scales[0],scales[1]), random.uniform(scales[0],scales[1])]
-        #temp_img = tr.scale3d(temp_img, scale)
+        if exceed_ratio < 1:
+            scales = [1, 1/exceed_ratio]
+            scale = [random.uniform(scales[0],scales[1]), random.uniform(scales[0],scales[1]), random.uniform(scales[0],scales[1])]
+            temp_img = tr.scale3d(temp_img, scale)
         
         if translate is not None:
             trans = [random.randint(-translate[0], translate[0]),
@@ -162,6 +163,8 @@ def augment(img, final_size, num_samples = 100, translate=None):
         flip = [random.choice([-1, 1]), random.choice([-1, 1]), random.choice([-1, 1])]
         
         crops = [temp_img.shape[i] - final_size[i] for i in range(3)]
+
+        #temp_img = add_noise(temp_img)
         
         aug_imgs.append(temp_img[math.floor(crops[0]/2)*flip[0] + trans[0] : -math.ceil(crops[0]/2)*flip[0] + trans[0] : flip[0],
                                  math.floor(crops[1]/2)*flip[1] + trans[1] : -math.ceil(crops[1]/2)*flip[1] + trans[1] : flip[1],
@@ -250,6 +253,9 @@ def get_hist(img):
 #########################
 ### UTILITY
 #########################
+
+def get_voi_id(acc_num, x, y, z):
+    return ''.join(map(str, [acc_num, x[0], y[0], z[0]]))
 
 def plot_section_old(img, df, pad=30):
     plt.subplot(121)
