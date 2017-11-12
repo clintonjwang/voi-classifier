@@ -176,8 +176,8 @@ def augment(img, final_size, num_samples = 100, exceed_ratio=1, translate=None):
 ### VOIs
 ###########################
 
-def align(img, voi, ven_voi):
-    temp_ven = copy.deepcopy(img[:,:,:,1])
+def align(img, voi, ven_voi, ch):
+    temp_ven = copy.deepcopy(img[:,:,:,ch])
     dx = ((ven_voi["x1"] + ven_voi["x2"]) - (voi["x1"] + voi["x2"])) // 2
     dy = ((ven_voi["y1"] + ven_voi["y2"]) - (voi["y1"] + voi["y2"])) // 2
     dz = ((ven_voi["z1"] + ven_voi["z2"]) - (voi["z1"] + voi["z2"])) // 2
@@ -185,7 +185,10 @@ def align(img, voi, ven_voi):
     pad = int(max(abs(dx), abs(dy), abs(dz)))+1
     temp_ven = np.pad(temp_ven, pad, 'constant')[pad+dx:-pad+dx, pad+dy:-pad+dy, pad+dz:-pad+dz]
     
-    return np.stack([img[:,:,:,0], temp_ven], axis=3)
+    if ch == 1:
+        return np.stack([img[:,:,:,0], temp_ven, img[:,:,:,2]], axis=3)
+    elif ch == 2:
+        return np.stack([img[:,:,:,0], img[:,:,:,1], temp_ven], axis=3)
 
 def scale_vois(x, y, z, pre_reg_scale, field=None, post_reg_scale=None):
     scale = pre_reg_scale
