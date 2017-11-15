@@ -149,7 +149,7 @@ def augment(img, final_size, num_samples = 100, exceed_ratio=1, translate=None):
         temp_img = tr.rotate(temp_img, angle)
         
         if exceed_ratio < 1:
-            scales = [(1 + 2/exceed_ratio) / 3, (1 + 8/exceed_ratio) / 9]
+            scales = [(1 + 1/exceed_ratio) / 2, (1 + 5/exceed_ratio) / 6]
             scale = [random.uniform(scales[0],scales[1]), random.uniform(scales[0],scales[1]), random.uniform(scales[0],scales[1])]
             temp_img = tr.scale3d(temp_img, scale)
         
