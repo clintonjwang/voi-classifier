@@ -266,15 +266,37 @@ def get_hist(img):
 def get_voi_id(acc_num, x, y, z):
     return ''.join(map(str, [acc_num, x[0], y[0], z[0]]))
 
-def plot_section_old(img, df, pad=30):
-    plt.subplot(121)
-    plt.imshow(np.transpose(img[df['x1']-pad:df['x2']+pad,
-                                df['y2']+pad:df['y1']-pad:-1,
-                                (df['z1']+df['z2'])//2, 0], (1,0)), cmap='gray')
-    plt.subplot(122)
-    plt.imshow(np.transpose(img[df['x1']-pad:df['x2']+pad,
-                                df['y2']+pad:df['y1']-pad:-1,
-                                (df['z1']+df['z2'])//2, 1], (1,0)), cmap='gray')
+def plot_section_auto(img):
+    plt.subplot(131)
+    plt.imshow(np.transpose(img[:, ::-1, img.shape[2]//2, 0], (1,0)), cmap='gray')
+    plt.subplot(132)
+    plt.imshow(np.transpose(img[:, ::-1, img.shape[2]//2, 1], (1,0)), cmap='gray')
+    plt.subplot(133)
+    plt.imshow(np.transpose(img[:, ::-1, img.shape[2]//2, 2], (1,0)), cmap='gray')
+
+def plot_section_scan(img, frac=None):
+    plt.subplot(231)
+    plt.imshow(np.transpose(img[:, ::-1, 0, 0], (1,0)), cmap='gray')
+    plt.subplot(232)
+    plt.imshow(np.transpose(img[:, ::-1, 0, 1], (1,0)), cmap='gray')
+    plt.subplot(233)
+    plt.imshow(np.transpose(img[:, ::-1, 0, 2], (1,0)), cmap='gray')
+
+    if frac is None:
+        plt.subplot(234)
+        plt.imshow(np.transpose(img[:, ::-1, -1, 0], (1,0)), cmap='gray')
+        plt.subplot(235)
+        plt.imshow(np.transpose(img[:, ::-1, -1, 1], (1,0)), cmap='gray')
+        plt.subplot(236)
+        plt.imshow(np.transpose(img[:, ::-1, -1, 2], (1,0)), cmap='gray')
+
+    else:
+        plt.subplot(234)
+        plt.imshow(np.transpose(img[:, ::-1, int(img.shape[2]*frac), 0], (1,0)), cmap='gray')
+        plt.subplot(235)
+        plt.imshow(np.transpose(img[:, ::-1, int(img.shape[2]*frac), 1], (1,0)), cmap='gray')
+        plt.subplot(236)
+        plt.imshow(np.transpose(img[:, ::-1, int(img.shape[2]*frac), 2], (1,0)), cmap='gray')
 
 def plot_section(img, df, pad=30, flipz="both"):
     if flipz=="both":
