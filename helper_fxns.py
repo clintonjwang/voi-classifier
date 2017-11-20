@@ -140,7 +140,7 @@ def reg_imgs(moving, fixed, params, rescale_only=False):
 ### IMAGE AUGMENTATION
 ##########################
 
-def augment(img, final_size, num_samples = 100, exceed_ratio=1, translate=None):
+"""def augment(img, final_size, num_samples = 100, exceed_ratio=1, translate=None):
     aug_imgs = []
     
     for _ in range(num_samples):
@@ -176,7 +176,7 @@ def augment(img, final_size, num_samples = 100, exceed_ratio=1, translate=None):
         
         aug_imgs.append(temp_img)
     
-    return aug_imgs
+    return aug_imgs"""
 
 ###########################
 ### VOIs

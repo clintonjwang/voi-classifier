@@ -5,7 +5,7 @@ class Config:
 		self.nb_channels = 3
 		self.nb_classes = 4
 		self.vox_dims = [1.25, 1.25, 2.5]
-		self.aug_factor = 2#{"cyst": 65, "hcc": 65, "hemangioma": 75, "fnh": 70, "adenoma": 70, "colorectal": 70, "cholangio": 70}
+		self.aug_factor = 50#{"cyst": 65, "hcc": 65, "hemangioma": 75, "fnh": 70, "adenoma": 70, "colorectal": 70, "cholangio": 70}
 
 		self.model_path = "model.hdf5"
 		self.full_img_dir = "Z:\\full_imgs_origdims"
