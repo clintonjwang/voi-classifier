@@ -2,9 +2,6 @@ import numpy as np
 import cv2
 import imutils
 
-def translate():
-	pass
-
 def scale3d(img, scale):
 	[scalex, scaley, scalez] = scale
 

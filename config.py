@@ -18,6 +18,6 @@ class Config:
 
 		self.full_img_dir = "Z:\\INPUT\\full_imgs_origdims"
 		self.crops_dir = "imgs\\unscaled_training_data4\\" #Z:\\INPUT\\
-		self.aug_dir = "imgs\\aug_imgs4\\"
+		self.aug_dir = "imgs\\aug_imgs_ref\\"
 		self.orig_dir = "imgs\\orig_imgs4\\"
-		self.output_img_dir = "Z:\\OUTPUT\\11-21"
+		self.output_img_dir = "Z:\\OUTPUT\\11-22"
