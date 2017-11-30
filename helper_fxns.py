@@ -274,6 +274,21 @@ def plot_section_auto(img):
     plt.subplot(133)
     plt.imshow(np.transpose(img[:, ::-1, img.shape[2]//2, 2], (1,0)), cmap='gray')
 
+def plot_section_auto_scan(img, frac):
+    plt.subplot(231)
+    plt.imshow(np.transpose(img[:, ::-1, img.shape[2]//2, 0], (1,0)), cmap='gray')
+    plt.subplot(232)
+    plt.imshow(np.transpose(img[:, ::-1, img.shape[2]//2, 1], (1,0)), cmap='gray')
+    plt.subplot(233)
+    plt.imshow(np.transpose(img[:, ::-1, img.shape[2]//2, 2], (1,0)), cmap='gray')
+
+    plt.subplot(234)
+    plt.imshow(np.transpose(img[:, ::-1, int(img.shape[2]*frac), 0], (1,0)), cmap='gray')
+    plt.subplot(235)
+    plt.imshow(np.transpose(img[:, ::-1, int(img.shape[2]*frac), 1], (1,0)), cmap='gray')
+    plt.subplot(236)
+    plt.imshow(np.transpose(img[:, ::-1, int(img.shape[2]*frac), 2], (1,0)), cmap='gray')
+
 def plot_section_scan(img, frac=None):
     plt.subplot(231)
     plt.imshow(np.transpose(img[:, ::-1, 0, 0], (1,0)), cmap='gray')
