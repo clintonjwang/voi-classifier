@@ -21,4 +21,4 @@ class Config:
 		self.artif_dir = "imgs\\artif_imgs\\"
 		self.aug_dir = "imgs\\aug_imgs\\"
 		self.orig_dir = "imgs\\orig_imgs\\"
-		self.output_img_dir = "Z:\\OUTPUT\\11-25"
+		self.output_img_dir = "Z:\\OUTPUT\\11-28"
