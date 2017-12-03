@@ -266,11 +266,11 @@ def get_hist(img):
 def get_voi_id(acc_num, x, y, z):
     return ''.join(map(str, [acc_num, x[0], y[0], z[0]]))
 
-def plot_section_auto(img, normalize=True):
+def plot_section_auto(img, normalize=False):
     if normalize:
         img[0,0,:,:]=-1
         img[0,-1,:,:]=1
-        
+
     plt.subplot(131)
     plt.imshow(np.transpose(img[:, ::-1, img.shape[2]//2, 0], (1,0)), cmap='gray')
     plt.subplot(132)

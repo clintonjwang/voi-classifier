@@ -6,7 +6,7 @@ class Config:
 		#self.nb_classes = 5
 		#self.vox_dims = [1.25, 1.25, 2.5]
 		self.aug_factor = 50#{"cyst": 65, "hcc": 65, "hemangioma": 75, "fnh": 70, "adenoma": 70, "colorectal": 70, "cholangio": 70}
-		self.train_frac = .6
+		self.train_frac = .8
 		#self.train_frac = {"cyst": .8, "fnh": .8, "hcc": .8, "hemangioma": .8, 'adenoma': .8, "colorectal": .8, "cholangio": .8}
 
 		self.model_path = "model.hdf5"		
@@ -20,6 +20,6 @@ class Config:
 		self.full_img_dir = "Z:\\INPUT\\full_imgs_origdims"
 		self.crops_dir = "imgs\\unscaled_training_data4\\" #Z:\\INPUT\\
 		self.artif_dir = "imgs\\artif_imgs\\"
-		self.aug_dir = "imgs\\aug_imgs\\"
+		self.aug_dir = "imgs\\aug_imgs_refl\\"
 		self.orig_dir = "imgs\\orig_imgs\\"
 		self.output_img_dir = "Z:\\OUTPUT\\11-28"
