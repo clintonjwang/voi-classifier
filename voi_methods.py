@@ -2,6 +2,7 @@ import copy
 import helper_fxns as hf
 import math
 import numpy as np
+import os
 import time
 
 def extract_voi(img, voi, min_dims, ven_voi=[], eq_voi=[]):
@@ -135,22 +136,23 @@ def extract_vois(acc_nums, small_vois, classes_to_include, C, voi_df_art, voi_df
     t = time.time()
 
     # iterate over image series
-    for img_fn in os.listdir(C.full_img_dir + cls):
-        img = np.load(C.full_img_dir+"\\"+img_fn)
-        art_vois = voi_df_art[(voi_df_art["Filename"] == img_fn) & (voi_df_art["cls"].isin(classes_to_include))]
+    for cls in classes_to_include:
+        for img_fn in os.listdir(C.full_img_dir + "\\" + cls):
+            img = np.load(C.full_img_dir+"\\"+cls+"\\"+img_fn)
+            art_vois = voi_df_art[voi_df_art["Filename"] == img_fn]
 
-        # iterate over each voi in that image
-        for voi_num, voi in enumerate(art_vois.iterrows()):
-            ven_voi = voi_df_ven[voi_df_ven["id"] == voi[1]["id"]]
-            eq_voi = voi_df_eq[voi_df_eq["id"] == voi[1]["id"]]
+            # iterate over each voi in that image
+            for voi_num, voi in enumerate(art_vois.iterrows()):
+                ven_voi = voi_df_ven[voi_df_ven["id"] == voi[1]["id"]]
+                eq_voi = voi_df_eq[voi_df_eq["id"] == voi[1]["id"]]
 
-            cropped_img, cls, small_voi = extract_voi(img, copy.deepcopy(voi[1]), final_size, ven_voi=ven_voi, eq_voi=eq_voi)
-            fn = img_fn[:-4] + "_" + str(voi[1]["lesion_num"])
-            np.save(C.crops_dir + cls + "\\" + fn, cropped_img)
-            small_vois[fn] = small_voi
+                cropped_img, cls, small_voi = extract_voi(img, copy.deepcopy(voi[1]), C.dims, ven_voi=ven_voi, eq_voi=eq_voi)
+                fn = img_fn[:-4] + "_" + str(voi[1]["lesion_num"])
+                np.save(C.crops_dir + cls + "\\" + fn, cropped_img)
+                small_vois[fn] = small_voi
 
-            if voi_num % 20 == 0:
-                print(".", end="")
+                if voi_num % 20 == 0:
+                    print(".", end="")
     print("")
     print(time.time()-t)
     
