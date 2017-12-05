@@ -73,6 +73,61 @@ def extract_voi(img, voi, min_dims, ven_voi=[], eq_voi=[]):
         
     return pad_img, voi['cls'], [int(x) for x in new_voi]
 
+def augment_img(img, final_dims, voi, num_samples, translate=None, add_reflections=False):
+    """For rescaling an img to final_dims while scaling to make sure the image contains the voi."""
+    
+    x1 = voi[0]
+    x2 = voi[1]
+    y1 = voi[2]
+    y2 = voi[3]
+    z1 = voi[4]
+    z2 = voi[5]
+    dx = x2 - x1
+    dy = y2 - y1
+    dz = z2 - z1
+    
+    buffer1 = 0.7
+    buffer2 = 0.9
+    scale_ratios = [final_dims[0]/dx, final_dims[1]/dy, final_dims[2]/dz]
+
+    aug_imgs = []
+    
+    for _ in range(num_samples):
+        scales = [random.uniform(scale_ratios[0]*buffer1, scale_ratios[0]*buffer2),
+                 random.uniform(scale_ratios[1]*buffer1, scale_ratios[1]*buffer2),
+                 random.uniform(scale_ratios[2]*buffer1, scale_ratios[2]*buffer2)]
+        
+        angle = random.randint(0, 359)
+
+        temp_img = tr.scale3d(img, scales)
+        temp_img = tr.rotate(temp_img, angle)
+        
+        if translate is not None:
+            trans = [random.randint(-translate[0], translate[0]),
+                     random.randint(-translate[1], translate[1]),
+                     random.randint(-translate[2], translate[2])]
+        else:
+            trans = [0,0,0]
+        
+        flip = [random.choice([-1, 1]), random.choice([-1, 1]), random.choice([-1, 1])]
+
+        crops = [temp_img.shape[i] - final_dims[i] for i in range(3)]
+    
+        for i in range(3):
+            assert crops[i]>=0
+
+        #temp_img = add_noise(temp_img)
+
+        temp_img = temp_img[crops[0]//2 *flip[0] + trans[0] : -crops[0]//2 *flip[0] + trans[0] : flip[0],
+                            crops[1]//2 *flip[1] + trans[1] : -crops[1]//2 *flip[1] + trans[1] : flip[1],
+                            crops[2]//2 *flip[2] + trans[2] : -crops[2]//2 *flip[2] + trans[2] : flip[2], :]
+        
+        aug_imgs.append(temp_img)
+        
+        if add_reflections:
+            aug_imgs.append(tr.generate_reflected_img(temp_img))
+    
+    return aug_imgs
 
 def extract_vois(acc_nums, small_vois, classes_to_include, C, voi_df_art, voi_df_ven, voi_df_eq):
     """Call extract_voi for a list of acc_nums"""
@@ -80,7 +135,7 @@ def extract_vois(acc_nums, small_vois, classes_to_include, C, voi_df_art, voi_df
     t = time.time()
 
     # iterate over image series
-    for img_fn in acc_nums:
+    for img_fn in os.listdir(C.full_img_dir + cls):
         img = np.load(C.full_img_dir+"\\"+img_fn)
         art_vois = voi_df_art[(voi_df_art["Filename"] == img_fn) & (voi_df_art["cls"].isin(classes_to_include))]
 

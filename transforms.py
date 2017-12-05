@@ -144,19 +144,19 @@ def generate_reflected_img(img):
     choice = random.randint(1,6)
     if choice==1:
         return np.concatenate([img[:img.shape[0]//2:-1, :,:,:],
-                        img[img.shape[0]//2:, :,:,:]], axis=0)
+                        img[math.ceil(img.shape[0]/2)-1:, :,:,:]], axis=0)
     elif choice==2:
         return np.concatenate([img[:, :img.shape[1]//2:-1 ,:,:],
-                        img[:, img.shape[1]//2: ,:,:]], axis=1)
+                        img[:, math.ceil(img.shape[1]/2)-1: ,:,:]], axis=1)
     elif choice==3:
-        return np.concatenate([img[:, :, :img.shape[2]//2:-1,:],
-                        img[:, : , img.shape[2]//2:,:]], axis=2)
+        return np.flip(np.concatenate([img[:, :, :img.shape[2]//2:-1,:],
+                        img[:, : , math.ceil(img.shape[2]/2)-1:,:]], axis=2), axis=1)
     elif choice==4:
-        return np.concatenate([img[:img.shape[0]//2, :,:,:],
+        return np.concatenate([img[:math.ceil(img.shape[0]/2)-1, :,:,:],
                         img[img.shape[0]//2::-1, :,:,:]], axis=0)
     elif choice==5:
-        return np.concatenate([img[:, :img.shape[1]//2,:,:],
+        return np.concatenate([img[:, :math.ceil(img.shape[1]/2)-1,:,:],
                         img[:, img.shape[1]//2::-1, :,:]], axis=1)
     else:
-        return np.concatenate([img[:,:, :img.shape[2]//2, :],
-                        img[:,:, img.shape[2]//2::-1,:]], axis=2)
+        return np.flip(np.concatenate([img[:,:, :math.ceil(img.shape[2]/2)-1, :],
+                        img[:,:, img.shape[2]//2::-1,:]], axis=2), axis=1)
