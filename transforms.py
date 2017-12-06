@@ -141,22 +141,48 @@ def add_noise(image, noise_typ="gauss"):
 	return None
 
 def generate_reflected_img(img):
-    choice = random.randint(1,6)
-    if choice==1:
-        return np.concatenate([img[:img.shape[0]//2:-1, :,:,:],
-                        img[math.ceil(img.shape[0]/2)-1:, :,:,:]], axis=0)
-    elif choice==2:
-        return np.concatenate([img[:, :img.shape[1]//2:-1 ,:,:],
-                        img[:, math.ceil(img.shape[1]/2)-1: ,:,:]], axis=1)
-    elif choice==3:
-        return np.flip(np.concatenate([img[:, :, :img.shape[2]//2:-1,:],
-                        img[:, : , math.ceil(img.shape[2]/2)-1:,:]], axis=2), axis=1)
-    elif choice==4:
-        return np.concatenate([img[:math.ceil(img.shape[0]/2)-1, :,:,:],
-                        img[img.shape[0]//2::-1, :,:,:]], axis=0)
-    elif choice==5:
-        return np.concatenate([img[:, :math.ceil(img.shape[1]/2)-1,:,:],
-                        img[:, img.shape[1]//2::-1, :,:]], axis=1)
-    else:
-        return np.flip(np.concatenate([img[:,:, :math.ceil(img.shape[2]/2)-1, :],
-                        img[:,:, img.shape[2]//2::-1,:]], axis=2), axis=1)
+	"""Randomly generate an image by reflecting half of img across one of its axes"""
+	choice = random.randint(1,6)
+	if choice==1:
+		return np.concatenate([img[:img.shape[0]//2:-1, :,:,:],
+						img[math.ceil(img.shape[0]/2)-1:, :,:,:]], axis=0)
+	elif choice==2:
+		return np.concatenate([img[:, :img.shape[1]//2:-1 ,:,:],
+						img[:, math.ceil(img.shape[1]/2)-1: ,:,:]], axis=1)
+	elif choice==3:
+		return np.flip(np.concatenate([img[:, :, :img.shape[2]//2:-1,:],
+						img[:, : , math.ceil(img.shape[2]/2)-1:,:]], axis=2), axis=1)
+	elif choice==4:
+		return np.concatenate([img[:math.ceil(img.shape[0]/2)-1, :,:,:],
+						img[img.shape[0]//2::-1, :,:,:]], axis=0)
+	elif choice==5:
+		return np.concatenate([img[:, :math.ceil(img.shape[1]/2)-1,:,:],
+						img[:, img.shape[1]//2::-1, :,:]], axis=1)
+	else:
+		return np.flip(np.concatenate([img[:,:, :math.ceil(img.shape[2]/2)-1, :],
+						img[:,:, img.shape[2]//2::-1,:]], axis=2), axis=1)
+
+
+def offset_phases(img, max_offset=4, max_z_offset=2):
+	"""Return an img by offsetting the second and third channels of img
+	by a random amount up to max_offset, uniformly distributed."""
+
+	xy = max_offset+1
+	z = max_z_offset+1
+
+	img = np.pad(img, [(xy, xy), (xy, xy), (z, z), (0,0)], 'edge')
+
+	offset_ch2 = [random.randint(-max_offset, max_offset),
+					random.randint(-max_offset, max_offset),
+					random.randint(-max_z_offset, max_z_offset)]
+	offset_ch3 = [random.randint(-max_offset, max_offset),
+					random.randint(-max_offset, max_offset),
+					random.randint(-max_z_offset, max_z_offset)]
+
+	return np.stack([img[xy:-xy, xy:-xy, z:-z, 0],
+					img[xy+offset_ch2[0]:-xy+offset_ch2[0],
+						xy+offset_ch2[1]:-xy+offset_ch2[1],
+						z+offset_ch2[2]:-z+offset_ch2[2], 1],
+					img[xy+offset_ch3[0]:-xy+offset_ch3[0],
+						xy+offset_ch3[1]:-xy+offset_ch3[1],
+						z+offset_ch3[2]:-z+offset_ch3[2], 2]], axis=3)

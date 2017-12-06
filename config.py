@@ -24,6 +24,12 @@ class Config:
 		self.full_img_dir = "Z:\\INPUT\\full_imgs_origdims"
 		self.crops_dir = "imgs\\unscaled_training_data4\\" #Z:\\INPUT\\
 		self.artif_dir = "imgs\\artif_imgs\\"
-		self.aug_dir = "imgs\\aug_imgs_refl\\"
+		self.aug_dir = "imgs\\aug_imgs\\"
 		self.orig_dir = "imgs\\orig_imgs\\"
 		self.output_img_dir = "Z:\\OUTPUT\\12-05"
+
+		# Artificial sample parameters
+		self.long_size_frac = [0.5, 0.8]
+		self.max_side_ratio = 2
+		self.noise_std = 0.12
+		self.shade_std = 0.05
