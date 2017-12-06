@@ -136,7 +136,7 @@ def gen_colorectals(C, n):
 	shades = [-0.5, -0.5, -0.45]
 	return gen_rimmed_lesions(n, shades, C, rim_shades=[.5,.35,.35], shrink_factor=[.8, .95], rim_ratio=0.86)
 
-def gen_fnhs(C, n, scar_fraction = .2):
+def gen_fnhs(C, n, scar_fraction = .5):
 	"""Generate n images of FNHs with dimensions of C.dims plus channels defined by the config file.
 	Should be hypointense in all phases (necrotic core) with an enhancing rim."""
 	
@@ -186,7 +186,7 @@ def gen_round_lesions(n, shades, C, shade_offset=0):
 		
 	return imgs
 
-def gen_scarring_lesions(n, shades, C, scar_shades=[-.6, -.6, .25]):
+def gen_scarring_lesions(n, shades, C, scar_shades=[-.5, -.5, .25]):
 	"""Lesions that have a central scar. Includes FNHs."""
 	
 	imgs = []
@@ -199,7 +199,10 @@ def gen_scarring_lesions(n, shades, C, scar_shades=[-.6, -.6, .25]):
 	
 	for i in range(n):
 		r = midx * sizes[i]
-		r_scar = r * random.uniform(.3,.8) * sizes[i] #more pronounced scarring in large lesions
+		if sizes[i] < .65 or side_rat[i] < 0.75:
+			r_scar = 0
+		else:
+			r_scar = r * random.uniform(.3,.8) * sizes[i] #more pronounced scarring in large lesions
 		
 		shades_i = [shade+random.gauss(0, C.shade_std) for shade in shades]
 		scar_shades_i = [scar_shade+random.gauss(0, C.shade_std) for scar_shade in scar_shades]
@@ -220,11 +223,11 @@ def gen_scarring_lesions(n, shades, C, scar_shades=[-.6, -.6, .25]):
 		
 
 		for x in range(-math.floor(r_scar), math.floor(r_scar)):
-			for y in range(-int(round(random.uniform(0,.5)*r_scar)), math.ceil(random.uniform(0,.5)*r_scar)):
+			for y in range(-int(round(random.uniform(.1,.5)*r_scar)), math.ceil(random.uniform(.1,.5)*r_scar)):
 				z = (r_scar**2 - x**2 - (y/side_rat[i])**2)
 				if z <= 0:
 					continue
-				z = int(math.ceil(z**(.5)/z_ratio))
+				z = math.ceil(z**(.5)/z_ratio)
 				img[x+midx, y+midy, midz-z:midy+z, :] = [scar_shades_ix/z for scar_shades_ix in scar_shades_i]
 		
 		imgs.append(img)
@@ -269,7 +272,7 @@ def gen_shrinking_lesions(n, shades, C, shrink_factor = [0.5, 0.8]):
 
 
 def gen_rimmed_lesions(n, shades, C, rim_shades=[.3, .3, .3], rim_ratio = 0.9, prob_discont = 0, shrink_factor = [1,1]):
-	"""Lesions that have a continuous enhancing rim. Includes hemangiomas and colorectal mets."""
+	"""Lesions that have an enhancing rim. Includes hemangiomas and colorectal mets."""
 	
 	imgs = []
 	side_rat, sizes = get_sizes(C, n)
@@ -291,32 +294,32 @@ def gen_rimmed_lesions(n, shades, C, rim_shades=[.3, .3, .3], rim_ratio = 0.9, p
 		img = np.zeros(C.dims + [C.nb_channels])
 		for x in range(-math.floor(r), math.floor(r)):
 			for y in range(-math.floor(r), math.floor(r)):
-				z = (r**2 - x**2 - (y/side_rat[i])**2)
-				if z <= 0:
+				z_sq = (r**2 - x**2 - (y/side_rat[i])**2)
+				if z_sq <= 0:
 					continue
 					
-				z = int(round(z**(.5)/z_ratio))
+				z = int(round(z_sq**(.5)/z_ratio))
 				
 				if z > midz:
 					z = midz
 				
-				if random.random() > prob_discont:
-					img[x+midx, y+midy, midz-z:midy+z, :] = rim_shades
-				else:
-					for ch in range(3):
-						img[x+midx-spread:x+midx+spread, y+midy-spread:y+midy+spread, midz-z:midy+z, ch] = shades_i[ch]
+				img[x+midx, y+midy, midz-z:midy+z, :] = rim_shades
 				
 				for ch, rad in enumerate([r_core, rven, req]):
-					z = (rad**2 - x**2 - (y/side_rat[i])**2)
-					if z <= 0:
+					z_sq = (rad**2 - x**2 - (y/side_rat[i])**2)
+					if z_sq <= 0:
 						continue
 
-					z = int(round(z**(.5)/z_ratio))
+					z = int(round(z_sq**(.5)/z_ratio))
 
 					if z > midz:
 						z = midz
 
-					img[x+midx, y+midy, midz-z:midy+z, ch] = shades_i[ch]
+					if random.random() > prob_discont:
+						for ch in range(3):
+							img[x+midx-spread:x+midx+spread, y+midy-spread:y+midy+spread, midz-z:midy+z, ch] = shades_i[ch]*max(z_sq**.3,.9)*random.uniform(.8,1.2)
+					else:
+						img[x+midx, y+midy, midz-z:midy+z, ch] = shades_i[ch]*max(z_sq**.3,.9)
 				
 		imgs.append(img)
 		
@@ -369,25 +372,25 @@ def gen_heterogen_lesions(n, shades, C, rim_shades=[.3, .3, .3], rim_ratio = 0.9
 					
 				elif random.random() < 0.5:
 					for ch, rad in enumerate([r_core, rven, req]):
-						z = (rad**2 - x**2 - (y/side_rat[i])**2)
-						if z <= 0:
+						z_sq = (rad**2 - x**2 - (y/side_rat[i])**2)
+						if z_sq <= 0:
 							continue
-						z = int(round(z**(.5)/z_ratio))
+						z = int(round(z_sq**(.5)/z_ratio))
 						if z > midz:
 							z = midz
 							
-						img[x+midx-spread:x+midx+spread, y+midy-spread:y+midy+spread, midz-z:midy+z, ch] = shades_i[ch]
+						img[x+midx-spread:x+midx+spread, y+midy-spread:y+midy+spread, midz-z:midy+z, ch] = shades_i[ch]*random.uniform(.8,1.2)
 						
 				else:
 					for ch, rad in enumerate([r_core, rven, req]):
-						z = (rad**2 - x**2 - (y/side_rat[i])**2)
-						if z <= 0:
+						z_sq = (rad**2 - x**2 - (y/side_rat[i])**2)
+						if z_sq <= 0:
 							continue
-						z = int(round(z**(.5)/z_ratio))
+						z = int(round(z_sq**(.5)/z_ratio))
 						if z > midz:
 							z = midz
 							
-						img[x+midx, y+midy, midz-z:midy+z, ch] = shades_i[ch]
+						img[x+midx, y+midy, midz-z:midy+z, ch] = shades_i[ch]/max(z_sq**.3,.9)
 				
 		imgs.append(img)
 		
