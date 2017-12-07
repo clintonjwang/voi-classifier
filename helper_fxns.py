@@ -269,7 +269,7 @@ def get_voi_id(acc_num, x, y, z):
 def plot_section_auto(img, normalize=False):
 	if normalize:
 		img[0,0,:,:]=-1
-		img[0,-1,:,:]=1
+		img[0,-1,:,:]=.8
 
 	plt.subplot(131)
 	fig=plt.imshow(np.transpose(img[:, ::-1, img.shape[2]//2, 0], (1,0)), cmap='gray')

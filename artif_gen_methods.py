@@ -111,7 +111,7 @@ def gen_hccs(C, n):
 	"""Generate n images of hccs with dimensions of C.dims plus channels defined by the config file.
 	Should be round, enhancing in arterial, with washout in venous and delayed."""
 	
-	shades = [0.2, -0.2, -0.25]
+	shades = [0.25, -0.2, -0.35]
 	shade_offset = 0.15
 	return gen_round_lesions(n, shades, C, shade_offset=shade_offset)
 
@@ -120,21 +120,21 @@ def gen_hemangiomas(C, n):
 	Should be round, enhancing in arterial, with washout in venous and delayed."""
 	
 	shades = [-0.8, -0.8, -0.8]
-	return gen_rimmed_lesions(n, shades, C, rim_shades=[0.1, 0.15, 0.15], shrink_factor=[0.35, 0.8], rim_ratio=0.97, prob_discont=0.05)
+	return gen_nodular_enh_lesions(n, shades, C, rim_shades=[.5,.5,.5], shrink_factor=[0.5, 0.95], rim_ratio=0.975)
 
 def gen_cholangios(C, n):
 	"""Generate n images of cholangiocarcinomas with dimensions of C.dims plus channels defined by the config file.
 	Mass-forming should have irregular, ragged rim enhancement with gradual centripetal enhancement."""
 	
 	shades = [-0.6, -0.5, -0.4]
-	return gen_heterogen_lesions(n, shades, C, shrink_factor=[.6, .9], rim_ratio=0.92)
+	return gen_heterogen_lesions(n, shades, C, shrink_factor=[.7, .9], rim_ratio=0.92)
 
 def gen_colorectals(C, n):
 	"""Generate n images of colorectal mets with dimensions of C.dims plus channels defined by the config file.
 	Should be hypointense in all phases (necrotic core) with an enhancing rim. Sometimes enhances or shrinks over time(?)"""
 	
 	shades = [-0.5, -0.5, -0.45]
-	return gen_rimmed_lesions(n, shades, C, rim_shades=[.5,.35,.35], shrink_factor=[.8, .95], rim_ratio=0.86)
+	return gen_rimmed_lesions(n, shades, C, rim_shades=[.5,.4,.4], shrink_factor=[.95, 1], rim_ratio=0.92)
 
 def gen_fnhs(C, n, scar_fraction = .5):
 	"""Generate n images of FNHs with dimensions of C.dims plus channels defined by the config file.
@@ -180,11 +180,57 @@ def gen_round_lesions(n, shades, C, shade_offset=0):
 				if z > midz:
 					z = midz
 					
-				img[x+midx, y+midy, midz-z:midy+z, :] = shades_i
+				img[x+midx, y+midy, midz-z:midz+z, :] = [shade*random.uniform(.6,1.1) for shade in shades_i]
 		
 		imgs.append(img)
 		
 	return imgs
+
+def gen_hcc_lesions(n, shades, C, shade_offset=0):
+	"""Round lesions that remain the same size in all phases. Includes HCCs and cysts.
+	Shade_offset randomly offsets the lesion shades in all phases by the same amount."""
+	
+	imgs = []
+	side_rat, sizes = get_sizes(C, n)
+	
+	midx = C.dims[0]//2
+	midy = C.dims[1]//2
+	midz = C.dims[2]//2
+	z_ratio = midy/midz
+
+	spread = 2
+	
+	for i in range(n):
+		r = midx * sizes[i]
+		shade_offset_i = random.uniform(-shade_offset, shade_offset)
+		
+		shades_i = [shade+random.gauss(0, C.shade_std)+shade_offset_i for shade in shades]
+		
+		img = np.zeros(C.dims + [C.nb_channels])
+		for x in range(-math.floor(r), math.floor(r)):
+			for y in range(-math.floor(r), math.floor(r)):
+				z = (r**2 - x**2 - (y/side_rat[i])**2)
+				if z <= 0:
+					continue
+					
+				z = int(round(z**(.5)/z_ratio))
+				
+				if z > midz:
+					z = midz
+					
+				if random.random() < 0.8:
+					img[x+midx, y+midy, midz-z:midz+z, :] = [shade*random.uniform(.6,1.1) for shade in shades_i]
+				
+				else:
+					img[x+midx-round(spread*random.uniform(0,1)):x+midx+1+round(spread*random.uniform(0,1)),
+						y+midy-round(spread*random.uniform(0,1)):y+midy+1+round(spread*random.uniform(0,1)),
+						midz-z:midz+z, :] = [math.abs(shade)*random.uniform(.6,1.1) for shade in shades_i]
+					
+		
+		imgs.append(img)
+		
+	return imgs
+
 
 def gen_scarring_lesions(n, shades, C, scar_shades=[-.5, -.5, .25]):
 	"""Lesions that have a central scar. Includes FNHs."""
@@ -219,7 +265,7 @@ def gen_scarring_lesions(n, shades, C, scar_shades=[-.5, -.5, .25]):
 				if z > midz:
 					z = midz
 					
-				img[x+midx, y+midy, midz-z:midy+z, :] = shades_i
+				img[x+midx, y+midy, midz-z:midz+z, :] = shades_i
 		
 
 		for x in range(-math.floor(r_scar), math.floor(r_scar)):
@@ -228,7 +274,7 @@ def gen_scarring_lesions(n, shades, C, scar_shades=[-.5, -.5, .25]):
 				if z <= 0:
 					continue
 				z = math.ceil(z**(.5)/z_ratio)
-				img[x+midx, y+midy, midz-z:midy+z, :] = [scar_shades_ix/z for scar_shades_ix in scar_shades_i]
+				img[x+midx, y+midy, midz-z:midz+z, :] = [scar_shades_ix/z for scar_shades_ix in scar_shades_i]
 		
 		imgs.append(img)
 		
@@ -264,15 +310,15 @@ def gen_shrinking_lesions(n, shades, C, shrink_factor = [0.5, 0.8]):
 					if z > midz:
 						z = midz
 
-					img[x+midx, y+midy, midz-z:midy+z, ch] = shades_i[ch]
+					img[x+midx, y+midy, midz-z:midz+z, ch] = shades_i[ch]
 				
 		imgs.append(img)
 		
 	return imgs
 
 
-def gen_rimmed_lesions(n, shades, C, rim_shades=[.3, .3, .3], rim_ratio = 0.9, prob_discont = 0, shrink_factor = [1,1]):
-	"""Lesions that have an enhancing rim. Includes hemangiomas and colorectal mets."""
+def gen_nodular_enh_lesions(n, shades, C, rim_shades=[.3, .3, .3], rim_ratio = 0.9, shrink_factor = [1,1]):
+	"""Lesions that have a nodularly enhancing rim. Includes hemangiomas."""
 	
 	imgs = []
 	side_rat, sizes = get_sizes(C, n)
@@ -282,6 +328,7 @@ def gen_rimmed_lesions(n, shades, C, rim_shades=[.3, .3, .3], rim_ratio = 0.9, p
 	z_ratio = midy/midz
 
 	spread = 2
+	prob_nodule = 0.3
 	
 	for i in range(n):
 		r = midx * sizes[i]
@@ -303,7 +350,7 @@ def gen_rimmed_lesions(n, shades, C, rim_shades=[.3, .3, .3], rim_ratio = 0.9, p
 				if z > midz:
 					z = midz
 				
-				img[x+midx, y+midy, midz-z:midy+z, :] = rim_shades
+				img[x+midx, y+midy, midz-z:midz+z, :] = rim_shades
 				
 				for ch, rad in enumerate([r_core, rven, req]):
 					z_sq = (rad**2 - x**2 - (y/side_rat[i])**2)
@@ -315,13 +362,71 @@ def gen_rimmed_lesions(n, shades, C, rim_shades=[.3, .3, .3], rim_ratio = 0.9, p
 					if z > midz:
 						z = midz
 
-					if random.random() < prob_discont and z_sq > rad**2 * .75:
+					if random.random() < prob_nodule and z_sq < rad**2 * .2:
 						for ch in range(3):
-							img[x+midx-spread:x+midx+round(spread*random.random()),
-								y+midy-spread:y+midy+round(spread*random.random()),
-								midz-z:midy+z, ch] = shades_i[ch]*.5*(1+z_sq/rad**2)
+							img[x+midx-round(spread*random.uniform(0,(ch+1)*.5)):x+midx+1+round(spread*random.uniform(0,ch)),
+								y+midy-round(spread*random.uniform(0,ch*.5)):y+midy+1+round(spread*random.uniform(0,ch*.5)),
+								midz-z:midz+z, ch] = rim_shades[ch]*random.uniform(.8,1)
 					else:
-						img[x+midx, y+midy, midz-z:midy+z, ch] = shades_i[ch]*.5*(1+z_sq/rad**2)
+						img[x+midx, y+midy, midz-z:midz+z, ch] = shades_i[ch]
+						#img[x+midx, y+midy, midz-z:midz+z, ch] = shades_i[ch]*.5*(1+z_sq/rad**2)
+				
+		imgs.append(img)
+		
+	return imgs
+
+def gen_rimmed_lesions(n, shades, C, rim_shades=[.3, .3, .3], rim_ratio = 0.9, internal_structure = 0.1, shrink_factor = [1,1]):
+	"""Lesions that have a continuous enhancing rim. Includes colorectal mets."""
+	
+	imgs = []
+	side_rat, sizes = get_sizes(C, n)
+	midx = C.dims[0]//2
+	midy = C.dims[1]//2
+	midz = C.dims[2]//2
+	z_ratio = midy/midz
+
+	spread = 2
+	
+	for i in range(n):
+		r = midx * sizes[i]
+		r_core = r * rim_ratio * random.uniform(.85,1.05)
+		rven = r_core * random.uniform(shrink_factor[0], shrink_factor[1])
+		req = rven * random.uniform(shrink_factor[0], shrink_factor[1])
+		
+		shades_i = [shade+random.gauss(0, C.shade_std) for shade in shades]
+		
+		img = np.zeros(C.dims + [C.nb_channels])
+		for x in range(-math.floor(r), math.floor(r)):
+			for y in range(-math.floor(r), math.floor(r)):
+				z_sq = (r**2 - x**2 - (y/side_rat[i])**2)
+				if z_sq <= 0:
+					continue
+					
+				z = int(round(z_sq**(.5)/z_ratio))
+				
+				if z > midz:
+					z = midz
+				
+				img[x+midx, y+midy, midz-z:midz+z, :] = rim_shades
+				
+				for ch, rad in enumerate([r_core, rven, req]):
+					z_sq = (rad**2 - x**2 - (y/side_rat[i])**2)
+					if z_sq <= 0:
+						continue
+
+					z = int(round(z_sq**(.5)/z_ratio))
+
+					if z > midz:
+						z = midz
+
+					if random.random() < internal_structure and z_sq > rad**2 * .7:
+						for ch in range(3):
+							img[x+midx+round(spread*random.random()),
+								y+midy+round(spread*random.random()),
+								midz-round(z*random.random()):midz+max(1,round(z*random.random())),
+								ch] = rim_shades[ch]*random.uniform(.2,.8)
+					else:
+						img[x+midx, y+midy, midz-z:midz+z, ch] = shades_i[ch]*random.uniform(.6,1)
 				
 		imgs.append(img)
 		
@@ -360,7 +465,7 @@ def gen_heterogen_lesions(n, shades, C, rim_shades=[.3, .3, .3], rim_ratio = 0.9
 				if z > midz:
 					z = midz
 					
-				img[x+midx, y+midy, midz-z:midy+z, :] = rim_shades
+				img[x+midx, y+midy, midz-z:midz+z, :] = [rim_shade*random.uniform(.6,1) for rim_shade in rim_shades]
 				
 				if random.random() < 0.8:
 					z = (r_core**2 - x**2 - (y/side_rat[i])**2)
@@ -370,7 +475,7 @@ def gen_heterogen_lesions(n, shades, C, rim_shades=[.3, .3, .3], rim_ratio = 0.9
 					if z > midz:
 						z = midz
 						
-					img[x+midx, y+midy, midz-z:midy+z, :] = rim_shades_i
+					img[x+midx, y+midy, midz-z:midz+z, :] = [rim_shade*random.uniform(.6,1) for rim_shade in rim_shades_i]
 					
 				elif random.random() < 0.5:
 					for ch, rad in enumerate([r_core, rven, req]):
@@ -381,7 +486,7 @@ def gen_heterogen_lesions(n, shades, C, rim_shades=[.3, .3, .3], rim_ratio = 0.9
 						if z > midz:
 							z = midz
 							
-						img[x+midx-spread:x+midx+spread, y+midy-spread:y+midy+spread, midz-z:midy+z, ch] = shades_i[ch]*random.uniform(.8,1.2)
+						img[x+midx-spread:x+midx+spread, y+midy-spread:y+midy+spread, midz-z:midz+z, ch] = shades_i[ch]*random.uniform(.8,1.2)
 						
 				else:
 					for ch, rad in enumerate([r_core, rven, req]):
@@ -392,7 +497,7 @@ def gen_heterogen_lesions(n, shades, C, rim_shades=[.3, .3, .3], rim_ratio = 0.9
 						if z > midz:
 							z = midz
 							
-						img[x+midx, y+midy, midz-z:midy+z, ch] = shades_i[ch]/max(z_sq**.3,.9)
+						img[x+midx, y+midy, midz-z:midz+z, ch] = shades_i[ch]/max(z_sq**.3,.9)
 				
 		imgs.append(img)
 		

@@ -163,7 +163,7 @@ def generate_reflected_img(img):
 						img[:,:, img.shape[2]//2::-1,:]], axis=2), axis=1)
 
 
-def offset_phases(img, max_offset=3, max_z_offset=1):
+def offset_phases(img, max_offset=2, max_z_offset=1):
 	"""Return an img by offsetting the second and third channels of img
 	by a random amount up to max_offset, uniformly distributed."""
 
