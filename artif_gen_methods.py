@@ -113,7 +113,7 @@ def gen_hccs(C, n):
 	
 	shades = [0.25, -0.2, -0.35]
 	shade_offset = 0.15
-	return gen_round_lesions(n, shades, C, shade_offset=shade_offset)
+	return gen_hcc_lesions(n, shades, C, shade_offset=shade_offset)
 
 def gen_hemangiomas(C, n):
 	"""Generate n images of hemangiomas with dimensions of C.dims plus channels defined by the config file.
@@ -224,7 +224,7 @@ def gen_hcc_lesions(n, shades, C, shade_offset=0):
 				else:
 					img[x+midx-round(spread*random.uniform(0,1)):x+midx+1+round(spread*random.uniform(0,1)),
 						y+midy-round(spread*random.uniform(0,1)):y+midy+1+round(spread*random.uniform(0,1)),
-						midz-z:midz+z, :] = [math.abs(shade)*random.uniform(.6,1.1) for shade in shades_i]
+						midz-z:midz+z, :] = [abs(shade)*random.uniform(.6,1.1) for shade in shades_i]
 					
 		
 		imgs.append(img)
