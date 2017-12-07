@@ -120,7 +120,7 @@ def gen_hemangiomas(C, n):
 	Should be round, enhancing in arterial, with washout in venous and delayed."""
 	
 	shades = [-0.8, -0.8, -0.8]
-	return gen_rimmed_lesions(n, shades, C, rim_shades=[0.1, 0.15, 0.15], shrink_factor=[0.2, 0.8], rim_ratio=0.97, prob_discont=0.3)
+	return gen_rimmed_lesions(n, shades, C, rim_shades=[0.1, 0.15, 0.15], shrink_factor=[0.35, 0.8], rim_ratio=0.97, prob_discont=0.05)
 
 def gen_cholangios(C, n):
 	"""Generate n images of cholangiocarcinomas with dimensions of C.dims plus channels defined by the config file.
@@ -281,11 +281,11 @@ def gen_rimmed_lesions(n, shades, C, rim_shades=[.3, .3, .3], rim_ratio = 0.9, p
 	midz = C.dims[2]//2
 	z_ratio = midy/midz
 
-	spread = 1
+	spread = 2
 	
 	for i in range(n):
 		r = midx * sizes[i]
-		r_core = r * rim_ratio
+		r_core = r * rim_ratio * random.uniform(.9,1.05)
 		rven = r_core * random.uniform(shrink_factor[0], shrink_factor[1])
 		req = rven * random.uniform(shrink_factor[0], shrink_factor[1])
 		
@@ -315,11 +315,13 @@ def gen_rimmed_lesions(n, shades, C, rim_shades=[.3, .3, .3], rim_ratio = 0.9, p
 					if z > midz:
 						z = midz
 
-					if random.random() > prob_discont:
+					if random.random() < prob_discont and z_sq > rad**2 * .75:
 						for ch in range(3):
-							img[x+midx-spread:x+midx+spread, y+midy-spread:y+midy+spread, midz-z:midy+z, ch] = shades_i[ch]*max(z_sq**.3,.9)*random.uniform(.8,1.2)
+							img[x+midx-spread:x+midx+round(spread*random.random()),
+								y+midy-spread:y+midy+round(spread*random.random()),
+								midz-z:midy+z, ch] = shades_i[ch]*.5*(1+z_sq/rad**2)
 					else:
-						img[x+midx, y+midy, midz-z:midy+z, ch] = shades_i[ch]*max(z_sq**.3,.9)
+						img[x+midx, y+midy, midz-z:midy+z, ch] = shades_i[ch]*.5*(1+z_sq/rad**2)
 				
 		imgs.append(img)
 		

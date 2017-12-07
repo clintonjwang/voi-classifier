@@ -125,7 +125,7 @@ def augment_img(img, final_dims, voi, num_samples, translate=None, add_reflectio
 							crops[1]//2 *flip[1] + trans[1] : -crops[1]//2 *flip[1] + trans[1] : flip[1],
 							crops[2]//2 *flip[2] + trans[2] : -crops[2]//2 *flip[2] + trans[2] : flip[2], :]
 		
-        temp_img = offset_phases(temp_img, max_offset=2, max_z_offset=1)
+		temp_img = tr.offset_phases(temp_img, max_offset=2, max_z_offset=1)
 
 		aug_imgs.append(temp_img)
 		

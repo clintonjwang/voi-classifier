@@ -8,7 +8,7 @@ class Config:
 		#self.nb_classes = 5
 		self.params = pyelastix.get_default_params(type="AFFINE")
 		#self.vox_dims = [1.25, 1.25, 2.5]
-		self.classes_to_include = ['cyst', 'hcc', 'hemangioma', 'cholangio', 'colorectal', 'fnh']
+		self.classes_to_include = ['hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh']
 		self.aug_factor = 50#{"cyst": 65, "hcc": 65, "hemangioma": 75, "fnh": 70, "adenoma": 70, "colorectal": 70, "cholangio": 70}
 		self.train_frac = .8
 		#self.train_frac = {"cyst": .8, "fnh": .8, "hcc": .8, "hemangioma": .8, 'adenoma': .8, "colorectal": .8, "cholangio": .8}
@@ -26,7 +26,7 @@ class Config:
 		self.artif_dir = "imgs\\artif_imgs\\"
 		self.aug_dir = "imgs\\aug_imgs\\"
 		self.orig_dir = "imgs\\orig_imgs\\"
-		self.output_img_dir = "Z:\\OUTPUT\\12-05"
+		self.output_img_dir = "Z:\\OUTPUT\\12-06"
 
 		# Artificial sample parameters
 		self.long_size_frac = [0.5, 0.8]

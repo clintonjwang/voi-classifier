@@ -110,7 +110,7 @@ def load_vois(cls, xls_name, sheetname, voi_dfs, dims_df, C, verbose=False, targ
 			voi_df_art, art_id = add_voi(voi_df_art, acc_num, x,y,z, vox_dims=cur_dims,
 										 cls=cls, flipz=(row['Flipped'] == "Yes"), return_id = True)
 
-			if "Image type2" in row.keys() and row['Image type2'] != '':
+			if "Image type2" in row.keys() and row['Image type2'] == 'VP-T1':
 				x = (int(row['x3']), int(row['x4']))
 				y = (int(row['y3']), int(row['y4']))
 				z = (int(row['z3']), int(row['z4']))
@@ -124,7 +124,7 @@ def load_vois(cls, xls_name, sheetname, voi_dfs, dims_df, C, verbose=False, targ
 					
 				voi_df_ven = add_voi(voi_df_ven, art_id, x,y,z)
 				
-			if "Image type3" in row.keys() and row['Image type3'] != '':
+			if "Image type3" in row.keys() and row['Image type3'] == 'EQ-T1':
 				x = (int(row['x5']), int(row['x6']))
 				y = (int(row['y5']), int(row['y6']))
 				z = (int(row['z5']), int(row['z6']))
@@ -152,10 +152,10 @@ def load_ints(C):
 
 	intensity_df = pd.DataFrame(columns = ["AccNum", "art_int", "ven_int", "eq_int"])
 
-    for cls in C.classes_to_include:
-    	for fn in os.listdir(C.full_img_dir + "\\" + cls):
-    		img = np.load(C.full_img_dir + "\\" + cls + "\\" + fn)
-    		intensity_df = add_intensity_df(intensity_df, img, fn[:-4])
+	for cls in C.classes_to_include:
+		for fn in os.listdir(C.full_img_dir + "\\" + cls):
+			img = np.load(C.full_img_dir + "\\" + cls + "\\" + fn)
+			intensity_df = add_intensity_df(intensity_df, img, fn[:-4])
 		
 	return intensity_df
 
