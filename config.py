@@ -4,6 +4,7 @@ class Config:
 	def __init__(self):
 		self.run_num = 2
 		self.dims = [36,36,12]
+		#self.dims = [64,64]
 		self.nb_channels = 3
 		#self.nb_classes = 5
 		self.params = pyelastix.get_default_params(type="AFFINE")

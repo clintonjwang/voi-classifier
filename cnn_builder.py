@@ -260,7 +260,6 @@ def run_cnn(model, C):
     return model
 
 
-
 def train_generator_func(C, train_ids, intensity_df, voi_df, avg_X2, n=12, n_art=0):
     """n is the number of samples from each class, n_art is the number of artificial samples"""
     classes_to_include = C.classes_to_include
@@ -273,8 +272,6 @@ def train_generator_func(C, train_ids, intensity_df, voi_df, avg_X2, n=12, n_art
 
         train_cnt = 0
         for cls in classes_to_include:
-            img_fns = os.listdir(C.aug_dir+cls)
-                        
             if n_art>0:
                 img_fns = os.listdir(C.artif_dir+cls)
                 for _ in range(n_art):
@@ -284,7 +281,8 @@ def train_generator_func(C, train_ids, intensity_df, voi_df, avg_X2, n=12, n_art
                     y[train_cnt][C.classes_to_include.index(cls)] = 1
 
                     train_cnt += 1
-                    
+
+            img_fns = os.listdir(C.aug_dir+cls)
             while n>0:
                 img_fn = random.choice(img_fns)
                 if img_fn[:img_fn.rfind('_')] + ".npy" in train_ids[cls]:
@@ -303,8 +301,8 @@ def train_generator_func(C, train_ids, intensity_df, voi_df, avg_X2, n=12, n_art
                     if train_cnt % (n+n_art) == 0:
                         break
             
-        
         yield cfunc.separate_phases([np.array(x1), np.array(x2)]), np.array(y) #[np.array(x1), np.array(x2)], np.array(y) #
+
 
 def train_generator_func_2d(C, train_ids, intensity_df, voi_df, avg_X2, n=12, n_art=0):
     """n is the number of samples from each class, n_art is the number of artificial samples"""
