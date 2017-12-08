@@ -111,8 +111,13 @@ def gen_hccs(C, n):
 	"""Generate n images of hccs with dimensions of C.dims plus channels defined by the config file.
 	Should be round, enhancing in arterial, with washout in delayed and usually venous."""
 	
-	shades = [0.25, -0.2, -0.35]
+	shades = [0.25, -0.1, -0.3]
 	shade_offset = 0.15
+	shade_std = .1
+	rim_shade = 0.4
+	prob_rim = .7
+	rim_continuity = .8
+	prob_hetero = .5
 
 	imgs = []
 	side_rat, sizes = get_sizes(C, n)
@@ -122,33 +127,39 @@ def gen_hccs(C, n):
 	midz = C.dims[2]//2
 	z_ratio = midy/midz
 
-	spread = 2
+	spread = 3
 	
 	for i in range(n):
+		has_rim = random.random()<prob_rim
+		patchwork = random.random()<prob_hetero
 		r = midx * sizes[i]
 		shade_offset_i = random.uniform(-shade_offset, shade_offset)
 		
-		shades_i = [shade+random.gauss(0, C.shade_std)+shade_offset_i for shade in shades]
+		shades_i = [shade+random.gauss(0, shade_std)+shade_offset_i for shade in shades]
 		
 		img = np.zeros(C.dims + [C.nb_channels])
 		for x in range(-math.floor(r), math.floor(r)):
 			for y in range(-math.floor(r), math.floor(r)):
-				z = (r**2 - x**2 - (y/side_rat[i])**2)
-				if z <= 0:
+				z_sq = (r**2 - x**2 - (y/side_rat[i])**2)
+				if z_sq <= 0:
 					continue
 					
-				z = int(round(z**(.5)/z_ratio))
+				z = int(round(z_sq**(.5)/z_ratio))
 				
 				if z > midz:
 					z = midz
-					
-				if random.random() < 0.8:
-					img[x+midx, y+midy, midz-z:midz+z, :] = [shade*random.uniform(.6,1.1) for shade in shades_i]
-				
+
+				if has_rim and z_sq < r**2 * .4 and random.random()<rim_continuity:
+					img[x+midx, y+midy, midz-z:midz+z, :] = rim_shade*random.uniform(.9,1.1)
+				elif patchwork:
+					if random.random() < 0.7:
+						img[x+midx, y+midy, midz-z:midz+z, :] = rim_shade*random.uniform(.3,.9)
+					else:
+						img[x+midx-round(spread*random.uniform(0,1)):x+midx+1+round(spread*random.uniform(0,1)),
+							y+midy-round(spread*random.uniform(0,1)):y+midy+1+round(spread*random.uniform(0,1)),
+							midz-z:midz+z, :] = [shade*random.uniform(.8,1.1) for shade in shades_i]
 				else:
-					img[x+midx-round(spread*random.uniform(0,1)):x+midx+1+round(spread*random.uniform(0,1)),
-						y+midy-round(spread*random.uniform(0,1)):y+midy+1+round(spread*random.uniform(0,1)),
-						midz-z:midz+z, :] = [abs(shade)*random.uniform(.6,1.1) for shade in shades_i]
+					img[x+midx, y+midy, midz-z:midz+z, :] = [shade*random.uniform(.8,1.1) for shade in shades_i]
 					
 		
 		imgs.append(img)
@@ -370,7 +381,7 @@ def gen_fnhs(C, n, scar_fraction = .5):
 	"""Generate n images of FNHs with dimensions of C.dims plus channels defined by the config file.
 	Should be hypointense in all phases (necrotic core) with an enhancing rim. Large ones have a central scar."""
 	
-	shades = [0.35, 0, 0]
+	shades = [0.35, 0.05, 0.05]
 	return gen_scarring_lesions(math.ceil(n*scar_fraction), shades, C) + gen_round_lesions(math.floor(n*(1-scar_fraction)), shades, C)
 
 
@@ -380,8 +391,8 @@ def gen_fnhs(C, n, scar_fraction = .5):
 ### GENERAL METHODS FOR LESION TYPES
 ####################################
 
-def gen_round_lesions(n, shades, C, shade_offset=0):
-	"""Round lesions that remain the same size in all phases. Includes HCCs and cysts.
+def gen_round_lesions(n, shades, C, shade_offset=0.02):
+	"""Round, homogeneous lesions that remain the same size in all phases. Includes cysts and FNH.
 	Shade_offset randomly offsets the lesion shades in all phases by the same amount."""
 	
 	imgs = []

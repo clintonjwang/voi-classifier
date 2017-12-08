@@ -27,7 +27,7 @@ class Config:
 		self.artif_dir = "imgs\\artif_imgs\\"
 		self.aug_dir = "imgs\\aug_imgs\\"
 		self.orig_dir = "imgs\\orig_imgs\\"
-		self.output_img_dir = "Z:\\OUTPUT\\12-06"
+		self.output_img_dir = "Z:\\OUTPUT\\12-08"
 
 		# Artificial sample parameters
 		self.long_size_frac = [0.5, 0.8]

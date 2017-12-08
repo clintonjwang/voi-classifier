@@ -9,9 +9,12 @@ from scipy.misc import imsave
 
 def rescale_int(img, intensity_row):
     """Rescale intensities in img by the """
-    img[:,:,:,0] = img[:,:,:,0] / float(intensity_row["art_int"])
-    img[:,:,:,1] = img[:,:,:,1] / float(intensity_row["ven_int"])
-    img[:,:,:,2] = img[:,:,:,2] / float(intensity_row["eq_int"])
+    try:
+        img[:,:,:,0] = img[:,:,:,0] / float(intensity_row["art_int"])
+        img[:,:,:,1] = img[:,:,:,1] / float(intensity_row["ven_int"])
+        img[:,:,:,2] = img[:,:,:,2] / float(intensity_row["eq_int"])
+    except TypeError:
+        raise ValueError("intensity_row is probably missing")
 
     return img
 
@@ -46,21 +49,21 @@ def separate_phases_2d(X):
     
     return X
 
-def collect_unaug_data(classes_to_include, C, voi_df, intensity_df):
+def collect_unaug_data(C, voi_df, intensity_df):
     """Return dictionary pointing to X (img data) and Z (filenames) and dictionary storing number of samples of each class."""
     orig_data_dict = {}
     num_samples = {}
 
-    for class_name in classes_to_include:
+    for cls in C.classes_to_include:
         x = np.empty((10000, C.dims[0], C.dims[1], C.dims[2], C.nb_channels))
         x2 = np.empty((10000, 2))
         z = []
 
-        for index, img_fn in enumerate(os.listdir(C.orig_dir+class_name)):
+        for index, img_fn in enumerate(os.listdir(C.orig_dir+cls)):
             try:
-                x[index] = np.load(C.orig_dir+class_name+"\\"+img_fn)
+                x[index] = np.load(C.orig_dir+cls+"\\"+img_fn)
             except:
-                raise ValueError(C.orig_dir+class_name+"\\"+img_fn + " not found")
+                raise ValueError(C.orig_dir+cls+"\\"+img_fn + " not found")
             z.append(img_fn)
             
             row = voi_df[(voi_df["Filename"] == img_fn[:img_fn.find('_')] + ".npy") &
@@ -76,8 +79,8 @@ def collect_unaug_data(classes_to_include, C, voi_df, intensity_df):
 
         x.resize((index, C.dims[0], C.dims[1], C.dims[2], C.nb_channels)) #shrink first dimension to fit
         x2.resize((index, 2)) #shrink first dimension to fit
-        orig_data_dict[class_name] = [x,x2,np.array(z)]
-        num_samples[class_name] = index
+        orig_data_dict[cls] = [x,x2,np.array(z)]
+        num_samples[cls] = index
         
     return orig_data_dict, num_samples
 
@@ -87,9 +90,11 @@ def collect_unaug_data(classes_to_include, C, voi_df, intensity_df):
 ###########################
 
 
-def save_output(Z, y_pred, y_true, voi_df_art, small_vois, cls_mapping, C):
+def save_output(Z, y_pred, y_true, voi_df_art, small_vois, cls_mapping, C, save_dir=None):
     """Parent method; saves all imgs in """
-    save_dir = C.output_img_dir
+    if save_dir is None:
+        save_dir = C.output_img_dir
+        
     for cls in cls_mapping:
         if not os.path.exists(save_dir + "\\correct\\" + cls):
             os.makedirs(save_dir + "\\correct\\" + cls)
@@ -100,7 +105,7 @@ def save_output(Z, y_pred, y_true, voi_df_art, small_vois, cls_mapping, C):
         if y_pred[i] != y_true[i]:
             plot_multich_with_bbox(Z[i], cls_mapping[y_pred[i]], voi_df_art, small_vois, save_dir=save_dir + "\\incorrect\\" + cls_mapping[y_true[i]], C=C)
         else:
-            plot_multich_with_bbox(Z[i], cls_mapping[y_pred[i]], voi_df_art, small_vois, save_dir=save_dir + "\\correct\\" + cls_mapping[y_true[i]], C=C)  
+            plot_multich_with_bbox(Z[i], cls_mapping[y_pred[i]], voi_df_art, small_vois, save_dir=save_dir + "\\correct\\" + cls_mapping[y_true[i]], C=C)
 
 def plot_multich_with_bbox(fn, pred_class, voi_df_art, small_vois, num_ch=3, save_dir=None, C=None):
     if not os.path.exists(save_dir):

@@ -12,7 +12,6 @@ from sklearn.metrics import confusion_matrix, f1_score, accuracy_score
 import cnn_methods as cfunc
 import copy
 import config
-import csv
 import helper_fxns as hf
 import numpy as np
 import operator
@@ -54,19 +53,16 @@ def build_cnn(C, optimizer='adam', inputs=4):
         art_x = art_img
         art_x = Conv3D(filters=64, kernel_size=(3,3,2), activation='relu')(art_x)
         art_x = MaxPooling3D((2, 2, 2))(art_x)
-        art_x = Dropout(0.5)(art_x)
 
         ven_img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 1))
         ven_x = ven_img
         ven_x = Conv3D(filters=64, kernel_size=(3,3,2), activation='relu')(ven_x)
         ven_x = MaxPooling3D((2, 2, 2))(ven_x)
-        ven_x = Dropout(0.5)(ven_x)
 
         eq_img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 1))
         eq_x = eq_img
         eq_x = Conv3D(filters=64, kernel_size=(3,3,2), activation='relu')(eq_x)
         eq_x = MaxPooling3D((2, 2, 2))(eq_x)
-        eq_x = Dropout(0.5)(eq_x)
 
         intermed = Concatenate(axis=4)([art_x, ven_x, eq_x])
         x = Conv3D(filters=100, kernel_size=(3,3,2), activation='relu')(intermed)
@@ -94,15 +90,11 @@ def build_2d_cnn(C, optimizer='adam', inputs=4):
     if inputs == 2:
         voi_img = Input(shape=(C.dims[0], C.dims[1], C.nb_channels))
         x = voi_img
-        #x = GaussianNoise(1)(x)
-        #x = ZeroPadding3D(padding=(3,3,2))(voi_img)
         x = Conv2D(filters=128, kernel_size=(3,3), activation='relu')(x)
         x = Dropout(0.5)(x)
         x = Conv2D(filters=128, kernel_size=(3,3), activation='relu')(x)
         x = MaxPooling2D((2, 2))(x)
         x = Dropout(0.5)(x)
-        #x = Conv3D(filters=64, kernel_size=(3,3,2), strides=(2, 2, 2), activation='relu', kernel_constraint=max_norm(4.))(x)
-        #x = Dropout(0.5)(x)
         x = Conv2D(filters=64, kernel_size=(3,3), activation='relu')(x)
         x = MaxPooling2D((2, 2))(x)
         x = Dropout(0.5)(x)
@@ -122,24 +114,20 @@ def build_2d_cnn(C, optimizer='adam', inputs=4):
         art_x = art_img
         art_x = Conv2D(filters=64, kernel_size=(3,3), activation='relu')(art_x)
         art_x = MaxPooling2D((2, 2))(art_x)
-        art_x = Dropout(0.5)(art_x)
 
         ven_img = Input(shape=(C.dims[0], C.dims[1], 1))
         ven_x = ven_img
         ven_x = Conv2D(filters=64, kernel_size=(3,3), activation='relu')(ven_x)
         ven_x = MaxPooling2D((2, 2))(ven_x)
-        ven_x = Dropout(0.5)(ven_x)
 
         eq_img = Input(shape=(C.dims[0], C.dims[1],  1))
         eq_x = eq_img
         eq_x = Conv2D(filters=64, kernel_size=(3,3), activation='relu')(eq_x)
         eq_x = MaxPooling2D((2, 2))(eq_x)
-        eq_x = Dropout(0.5)(eq_x)
 
         intermed = Concatenate(axis=3)([art_x, ven_x, eq_x])
         x = Conv2D(filters=128, kernel_size=(3,3), activation='relu')(intermed)
         x = MaxPooling2D((2, 2))(x)
-        x = Dropout(0.5)(x)
         x = Flatten()(x)
 
         img_traits = Input(shape=(2,)) #bounding volume and aspect ratio of lesion
@@ -189,7 +177,7 @@ def build_pretrain_model(C):
 
     return model_pretrain
 
-def run_cnn(model, C):
+def run_cnn(model, C, n=4, n_art=4, steps_per_epoch=25, epochs=50, verbose=False):
     nb_classes = len(C.classes_to_include)
     voi_df = pd.read_csv(C.art_voi_path)
     intensity_df = pd.read_csv(C.int_df_path)
@@ -197,9 +185,9 @@ def run_cnn(model, C):
     #intensity_df.loc[intensity_df["ven_int"] == 0, "ven_int"] = np.mean(intensity_df[intensity_df["ven_int"] > 0]["ven_int"])
     #intensity_df.loc[intensity_df["eq_int"] == 0, "eq_int"] = np.mean(intensity_df[intensity_df["eq_int"] > 0]["eq_int"])
 
-    orig_data_dict, num_samples = cfunc.collect_unaug_data(C.classes_to_include, C, voi_df, intensity_df)
-    print(num_samples)
+    orig_data_dict, num_samples = cfunc.collect_unaug_data(C, voi_df, intensity_df)
 
+    avg_X2 = {}
     train_ids = {} #filenames of training set originals
     test_ids = {} #filenames of test set
     X_test = []
@@ -213,8 +201,9 @@ def run_cnn(model, C):
 
     train_samples = {}
 
-    for cls_num, cls in enumerate(orig_data_dict):
+    for cls in orig_data_dict:
         cls_num = C.classes_to_include.index(cls)
+        avg_X2[cls] = np.mean(orig_data_dict[cls][1], axis=0)
         
         train_samples[cls] = round(num_samples[cls]*C.train_frac)
         
@@ -234,8 +223,9 @@ def run_cnn(model, C):
                             (train_samples[cls])
         Z_train_orig = Z_train_orig + train_ids[cls]
         
-        print("%s has %d samples for training (%d after augmentation) and %d for testing" %
-              (cls, train_samples[cls], train_samples[cls] * C.aug_factor, num_samples[cls] - train_samples[cls]))
+        if verbose:
+            print("%s has %d samples for training (%d after augmentation) and %d for testing" %
+                  (cls, train_samples[cls], train_samples[cls] * C.aug_factor, num_samples[cls] - train_samples[cls]))
         
     #Y_test = np_utils.to_categorical(Y_test, nb_classes)
     #Y_train_orig = np_utils.to_categorical(Y_train_orig, nb_classes)
@@ -248,16 +238,40 @@ def run_cnn(model, C):
     Z_test = np.array(Z_test)
     Z_train_orig = np.array(Z_train_orig)
 
-
-    avg_X2 = {}
-    for cls in C.classes_to_include:
-        avg_X2[cls] = np.mean(orig_data_dict[cls][1], axis=0)
+    X_test = cfunc.separate_phases(X_test)
+    X_train_orig = cfunc.separate_phases(X_train_orig)
 
     #early_stopping = EarlyStopping(monitor='acc', min_delta=0.01, patience=4)
-    train_generator = train_generator_func(C, train_ids, intensity_df, voi_df)
-    model.fit_generator(train_generator, steps_per_epoch=120, epochs=50)#, callbacks=[early_stopping])
+    train_generator = train_generator_func(C, train_ids, intensity_df, voi_df, avg_X2, n=n, n_art=n_art)
+    model.fit_generator(train_generator, steps_per_epoch=steps_per_epoch, epochs=epochs, verbose=verbose)#, callbacks=[early_stopping])
 
-    return model
+    return model, X_test, Y_test
+
+def overnight_run(C):
+    running_stats = pd.DataFrame(columns = ["n", "n_art", "steps_per_epoch", "epochs", "Acc6cls", "Acc3cls"])
+    running_acc_6 = []
+    running_acc_3 = []
+    index = 0
+    n=4
+    n_art=4
+    steps_per_epoch=25
+    epochs=50
+
+    while True:
+        model = build_cnn(C, 'adam')
+        model, X_test, Y_test = run_cnn(model, C, n=4, n_art=4, steps_per_epoch=25, epochs=50)
+        Y_pred = model.predict(X_test)
+        y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_test])
+        y_pred = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_pred])
+        running_acc_6.append(accuracy_score(y_true, y_pred))
+        print("6cls accuracy:", running_acc_6[-1], " - average:", np.mean(running_acc_6))
+        y_true_simp, y_pred_simp, _ = cfunc.condense_cm(y_true, y_pred, C.classes_to_include)
+        running_acc_3.append(accuracy_score(y_true_simp, y_pred_simp))
+        print("3cls accuracy:", running_acc_3[-1], " - average:", np.mean(running_acc_3))
+
+        running_stats.iloc[index] = [n, n_art, steps_per_epoch, epochs, running_acc_6[-1], running_acc_3[-1]]
+        running_stats.to_csv("overnight_run.csv", index=False)
+        index += 1
 
 
 def train_generator_func(C, train_ids, intensity_df, voi_df, avg_X2, n=12, n_art=0):
