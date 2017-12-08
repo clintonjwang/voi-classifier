@@ -7,17 +7,6 @@ from scipy.misc import imsave
 ### FOR TRAINING
 ###########################
 
-def rescale_int(img, intensity_row):
-    """Rescale intensities in img by the """
-    try:
-        img[:,:,:,0] = img[:,:,:,0] / float(intensity_row["art_int"])
-        img[:,:,:,1] = img[:,:,:,1] / float(intensity_row["ven_int"])
-        img[:,:,:,2] = img[:,:,:,2] / float(intensity_row["eq_int"])
-    except TypeError:
-        raise ValueError("intensity_row is probably missing")
-
-    return img
-
 def separate_phases(X):
     """Assumes X[0] contains imaging and X[1] contains dimension data.
     Reformats such that X[0:2] has 3 phases and X[3] contains dimension data.
@@ -49,7 +38,7 @@ def separate_phases_2d(X):
     
     return X
 
-def collect_unaug_data(C, voi_df, intensity_df):
+def collect_unaug_data(C, voi_df):
     """Return dictionary pointing to X (img data) and Z (filenames) and dictionary storing number of samples of each class."""
     orig_data_dict = {}
     num_samples = {}
@@ -75,7 +64,7 @@ def collect_unaug_data(C, voi_df, intensity_df):
             except TypeError:
                 raise ValueError(img_fn + " is probably missing a voi_df entry.")
             
-            x[index] = rescale_int(x[index], intensity_df[intensity_df["AccNum"] == img_fn[:img_fn.find('_')]])
+            #x[index] = rescale_int(x[index], intensity_df[intensity_df["AccNum"] == img_fn[:img_fn.find('_')]])
 
         x.resize((index, C.dims[0], C.dims[1], C.dims[2], C.nb_channels)) #shrink first dimension to fit
         x2.resize((index, 2)) #shrink first dimension to fit
@@ -94,7 +83,7 @@ def save_output(Z, y_pred, y_true, voi_df_art, small_vois, cls_mapping, C, save_
     """Parent method; saves all imgs in """
     if save_dir is None:
         save_dir = C.output_img_dir
-        
+
     for cls in cls_mapping:
         if not os.path.exists(save_dir + "\\correct\\" + cls):
             os.makedirs(save_dir + "\\correct\\" + cls)

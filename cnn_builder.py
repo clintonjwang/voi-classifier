@@ -26,30 +26,33 @@ def build_cnn(C, optimizer='adam', inputs=4, batch_norm=True):
     if batch_norm:
         art_img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 1))
         art_x = art_img
-        art_x = Conv3D(filters=64, kernel_size=(3,3,2))(art_x)
+        art_x = Conv3D(filters=64, kernel_size=(3,3,2), padding='same')(art_x)
         art_x = BatchNormalization()(art_x)
         art_x = Activation('relu')(art_x)
         art_x = MaxPooling3D((2, 2, 2))(art_x)
 
         ven_img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 1))
         ven_x = ven_img
-        ven_x = Conv3D(filters=64, kernel_size=(3,3,2))(ven_x)
+        ven_x = Conv3D(filters=64, kernel_size=(3,3,2), padding='same')(ven_x)
         ven_x = BatchNormalization()(ven_x)
         ven_x = Activation('relu')(ven_x)
         ven_x = MaxPooling3D((2, 2, 2))(ven_x)
 
         eq_img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 1))
         eq_x = eq_img
-        eq_x = Conv3D(filters=64, kernel_size=(3,3,2))(eq_x)
+        eq_x = Conv3D(filters=64, kernel_size=(3,3,2), padding='same')(eq_x)
         eq_x = BatchNormalization()(eq_x)
         eq_x = Activation('relu')(eq_x)
         eq_x = MaxPooling3D((2, 2, 2))(eq_x)
 
         intermed = Concatenate(axis=4)([art_x, ven_x, eq_x])
-        x = Conv3D(filters=128, kernel_size=(3,3,2))(intermed)
+        x = Conv3D(filters=128, kernel_size=(3,3,2), padding='same')(intermed)
         x = BatchNormalization()(x)
         x = Activation('relu')(x)
-        x = Conv3D(filters=100, kernel_size=(3,3,2))(intermed)
+        x = Conv3D(filters=128, kernel_size=(3,3,2), padding='same')(x)
+        x = BatchNormalization()(x)
+        x = Activation('relu')(x)
+        x = Conv3D(filters=100, kernel_size=(3,3,2))(x)
         x = BatchNormalization()(x)
         x = Activation('relu')(x)
         x = MaxPooling3D((2, 2, 1))(x)
@@ -157,7 +160,10 @@ def build_2d_cnn(C, optimizer='adam', inputs=4, batch_norm=True):
         eq_x = MaxPooling2D((2, 2))(eq_x)
 
         intermed = Concatenate(axis=3)([art_x, ven_x, eq_x])
-        x = Conv2D(filters=128, kernel_size=(3,3))(intermed)
+        x = Conv3D(filters=128, kernel_size=(3,3), padding='same')(intermed)
+        x = BatchNormalization()(x)
+        x = Activation('relu')(x)
+        x = Conv2D(filters=128, kernel_size=(3,3))(x)
         x = BatchNormalization()(x)
         x = Activation('relu')(x)
         x = MaxPooling2D((2, 2))(x)
@@ -401,8 +407,8 @@ def train_generator_func(C, train_ids, intensity_df, voi_df, avg_X2, n=12, n_art
                 img_fn = random.choice(img_fns)
                 if img_fn[:img_fn.rfind('_')] + ".npy" in train_ids[cls]:
                     x1[train_cnt] = np.load(C.aug_dir+cls+"\\"+img_fn)
-                    x1[train_cnt] = cfunc.rescale_int(x1[train_cnt],
-                                          intensity_df[intensity_df["AccNum"] == img_fn[:img_fn.find('_')]])
+                    #x1[train_cnt] = cfunc.rescale_int(x1[train_cnt],
+                    #                      intensity_df[intensity_df["AccNum"] == img_fn[:img_fn.find('_')]])
 
                     row = voi_df[(voi_df["Filename"] == img_fn[:img_fn.find('_')] + ".npy") &
                                  (voi_df["lesion_num"] == int(img_fn[img_fn.find('_')+1:img_fn.rfind('_')]))]
@@ -420,13 +426,6 @@ def train_generator_func(C, train_ids, intensity_df, voi_df, avg_X2, n=12, n_art
 
 def train_generator_func_2d(C, train_ids, intensity_df, voi_df, avg_X2, n=12, n_art=0):
     """n is the number of samples from each class, n_art is the number of artificial samples"""
-    def rescale_int_2d(img, intensity_row):
-        """Rescale intensities in img by the """
-        img[:,:,0] = img[:,:,0] / float(intensity_row["art_int"])
-        img[:,:,1] = img[:,:,1] / float(intensity_row["ven_int"])
-        img[:,:,2] = img[:,:,2] / float(intensity_row["eq_int"])
-
-        return img
 
     classes_to_include = C.classes_to_include
     
@@ -455,8 +454,8 @@ def train_generator_func_2d(C, train_ids, intensity_df, voi_df, avg_X2, n=12, n_
                 if img_fn[:img_fn.rfind('_')] + ".npy" in train_ids[cls]:
                     temp = np.load(C.aug_dir+cls+"\\"+img_fn)
                     x1[train_cnt] = temp[:,:,temp.shape[2]//2,:]
-                    x1[train_cnt] = rescale_int_2d(x1[train_cnt],
-                                          intensity_df[intensity_df["AccNum"] == img_fn[:img_fn.find('_')]])
+                    #x1[train_cnt] = rescale_int_2d(x1[train_cnt],
+                    #                      intensity_df[intensity_df["AccNum"] == img_fn[:img_fn.find('_')]])
 
                     row = voi_df[(voi_df["Filename"] == img_fn[:img_fn.find('_')] + ".npy") &
                                  (voi_df["lesion_num"] == int(img_fn[img_fn.find('_')+1:img_fn.rfind('_')]))]

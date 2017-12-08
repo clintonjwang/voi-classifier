@@ -3,8 +3,8 @@ import pyelastix
 class Config:
 	def __init__(self):
 		self.run_num = 2
-		self.dims = [36,36,12]
-		#self.dims = [64,64,12]
+		#self.dims = [36,36,12]
+		self.dims = [48,48,12]
 		self.nb_channels = 3
 		#self.nb_classes = 5
 		self.params = pyelastix.get_default_params(type="AFFINE")
@@ -23,7 +23,7 @@ class Config:
 		self.small_voi_path = "small_vois.csv"
 
 		self.full_img_dir = "Z:\\INPUT\\full_imgs_origdims"
-		self.crops_dir = "imgs\\unscaled_training_data4\\" #Z:\\INPUT\\
+		self.crops_dir = "imgs\\unscaled_training_data\\" #Z:\\INPUT\\
 		self.artif_dir = "imgs\\artif_imgs\\"
 		self.aug_dir = "imgs\\aug_imgs\\"
 		self.orig_dir = "imgs\\orig_imgs\\"

@@ -96,6 +96,8 @@ def augment_img(img, final_dims, voi, num_samples, translate=None, add_reflectio
 	aug_imgs = []
 	
 	for _ in range(num_samples):
+		#intensity_scale = 
+		#intensity_shift = 
 		scales = [random.uniform(scale_ratios[0]*buffer1, scale_ratios[0]*buffer2),
 				 random.uniform(scale_ratios[1]*buffer1, scale_ratios[1]*buffer2),
 				 random.uniform(scale_ratios[2]*buffer1, scale_ratios[2]*buffer2)]
@@ -134,13 +136,24 @@ def augment_img(img, final_dims, voi, num_samples, translate=None, add_reflectio
 	
 	return aug_imgs
 
-def extract_vois(acc_nums, small_vois, classes_to_include, C, voi_df_art, voi_df_ven, voi_df_eq):
-	"""Call extract_voi for a list of acc_nums"""
+def rescale_int(img, intensity_row):
+	"""Rescale intensities in img by the """
+	try:
+		img[:,:,:,0] = img[:,:,:,0] / float(intensity_row["art_int"])
+		img[:,:,:,1] = img[:,:,:,1] / float(intensity_row["ven_int"])
+		img[:,:,:,2] = img[:,:,:,2] / float(intensity_row["eq_int"])
+	except TypeError:
+		raise ValueError("intensity_row is probably missing")
+
+	return img
+
+def extract_vois(small_vois, C, voi_df_art, voi_df_ven, voi_df_eq, intensity_df):
+	"""Call extract_voi on all images in C.full_img_dir"""
 	
 	t = time.time()
 
 	# iterate over image series
-	for cls in classes_to_include:
+	for cls in C.classes_to_include:
 		for img_fn in os.listdir(C.full_img_dir + "\\" + cls):
 			img = np.load(C.full_img_dir+"\\"+cls+"\\"+img_fn)
 			art_vois = voi_df_art[(voi_df_art["Filename"] == img_fn) & (voi_df_art["cls"] == cls)]
@@ -151,6 +164,8 @@ def extract_vois(acc_nums, small_vois, classes_to_include, C, voi_df_art, voi_df
 				eq_voi = voi_df_eq[voi_df_eq["id"] == voi[1]["id"]]
 
 				cropped_img, cls, small_voi = extract_voi(img, copy.deepcopy(voi[1]), C.dims, ven_voi=ven_voi, eq_voi=eq_voi)
+				cropped_img = rescale_int(cropped_img, intensity_df[intensity_df["AccNum"] == img_fn[:img_fn.find('.')]])
+
 				fn = img_fn[:-4] + "_" + str(voi[1]["lesion_num"])
 				np.save(C.crops_dir + cls + "\\" + fn, cropped_img)
 				small_vois[fn] = small_voi
