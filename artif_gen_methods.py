@@ -234,11 +234,11 @@ def gen_cholangios(C, n):
 	"""Generate n images of cholangiocarcinomas with dimensions of C.dims plus channels defined by the config file.
 	Mass-forming should have irregular, ragged rim enhancement with heterogeneous texture and gradual centripetal enhancement."""
 	
-	base_shade = -0.6
-	enhancement_rate = 1.2
+	base_shade = -0.5
+	enhancement_rate = 1.15
 	rim_shades=[.3, .3, .3]
 	shrink_factor=[.7, .9]
-	rim_ratio=[.89, 0.97]
+	rim_ratio=[.9, 1]
 	
 	
 	imgs = []
@@ -256,9 +256,9 @@ def gen_cholangios(C, n):
 		rven = r_core * random.uniform(shrink_factor[0], shrink_factor[1])
 		req = rven * random.uniform(shrink_factor[0], shrink_factor[1])
 		
-		enhancement_rate_i = enhancement_rate ** random.uniform(.8,1.2)
+		enhancement_rate_i = enhancement_rate ** random.uniform(.5,3)
 		ven_shade = base_shade / enhancement_rate
-		eq_shade = ven_shade / enhancement_rate**1.5
+		eq_shade = ven_shade / enhancement_rate**(1.5 * random.uniform(.8,1.4))
 		shades_i = [base_shade, ven_shade, eq_shade]
 		rim_shades_i = [rim_shade+random.gauss(0, C.shade_std) for rim_shade in rim_shades]
 		
@@ -306,7 +306,7 @@ def gen_cholangios(C, n):
 						if z > midz:
 							z = midz
 							
-						img[x+midx, y+midy, midz-z:midz+z, ch] = shades_i[ch]/max(z_sq**.3,.9)
+						img[x+midx, y+midy, midz-z:midz+z, ch] = shades_i[ch]/max(z_sq**.3,.9)*random.uniform(.8,1.2)
 				
 		imgs.append(img)
 		
