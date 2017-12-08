@@ -144,7 +144,9 @@ def build_2d_cnn(C, optimizer='adam', inputs=4):
 
     return model
 
-def build_pretrain_model(C):
+def build_pretrain_model(trained_model, C):
+    """CNN with pretrained weights"""
+
     nb_classes = len(C.classes_to_include)
 
     voi_img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], C.nb_channels))
@@ -166,18 +168,19 @@ def build_pretrain_model(C):
     x = Dropout(0.5)(x)
     pred_class = Dense(nb_classes, activation='softmax')(x)
 
-    #optim = Adam(lr=0.01)#5, decay=0.001)
 
     model_pretrain = Model([voi_img, img_traits], pred_class)
     model_pretrain.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
 
-    #for l in range(1,5):
-    #    if type(model_pretrain.layers[l]) == Conv3D:
-    #        model_pretrain.layers[l].set_weights(model.layers[l].get_weights())
+    for l in range(1,5):
+        if type(model_pretrain.layers[l]) == Conv3D:
+            model_pretrain.layers[l].set_weights(trained_model.layers[l].get_weights())
 
     return model_pretrain
 
-def run_cnn(model, C, n=4, n_art=4, steps_per_epoch=25, epochs=50, verbose=False):
+def run_cnn(model, C, n=4, n_art=4, steps_per_epoch=25, epochs=50, run_2d=True, verbose=False):
+    """Run CNN"""
+
     nb_classes = len(C.classes_to_include)
     voi_df = pd.read_csv(C.art_voi_path)
     intensity_df = pd.read_csv(C.int_df_path)
@@ -238,17 +241,24 @@ def run_cnn(model, C, n=4, n_art=4, steps_per_epoch=25, epochs=50, verbose=False
     Z_test = np.array(Z_test)
     Z_train_orig = np.array(Z_train_orig)
 
-    X_test = cfunc.separate_phases(X_test)
-    X_train_orig = cfunc.separate_phases(X_train_orig)
+    if run_2d:
+        X_test = cfunc.separate_phases_2d(X_test)
+        X_train_orig = cfunc.separate_phases_2d(X_train_orig)
+
+        train_generator = train_generator_func_2d(C, train_ids, intensity_df, voi_df, avg_X2, n=n, n_art=n_art)
+    else:
+        X_test = cfunc.separate_phases(X_test)
+        X_train_orig = cfunc.separate_phases(X_train_orig)
+
+        train_generator = train_generator_func(C, train_ids, intensity_df, voi_df, avg_X2, n=n, n_art=n_art)
 
     #early_stopping = EarlyStopping(monitor='acc', min_delta=0.01, patience=4)
-    train_generator = train_generator_func(C, train_ids, intensity_df, voi_df, avg_X2, n=n, n_art=n_art)
     model.fit_generator(train_generator, steps_per_epoch=steps_per_epoch, epochs=epochs, verbose=verbose)#, callbacks=[early_stopping])
 
     return model, X_test, Y_test
 
 def overnight_run(C):
-    running_stats = pd.DataFrame(columns = ["n", "n_art", "steps_per_epoch", "epochs", "Acc6cls", "Acc3cls"])
+    running_stats = pd.DataFrame(columns = ["n", "n_art", "steps_per_epoch", "epochs", "2d", "Acc6cls", "Acc3cls"])
     running_acc_6 = []
     running_acc_3 = []
     index = 0
@@ -256,10 +266,11 @@ def overnight_run(C):
     n_art=4
     steps_per_epoch=25
     epochs=50
+    run_2d=False
 
     while True:
         model = build_cnn(C, 'adam')
-        model, X_test, Y_test = run_cnn(model, C, n=4, n_art=4, steps_per_epoch=25, epochs=50)
+        model, X_test, Y_test = run_cnn(model, C, n=4, n_art=4, steps_per_epoch=25, epochs=50, run_2d=run_2d)
         Y_pred = model.predict(X_test)
         y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_test])
         y_pred = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_pred])
@@ -269,7 +280,7 @@ def overnight_run(C):
         running_acc_3.append(accuracy_score(y_true_simp, y_pred_simp))
         print("3cls accuracy:", running_acc_3[-1], " - average:", np.mean(running_acc_3))
 
-        running_stats.iloc[index] = [n, n_art, steps_per_epoch, epochs, running_acc_6[-1], running_acc_3[-1]]
+        running_stats.iloc[index] = [n, n_art, steps_per_epoch, epochs, run_2d, running_acc_6[-1], running_acc_3[-1]]
         running_stats.to_csv("overnight_run.csv", index=False)
         index += 1
 

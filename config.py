@@ -4,7 +4,7 @@ class Config:
 	def __init__(self):
 		self.run_num = 2
 		self.dims = [36,36,12]
-		#self.dims = [64,64]
+		#self.dims = [64,64,12]
 		self.nb_channels = 3
 		#self.nb_classes = 5
 		self.params = pyelastix.get_default_params(type="AFFINE")
@@ -27,10 +27,10 @@ class Config:
 		self.artif_dir = "imgs\\artif_imgs\\"
 		self.aug_dir = "imgs\\aug_imgs\\"
 		self.orig_dir = "imgs\\orig_imgs\\"
-		self.output_img_dir = "Z:\\OUTPUT\\12-08"
+		self.output_img_dir = "Z:\\OUTPUT\\12-08-3d"
 
 		# Artificial sample parameters
-		self.long_size_frac = [0.5, 0.8]
-		self.max_side_ratio = 2
+		self.long_size_frac = [0.6, 0.85]
+		self.max_side_ratio = 1.6
 		self.noise_std = 0.11
 		self.shade_std = 0.05

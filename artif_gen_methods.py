@@ -111,10 +111,9 @@ def gen_hccs(C, n):
 	"""Generate n images of hccs with dimensions of C.dims plus channels defined by the config file.
 	Should be round, enhancing in arterial, with washout in delayed and usually venous."""
 	
-	shades = [0.25, -0.1, -0.3]
-	shade_offset = 0.15
+	shades = [0.2, -0.1, -0.3]
+	shade_offset = 0.2
 	shade_std = .1
-	rim_shade = 0.4
 	prob_rim = .7
 	rim_continuity = .8
 	prob_hetero = .5
@@ -127,7 +126,7 @@ def gen_hccs(C, n):
 	midz = C.dims[2]//2
 	z_ratio = midy/midz
 
-	spread = 3
+	spread = 2.4
 	
 	for i in range(n):
 		has_rim = random.random()<prob_rim
@@ -136,6 +135,7 @@ def gen_hccs(C, n):
 		shade_offset_i = random.uniform(-shade_offset, shade_offset)
 		
 		shades_i = [shade+random.gauss(0, shade_std)+shade_offset_i for shade in shades]
+		rim_shade = shades_i[0]*random.uniform(1.05,1.6)
 		
 		img = np.zeros(C.dims + [C.nb_channels])
 		for x in range(-math.floor(r), math.floor(r)):
@@ -150,10 +150,10 @@ def gen_hccs(C, n):
 					z = midz
 
 				if has_rim and z_sq < r**2 * .4 and random.random()<rim_continuity:
-					img[x+midx, y+midy, midz-z:midz+z, :] = rim_shade*random.uniform(.9,1.1)
+					img[x+midx, y+midy, midz-z:midz+z, :] = rim_shade
 				elif patchwork:
 					if random.random() < 0.7:
-						img[x+midx, y+midy, midz-z:midz+z, :] = rim_shade*random.uniform(.3,.9)
+						img[x+midx, y+midy, midz-z:midz+z, :] = rim_shade*random.uniform(.3,1)
 					else:
 						img[x+midx-round(spread*random.uniform(0,1)):x+midx+1+round(spread*random.uniform(0,1)),
 							y+midy-round(spread*random.uniform(0,1)):y+midy+1+round(spread*random.uniform(0,1)),
@@ -312,7 +312,6 @@ def gen_cholangios(C, n):
 		
 	return imgs
 
-
 def gen_colorectals(C, n):
 	"""Generate n images of colorectal mets with dimensions of C.dims plus channels defined by the config file.
 	Should be hypointense in all phases (necrotic core) with a continuous enhancing rim. Sometimes enhances or shrinks over time."""
@@ -377,7 +376,7 @@ def gen_colorectals(C, n):
 		
 	return imgs
 
-def gen_fnhs(C, n, scar_fraction = .5):
+def gen_fnhs(C, n, scar_fraction = .3):
 	"""Generate n images of FNHs with dimensions of C.dims plus channels defined by the config file.
 	Should be hypointense in all phases (necrotic core) with an enhancing rim. Large ones have a central scar."""
 	
@@ -427,7 +426,7 @@ def gen_round_lesions(n, shades, C, shade_offset=0.02):
 		
 	return imgs
 
-def gen_scarring_lesions(n, shades, C, scar_shades=[-.5, -.5, .25]):
+def gen_scarring_lesions(n, shades, C, scar_shades=[-.5, -.5, .3]):
 	"""Lesions that have a central scar. Includes FNHs."""
 	
 	imgs = []
@@ -443,7 +442,7 @@ def gen_scarring_lesions(n, shades, C, scar_shades=[-.5, -.5, .25]):
 		if sizes[i] < .65 or side_rat[i] < 0.75:
 			r_scar = 0
 		else:
-			r_scar = r * random.uniform(.3,.8) * sizes[i] #more pronounced scarring in large lesions
+			r_scar = r * random.uniform(.3,.6) * sizes[i] #more pronounced scarring in large lesions
 		
 		shades_i = [shade+random.gauss(0, C.shade_std) for shade in shades]
 		scar_shades_i = [scar_shade+random.gauss(0, C.shade_std) for scar_shade in scar_shades]
@@ -464,12 +463,12 @@ def gen_scarring_lesions(n, shades, C, scar_shades=[-.5, -.5, .25]):
 		
 
 		for x in range(-math.floor(r_scar), math.floor(r_scar)):
-			for y in range(-int(round(random.uniform(.1,.5)*r_scar)), math.ceil(random.uniform(.1,.5)*r_scar)):
-				z = (r_scar**2 - x**2 - (y/side_rat[i])**2)
-				if z <= 0:
-					continue
-				z = math.ceil(z**(.5)/z_ratio)
-				img[x+midx, y+midy, midz-z:midz+z, :] = [scar_shades_ix/z for scar_shades_ix in scar_shades_i]
+			y = int(random.uniform(-.5,.5)*r_scar)
+			z = (r_scar**2 - x**2 - (y/side_rat[i])**2)
+			if z <= 0:
+				continue
+			z = math.ceil(z**(.5)/z_ratio)
+			img[x+midx, y+midy, midz-z:midz+z, :] = [scar_shades_ix for scar_shades_ix in scar_shades_i]
 		
 		imgs.append(img)
 		
