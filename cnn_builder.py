@@ -20,39 +20,36 @@ import os
 import pandas as pd
 import random
 
-def build_cnn(C, optimizer='adam', inputs=4, batch_norm=True):
+def build_cnn(C, optimizer='adam', inputs=4, batch_norm=True, dilation_rate=(2, 2, 1)):
     nb_classes = len(C.classes_to_include)
 
     if batch_norm:
         art_img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 1))
         art_x = art_img
-        art_x = Conv3D(filters=64, kernel_size=(3,3,2), padding='same')(art_x)
+        art_x = Conv3D(filters=64, kernel_size=(3,3,2), dilation_rate=dilation_rate)(art_x)
         art_x = BatchNormalization()(art_x)
         art_x = Activation('relu')(art_x)
         art_x = MaxPooling3D((2, 2, 2))(art_x)
 
         ven_img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 1))
         ven_x = ven_img
-        ven_x = Conv3D(filters=64, kernel_size=(3,3,2), padding='same')(ven_x)
+        ven_x = Conv3D(filters=64, kernel_size=(3,3,2), dilation_rate=dilation_rate)(ven_x)
         ven_x = BatchNormalization()(ven_x)
         ven_x = Activation('relu')(ven_x)
         ven_x = MaxPooling3D((2, 2, 2))(ven_x)
 
         eq_img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 1))
         eq_x = eq_img
-        eq_x = Conv3D(filters=64, kernel_size=(3,3,2), padding='same')(eq_x)
+        eq_x = Conv3D(filters=64, kernel_size=(3,3,2), dilation_rate=dilation_rate)(eq_x)
         eq_x = BatchNormalization()(eq_x)
         eq_x = Activation('relu')(eq_x)
         eq_x = MaxPooling3D((2, 2, 2))(eq_x)
 
         intermed = Concatenate(axis=4)([art_x, ven_x, eq_x])
-        x = Conv3D(filters=128, kernel_size=(3,3,2), padding='same')(intermed)
+        x = Conv3D(filters=128, kernel_size=(3,3,2), dilation_rate=dilation_rate)(intermed)
         x = BatchNormalization()(x)
         x = Activation('relu')(x)
-        x = Conv3D(filters=128, kernel_size=(3,3,2), padding='same')(x)
-        x = BatchNormalization()(x)
-        x = Activation('relu')(x)
-        x = Conv3D(filters=100, kernel_size=(3,3,2))(x)
+        x = Conv3D(filters=100, kernel_size=(3,3,2), padding='same', dilation_rate=dilation_rate)(x)
         x = BatchNormalization()(x)
         x = Activation('relu')(x)
         x = MaxPooling3D((2, 2, 1))(x)
@@ -64,7 +61,6 @@ def build_cnn(C, optimizer='adam', inputs=4, batch_norm=True):
         x = Dense(100)(intermed)#, kernel_initializer='normal', kernel_regularizer=l1(.01), kernel_constraint=max_norm(3.))(x)
         x = BatchNormalization()(x)
         x = Activation('relu')(x)
-        x = Dropout(0.2)(x)
         x = Dense(nb_classes)(x)
         x = BatchNormalization()(x)
         pred_class = Activation('softmax')(x)
@@ -134,7 +130,7 @@ def build_cnn(C, optimizer='adam', inputs=4, batch_norm=True):
 
     return model
 
-def build_2d_cnn(C, optimizer='adam', inputs=4, batch_norm=True):
+def build_2d_cnn(C, optimizer='adam', inputs=4, batch_norm=True, dilation_rate=(2, 2)):
     nb_classes = len(C.classes_to_include)
 
     if batch_norm:
@@ -340,12 +336,12 @@ def run_cnn(model, C, n=4, n_art=4, steps_per_epoch=25, epochs=50, run_2d=True, 
         X_test = cfunc.separate_phases_2d(X_test)
         X_train_orig = cfunc.separate_phases_2d(X_train_orig)
 
-        train_generator = train_generator_func_2d(C, train_ids, intensity_df, voi_df, avg_X2, n=n, n_art=n_art)
+        train_generator = train_generator_func_2d(C, train_ids, voi_df, avg_X2, n=n, n_art=n_art)
     else:
         X_test = cfunc.separate_phases(X_test)
         X_train_orig = cfunc.separate_phases(X_train_orig)
 
-        train_generator = train_generator_func(C, train_ids, intensity_df, voi_df, avg_X2, n=n, n_art=n_art)
+        train_generator = train_generator_func(C, train_ids, voi_df, avg_X2, n=n, n_art=n_art)
 
     #early_stopping = EarlyStopping(monitor='acc', min_delta=0.01, patience=4)
     model.fit_generator(train_generator, steps_per_epoch=steps_per_epoch, epochs=epochs, verbose=verbose)#, callbacks=[early_stopping])
@@ -380,7 +376,7 @@ def overnight_run(C):
         index += 1
 
 
-def train_generator_func(C, train_ids, intensity_df, voi_df, avg_X2, n=12, n_art=0):
+def train_generator_func(C, train_ids, voi_df, avg_X2, n=12, n_art=0):
     """n is the number of samples from each class, n_art is the number of artificial samples"""
     classes_to_include = C.classes_to_include
     
@@ -424,7 +420,7 @@ def train_generator_func(C, train_ids, intensity_df, voi_df, avg_X2, n=12, n_art
         yield cfunc.separate_phases([np.array(x1), np.array(x2)]), np.array(y) #[np.array(x1), np.array(x2)], np.array(y) #
 
 
-def train_generator_func_2d(C, train_ids, intensity_df, voi_df, avg_X2, n=12, n_art=0):
+def train_generator_func_2d(C, train_ids, voi_df, avg_X2, n=12, n_art=0):
     """n is the number of samples from each class, n_art is the number of artificial samples"""
 
     classes_to_include = C.classes_to_include

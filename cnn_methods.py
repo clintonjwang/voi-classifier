@@ -62,6 +62,7 @@ def collect_unaug_data(C, voi_df):
                 x2[index] = [(float(row["real_dx"]) * float(row["real_dy"]) * float(row["real_dz"])) ** (1/3) / 50,
                             max(float(row["real_dx"]), float(row["real_dy"])) / float(row["real_dz"])]
             except TypeError:
+                continue
                 raise ValueError(img_fn + " is probably missing a voi_df entry.")
             
             #x[index] = rescale_int(x[index], intensity_df[intensity_df["AccNum"] == img_fn[:img_fn.find('_')]])

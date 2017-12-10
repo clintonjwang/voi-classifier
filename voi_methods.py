@@ -6,6 +6,17 @@ import os
 import random
 import time
 import transforms as tr
+from joblib import Parallel, delayed
+import multiprocessing
+
+def parallel_augment(cls, small_vois, C):
+	"""Augment all images in cls using CPU parallelization"""
+	num_cores = multiprocessing.cpu_count()
+	Parallel(n_jobs=num_cores)(delayed(save_augmented_img)(fn, cls, small_vois[fn[:-4]], C) for fn in os.listdir(C.crops_dir + cls))
+
+def save_augmented_img(fn, cls, voi_coords, C):
+	img = np.load(C.crops_dir + cls + "\\" + fn)
+	augment_img(img, C.dims, voi_coords, num_samples=50, translate=[2,2,1], save_name=C.aug_dir + cls + "\\" + fn[:-4])
 
 def extract_voi(img, voi, min_dims, ven_voi=[], eq_voi=[]):
 	"""Input: image, a voi to center on, and the min dims of the unaugmented img.
@@ -76,9 +87,10 @@ def extract_voi(img, voi, min_dims, ven_voi=[], eq_voi=[]):
 		
 	return pad_img, voi['cls'], [int(x) for x in new_voi]
 
-def augment_img(img, final_dims, voi, num_samples, translate=None, add_reflections=False):
-	"""For rescaling an img to final_dims while scaling to make sure the image contains the voi."""
-	
+def augment_img(img, final_dims, voi, num_samples, translate=None, add_reflections=False, save_name=None):
+	"""For rescaling an img to final_dims while scaling to make sure the image contains the voi.
+	add_reflections and save_name cannot be used simultaneously"""
+
 	x1 = voi[0]
 	x2 = voi[1]
 	y1 = voi[2]
@@ -95,9 +107,7 @@ def augment_img(img, final_dims, voi, num_samples, translate=None, add_reflectio
 
 	aug_imgs = []
 	
-	for _ in range(num_samples):
-		#intensity_scale = 
-		#intensity_shift = 
+	for img_num in range(num_samples):
 		scales = [random.uniform(scale_ratios[0]*buffer1, scale_ratios[0]*buffer2),
 				 random.uniform(scale_ratios[1]*buffer1, scale_ratios[1]*buffer2),
 				 random.uniform(scale_ratios[2]*buffer1, scale_ratios[2]*buffer2)]
@@ -105,6 +115,7 @@ def augment_img(img, final_dims, voi, num_samples, translate=None, add_reflectio
 		angle = random.randint(0, 359)
 
 		temp_img = tr.scale3d(img, scales)
+		temp_img = temp_img * random.gauss(1,.05) + random.gauss(0,.05)
 		temp_img = tr.rotate(temp_img, angle)
 		
 		if translate is not None:
@@ -129,7 +140,10 @@ def augment_img(img, final_dims, voi, num_samples, translate=None, add_reflectio
 		
 		temp_img = tr.offset_phases(temp_img, max_offset=2, max_z_offset=1)
 
-		aug_imgs.append(temp_img)
+		if save_name is None:
+			aug_imgs.append(temp_img)
+		else:
+			np.save(save_name + "_" + str(img_num), temp_img)
 		
 		if add_reflections:
 			aug_imgs.append(tr.generate_reflected_img(temp_img))
@@ -207,3 +221,6 @@ def resize_img(img, final_dims, voi):
 		assert crop[i]>=0
 	
 	return img[crop[0]//2:-crop[0]//2, crop[1]//2:-crop[1]//2, crop[2]//2:-crop[2]//2, :]
+
+if __name__ == '__main__':
+	print("This is not meant to be called as a script.")

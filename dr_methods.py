@@ -4,6 +4,43 @@ import os
 import pandas as pd
 import time
 
+def load_all_vois(base_dir):
+	voi_df_art = pd.DataFrame(columns = ["Filename", "x1", "x2", "y1", "y2", "z1", "z2", "cls",
+                                     "flipz", "real_dx", "real_dy", "real_dz", "id", "lesion_num"])
+	voi_df_ven = pd.DataFrame(columns = ["id", "x1", "x2", "y1", "y2", "z1", "z2"]) #voi_df_ven only contains entries where manually specified
+	voi_df_eq = pd.DataFrame(columns = ["id", "x1", "x2", "y1", "y2", "z1", "z2"]) #voi_df_ven only contains entries where manually specified
+	voi_dfs = [voi_df_art, voi_df_ven, voi_df_eq]
+	
+	img_dir = base_dir+'\\OPTN5A'
+	cls = 'hcc'
+	sheetname="OPTN 5A"
+	img_dir = base_dir+'\\optn5b'
+	cls = 'hcc'
+	sheetname="OPTN 5B"
+	img_dir = base_dir+'\\simple_cysts'
+	cls = 'cyst'
+	sheetname="Cyst"
+	img_dir = base_dir+'\\hemangioma'
+	cls = 'hemangioma'
+	sheetname="Hemangioma"
+	img_dir = base_dir+'\\fnh'
+	cls = 'fnh'
+	sheetname="FNH"
+	img_dir = base_dir+'\\cholangio'
+	cls = 'cholangio'
+	sheetname="Cholangio"
+	img_dir = base_dir+'\\colorectal'
+	cls = 'colorectal'
+	sheetname="Colorectal"
+	img_dir = base_dir+'\\adenoma'
+	cls = 'adenoma'
+	sheetname="Adenoma"
+
+	for cls in C.classes_to_include:
+		voi_dfs = drm.load_vois(cls, xls_name, sheetname, voi_dfs, dims_df, C)
+
+	return voi_dfs
+
 def add_voi(voi_df, acc_num, x, y, z, vox_dims=None, cls=None, flipz=None, return_id=False):
 	"""Append voi info to the dataframe voi_df. Overwrite any previous entries."""
 	

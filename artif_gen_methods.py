@@ -39,7 +39,8 @@ def post_process_img(img, C, blur_range = [.8, 1.9]):
 	img += np.random.normal(scale = C.noise_std, size = img.shape)
 	img = add_edge(img)
 	img = tr.offset_phases(img)
-	img = blur_2d(img, random.uniform(blur_range[0], blur_range[1]))
+	img = blur_2d(img, random.uniform(blur_range[0], blur_range[1])) 
+	img = img * random.gauss(1,.2) + random.gauss(0,.2)
 	
 	return img
 
