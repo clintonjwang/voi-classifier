@@ -1,8 +1,11 @@
 import copy
+import csv
+import dr_methods as drm
 import helper_fxns as hf
 import math
 import numpy as np
 import os
+import pandas as pd
 import random
 import time
 import transforms as tr
@@ -20,12 +23,69 @@ def save_augmented_img(fn, cls, voi_coords, C):
     img = np.load(C.crops_dir + cls + "\\" + fn)
     augment_img(img, C.dims, voi_coords, num_samples=50, translate=[2,2,1], save_name=C.aug_dir + cls + "\\" + fn[:-4])
 
-def reload_accnum(accnum, voi_dfs, small_vois, C):
+def reload_accnum(accnum, cls, C):
     """Reloads cropped, scaled and augmented images. Updates voi_dfs and small_vois accordingly."""
-    #extract_voi(img, voi, min_dims, ven_voi=[], eq_voi=[])
-    #
-    #augment_img(img, C.dims, voi_coords, num_samples=50, translate=[2,2,1], save_name=C.aug_dir + cls + "\\" + fn[:-4])
-    pass
+
+    # Update VOIs
+    xls_name = 'Z:\\Prototype1d.xlsx'
+    cls_names = ['hcc', 'hcc', 'cyst', 'hemangioma', 'fnh', 'cholangio', 'colorectal', 'adenoma']
+    sheetnames = ['OPTN 5A', 'OPTN 5B', 'Cyst', 'Hemangioma', 'FNH', 'Cholangio', 'Colorectal', 'Adenoma']
+    img_dirs = ['OPTN5A', 'optn5b', 'simple_cysts', 'hemangioma', 'fnh', 'cholangio', 'colorectal', 'adenoma']
+    voi_df_art = pd.read_csv(C.art_voi_path)
+    voi_df_ven = pd.read_csv(C.ven_voi_path)
+    voi_df_eq = pd.read_csv(C.eq_voi_path)
+    voi_dfs = [voi_df_art, voi_df_ven, voi_df_eq]
+    dims_df = pd.read_csv(C.dims_df_path)
+
+    if cls=="hcc":
+        voi_dfs = drm.load_vois(cls, xls_name, sheetnames[0], voi_dfs, dims_df, C, acc_nums=[accnum])
+        voi_dfs = drm.load_vois(cls, xls_name, sheetnames[1], voi_dfs, dims_df, C, acc_nums=[accnum])
+    else:
+        voi_dfs = drm.load_vois(cls, xls_name, sheetnames[cls_names.index(cls)], voi_dfs, dims_df, C, acc_nums=[accnum])
+
+    voi_df_art, voi_df_ven, voi_df_eq = voi_dfs
+    voi_df_art.to_csv(C.art_voi_path, index=False)
+    voi_df_ven.to_csv(C.ven_voi_path, index=False)
+    voi_df_eq.to_csv(C.eq_voi_path, index=False)
+
+
+    # Update small_vois / cropped image
+    intensity_df = pd.read_csv(C.int_df_path)
+    with open(C.small_voi_path, 'r') as csv_file:
+        reader = csv.reader(csv_file)
+        small_vois = dict(reader)
+    for key in small_vois:
+        small_vois[key] = [int(x) for x in small_vois[key][1:-1].split(', ')]
+
+    img_fn = accnum + ".npy"
+    img = np.load(C.full_img_dir+"\\"+cls+"\\"+img_fn)
+    art_vois = voi_df_art[(voi_df_art["Filename"] == img_fn) & (voi_df_art["cls"] == cls)]
+
+    for voi in art_vois.iterrows():
+        ven_voi = voi_df_ven[voi_df_ven["id"] == voi[1]["id"]]
+        eq_voi = voi_df_eq[voi_df_eq["id"] == voi[1]["id"]]
+
+        cropped_img, cls, small_voi = extract_voi(img, copy.deepcopy(voi[1]), C.dims, ven_voi=ven_voi, eq_voi=eq_voi)
+        cropped_img = rescale_int(cropped_img, intensity_df[intensity_df["AccNum"] == img_fn[:img_fn.find('.')]])
+
+        fn = img_fn[:-4] + "_" + str(voi[1]["lesion_num"])
+        np.save(C.crops_dir + cls + "\\" + fn, cropped_img)
+        small_vois[fn] = small_voi
+
+        # Update scaled and augmented images
+        fn += ".npy"
+        img = np.load(C.crops_dir + cls + "\\" + fn)
+        unaug_img = resize_img(img, C.dims, small_vois[fn[:-4]])
+        np.save(C.orig_dir + cls + "\\" + fn, unaug_img)
+        augment_img(img, C.dims, small_vois[fn[:-4]], num_samples=50, translate=[2,2,1], save_name=C.aug_dir + cls + "\\" + fn[:-4])
+
+    with open(C.small_voi_path, 'w', newline='') as csv_file:
+        writer = csv.writer(csv_file)
+        for key, value in small_vois.items():
+            writer.writerow([key, value])
+
+
+
 
 def save_all_vois(cls, C, num_ch=3, normalize=True, rescale_factor=3):
     """Save all voi images as jpg."""

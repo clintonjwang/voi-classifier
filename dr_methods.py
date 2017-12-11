@@ -4,12 +4,12 @@ import os
 import pandas as pd
 import time
 
-def load_all_vois(C):
+def load_all_vois(C, cls=None):
 	"""Load all the vois for all classes and save them into the csvs specified by config"""
 
 	xls_name = 'Z:\\Prototype1d.xlsx'
 	base_dir = "Z:"
-
+	
 	for cls in C.classes_to_include:
 	    if not os.path.exists(C.full_img_dir + "\\" + cls):
 	        os.makedirs(C.full_img_dir + "\\" + cls)
@@ -102,7 +102,7 @@ def get_scaling_intensity(img):
 	return ret
 
 
-def load_vois(cls, xls_name, sheetname, voi_dfs, dims_df, C, verbose=False, target_dims=None):
+def load_vois(cls, xls_name, sheetname, voi_dfs, dims_df, C, verbose=False, target_dims=None, acc_nums=None):
 	"""Load all vois belonging to a class based on the contents of the spreadsheet.
 	If target_dims is None, do not rescale images."""
 	
@@ -113,7 +113,14 @@ def load_vois(cls, xls_name, sheetname, voi_dfs, dims_df, C, verbose=False, targ
 	df = pd.read_excel(xls_name, sheetname)
 	df = preprocess_df(df, C)
 	
-	acc_nums = list(set(df['Patient E Number'].dropna().astype(str).tolist()))
+	if acc_nums is None:
+		acc_nums = list(set(df['Patient E Number'].dropna().astype(str).tolist()))
+	else:
+		for acc_num in acc_nums:
+			ids_to_delete = list(voi_df_art[voi_df_art["Filename"] == acc_num+".npy"]["id"].values)
+			voi_df_ven = voi_df_ven[~voi_df_ven["id"].isin(ids_to_delete)]
+			voi_df_eq = voi_df_eq[~voi_df_eq["id"].isin(ids_to_delete)]
+			voi_df_art = voi_df_art[voi_df_art["Filename"] != acc_num+".npy"]
 
 	for cnt, acc_num in enumerate(acc_nums):
 		df_subset = df.loc[df['Patient E Number'].astype(str) == acc_num]
