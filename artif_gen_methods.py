@@ -36,9 +36,9 @@ def post_process_img(img, C, blur_range = [.8, 1.9]):
 	Currently, rotate, add noise, add edge, blur and offset phases."""
 		
 	img = tr.rotate(img, random.randint(0, 359))
-	img += np.random.normal(scale = C.noise_std, size = img.shape)
 	img = add_edge(img)
 	img = tr.offset_phases(img)
+	img += np.random.normal(scale = C.noise_std, size = img.shape)
 	img = blur_2d(img, random.uniform(blur_range[0], blur_range[1])) 
 	img = img * random.gauss(1,.05) + random.gauss(0,.05)
 	
@@ -48,7 +48,7 @@ def post_process_img(img, C, blur_range = [.8, 1.9]):
 ### POST-PROCESSING METHODS
 ####################################
 
-def add_edge(img, edge_frac=0.2):
+def add_edge(img, edge_frac=0.2, min_val = -.7):
 	"""Add an artificial edge along one of the x/y sides (spans the entire z axis"""
 
 	dims = img.shape
@@ -58,22 +58,22 @@ def add_edge(img, edge_frac=0.2):
 	if edge_choice == 1: #vertical
 		edge_start = random.uniform(0, dims[0]*edge_frac)
 		for y in range(dims[1]):
-			img[:max(math.floor(edge_start + edge_slope*y),0), y, :, :] = -1
+			img[:max(math.floor(edge_start + edge_slope*y),0), y, :, :] = min_val
 
 	elif edge_choice == 2:
 		edge_start = random.uniform(dims[0]*(1-edge_frac), dims[0])
 		for y in range(dims[1]):
-			img[math.ceil(edge_start + edge_slope*y):, y, :, :] = -1
+			img[math.ceil(edge_start + edge_slope*y):, y, :, :] = min_val
 
 	elif edge_choice == 3: #horizontal
 		edge_start = random.uniform(0, dims[1]*edge_frac)
 		for x in range(dims[0]):
-			img[x, :max(math.floor(edge_start + edge_slope*x),0), :, :] = -1
+			img[x, :max(math.floor(edge_start + edge_slope*x),0), :, :] = min_val
 
 	else:
 		edge_start = random.uniform(dims[1]*(1-edge_frac), dims[1])
 		for x in range(dims[0]):
-			img[x, math.ceil(edge_start + edge_slope*x):, :, :] = -1
+			img[x, math.ceil(edge_start + edge_slope*x):, :, :] = min_val
 	
 	return img
 
@@ -95,6 +95,15 @@ def get_sizes(C, n):
 	sizes = np.linspace(C.long_size_frac[0], C.long_size_frac[1], num=n)
 
 	return side_rat, sizes
+
+
+def init_img(C):
+	img = np.zeros(C.dims + [C.nb_channels])
+	enh_parenchyma_int = .15 * random.random() + .1
+	img[:,:,:,1] = enh_parenchyma_int
+	img[:,:,:,2] = enh_parenchyma_int
+
+	return img
 
 
 ####################################
@@ -138,7 +147,7 @@ def gen_hccs(C, n):
 		shades_i = [shade+random.gauss(0, shade_std)+shade_offset_i for shade in shades]
 		rim_shade = shades_i[0]*random.uniform(1.05,1.6)
 		
-		img = np.zeros(C.dims + [C.nb_channels])
+		img = init_img(C)
 		for x in range(-math.floor(r), math.floor(r)):
 			for y in range(-math.floor(r), math.floor(r)):
 				z_sq = (r**2 - x**2 - (y/side_rat[i])**2)
@@ -194,7 +203,7 @@ def gen_hemangiomas(C, n):
 		
 		shades_i = [shade+random.gauss(0, C.shade_std) for shade in shades]
 		
-		img = np.zeros(C.dims + [C.nb_channels])
+		img = init_img(C)
 		for x in range(-math.floor(r), math.floor(r)):
 			for y in range(-math.floor(r), math.floor(r)):
 				z_sq = (r**2 - x**2 - (y/side_rat[i])**2)
@@ -263,7 +272,7 @@ def gen_cholangios(C, n):
 		shades_i = [base_shade, ven_shade, eq_shade]
 		rim_shades_i = [rim_shade+random.gauss(0, C.shade_std) for rim_shade in rim_shades]
 		
-		img = np.zeros(C.dims + [C.nb_channels])
+		img = init_img(C)
 		for x in range(-math.floor(r), math.floor(r)):
 			for y in range(-math.floor(r), math.floor(r)):
 				z = (r**2 - x**2 - (y/side_rat[i])**2)
@@ -340,7 +349,7 @@ def gen_colorectals(C, n):
 		
 		shades_i = [shade+random.gauss(0, C.shade_std) for shade in shades]
 		
-		img = np.zeros(C.dims + [C.nb_channels])
+		img = init_img(C)
 		for x in range(-math.floor(r), math.floor(r)):
 			for y in range(-math.floor(r), math.floor(r)):
 				z_sq = (r**2 - x**2 - (y/side_rat[i])**2)
@@ -409,7 +418,7 @@ def gen_round_lesions(n, shades, C, shade_offset=0.02):
 		
 		shades_i = [shade+random.gauss(0, C.shade_std)+shade_offset_i for shade in shades]
 		
-		img = np.zeros(C.dims + [C.nb_channels])
+		img = init_img(C)
 		for x in range(-math.floor(r), math.floor(r)):
 			for y in range(-math.floor(r), math.floor(r)):
 				z = (r**2 - x**2 - (y/side_rat[i])**2)
@@ -448,7 +457,7 @@ def gen_scarring_lesions(n, shades, C, scar_shades=[-.5, -.5, .3]):
 		shades_i = [shade+random.gauss(0, C.shade_std) for shade in shades]
 		scar_shades_i = [scar_shade+random.gauss(0, C.shade_std) for scar_shade in scar_shades]
 		
-		img = np.zeros(C.dims + [C.nb_channels])
+		img = init_img(C)
 		for x in range(-math.floor(r), math.floor(r)):
 			for y in range(-math.floor(r), math.floor(r)):
 				z = (r**2 - x**2 - (y/side_rat[i])**2)

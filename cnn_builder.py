@@ -361,7 +361,7 @@ def run_cnn(model, C, n=4, n_art=4, steps_per_epoch=25, epochs=50, run_2d=True, 
 def overnight_run(C):
     """Runs the CNN indefinitely, saving performance metrics."""
 
-    running_stats = pd.DataFrame(columns = ["n", "n_art", "steps_per_epoch", "epochs", "2d", "batchnorm", "num_cnn_inputs", "Acc6cls", "Acc3cls", "time_elapsed"])
+    running_stats = pd.DataFrame(columns = ["n", "n_art", "steps_per_epoch", "epochs", "2d", "batchnorm", "num_conv_layers", "Acc6cls", "Acc3cls", "time_elapsed"])
     running_acc_6 = []
     running_acc_3 = []
     index = 0
@@ -372,8 +372,9 @@ def overnight_run(C):
     run_2d=False
 
     while True:
+        t = time.time()
         model = build_cnn(C, 'adam')
-        model, X_test, Y_test = run_cnn(model, C, n=4, n_art=4, steps_per_epoch=25, epochs=50, run_2d=run_2d)
+        model, X_test, Y_test = run_cnn(model, C, n=4, n_art=4, steps_per_epoch=200, epochs=15, run_2d=run_2d)
         Y_pred = model.predict(X_test)
         y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_test])
         y_pred = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_pred])
@@ -383,14 +384,14 @@ def overnight_run(C):
         running_acc_3.append(accuracy_score(y_true_simp, y_pred_simp))
         print("3cls accuracy:", running_acc_3[-1], " - average:", np.mean(running_acc_3))
 
-        running_stats.iloc[index] = [n, n_art, steps_per_epoch, epochs, run_2d, running_acc_6[-1], running_acc_3[-1]]
+        running_stats.iloc[index] = [n, n_art, steps_per_epoch, epochs, run_2d, True, running_acc_6[-1], running_acc_3[-1], time.time()-t]
         running_stats.to_csv("overnight_run.csv", index=False)
         index += 1
 
 
 def train_generator_func(C, train_ids, voi_df, avg_X2, n=12, n_art=0):
     """n is the number of samples from each class, n_art is the number of artificial samples"""
-    
+
     classes_to_include = C.classes_to_include
     
     num_classes = len(classes_to_include)

@@ -23,11 +23,11 @@ class Config:
 
 		self.full_img_dir = "Z:\\INPUT\\full_imgs_origdims"
 		self.output_img_dir = "Z:\\OUTPUT\\12-08-3d"
-		self.vois_dir = "Z:\\OUTPUT\\12-11-vois\\"
-		self.crops_dir = "E:\\imgs\\unscaled_training_data\\" #Z:\\INPUT\\
-		self.artif_dir = "E:\\imgs\\artif_imgs_3612_scale05\\"
-		self.aug_dir = "E:\\imgs\\aug_imgs_3612_scale05\\"
-		self.orig_dir = "E:\\imgs\\orig_imgs_3612_scale05\\"
+		self.vois_dir = "Z:\\OUTPUT\\12-11-vois_art-int\\"
+		self.crops_dir = "E:\\imgs\\unscaled_crops\\" #Z:\\INPUT\\
+		self.artif_dir = "E:\\imgs\\artif_imgs\\"
+		self.aug_dir = "E:\\imgs\\aug_imgs\\"
+		self.orig_dir = "E:\\imgs\\orig_imgs\\"
 
 		# Artificial sample parameters
 		self.long_size_frac = [0.6, 0.85]

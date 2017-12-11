@@ -9,7 +9,7 @@ def load_all_vois(C, cls=None):
 
 	xls_name = 'Z:\\Prototype1d.xlsx'
 	base_dir = "Z:"
-	
+
 	for cls in C.classes_to_include:
 	    if not os.path.exists(C.full_img_dir + "\\" + cls):
 	        os.makedirs(C.full_img_dir + "\\" + cls)
@@ -95,9 +95,10 @@ def get_scaling_intensity(img):
 	max_value = max(a)
 	max_index = a.index(max_value)
 	ret = (hist[1][max_index] + hist[1][max_index+1]) / 2"""
-	temp_img = img[img.shape[0]//5:img.shape[0]*3//5,
-				   img.shape[1]//5:img.shape[1]//2,:]
-	ret = np.amax(temp_img)
+	#temp_img = img[img.shape[0]//5:img.shape[0]//2,
+	#			   img.shape[1]//5:img.shape[1]//2,
+	#			   img.shape[2]//5:img.shape[2]*4//5]
+	ret = np.amax(img)
 	
 	return ret
 
@@ -184,7 +185,7 @@ def load_vois(cls, xls_name, sheetname, voi_dfs, dims_df, C, verbose=False, targ
 	return voi_df_art, voi_df_ven, voi_df_eq
 
 
-def load_ints(C):
+def get_intensities(C):
 	"""Return a dataframe with the normalizing intensities of each image's channels"""
 
 	intensity_df = pd.DataFrame(columns = ["AccNum", "art_int", "ven_int", "eq_int"])

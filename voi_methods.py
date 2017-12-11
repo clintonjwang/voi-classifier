@@ -55,7 +55,8 @@ def reload_accnum(accnum, cls, C):
         reader = csv.reader(csv_file)
         small_vois = dict(reader)
     for key in small_vois:
-        small_vois[key] = [int(x) for x in small_vois[key][1:-1].split(', ')]
+        if key[:key.find('_')] != accnum:
+            small_vois[key] = [int(x) for x in small_vois[key][1:-1].split(', ')]
 
     img_fn = accnum + ".npy"
     img = np.load(C.full_img_dir+"\\"+cls+"\\"+img_fn)
@@ -83,9 +84,6 @@ def reload_accnum(accnum, cls, C):
         writer = csv.writer(csv_file)
         for key, value in small_vois.items():
             writer.writerow([key, value])
-
-
-
 
 def save_all_vois(cls, C, num_ch=3, normalize=True, rescale_factor=3):
     """Save all voi images as jpg."""
@@ -252,13 +250,13 @@ def augment_img(img, final_dims, voi, num_samples, translate=None, add_reflectio
     
     return aug_imgs
 
-def rescale_int(img, intensity_row):
+def rescale_int(img, intensity_row, min_int=.7):
     """Rescale intensities in img by the """
     try:
         img = img.astype(float)
-        img[:,:,:,0] = (img[:,:,:,0] * 2 / float(intensity_row["art_int"])) - 1
-        img[:,:,:,1] = (img[:,:,:,1] * 2 / float(intensity_row["ven_int"])) - 1
-        img[:,:,:,2] = (img[:,:,:,2] * 2 / float(intensity_row["eq_int"])) - 1
+        img[:,:,:,0] = (img[:,:,:,0] * 2 / float(intensity_row["art_int"])) - min_int
+        img[:,:,:,1] = (img[:,:,:,1] * 2 / float(intensity_row["ven_int"])) - min_int #ven_int
+        img[:,:,:,2] = (img[:,:,:,2] * 2 / float(intensity_row["eq_int"])) - min_int #eq_int
     except:
         raise ValueError("intensity_row is probably missing")
 
