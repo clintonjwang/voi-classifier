@@ -30,8 +30,7 @@ def gen_imgs(cls, C, n):
 	for cnt, img in enumerate(imgs):
 		np.save(C.artif_dir + cls + "\\artificial_" + str(cnt), post_process_img(img, C))
 
-
-def post_process_img(img, C, blur_range = [.8, 1.9]):
+def post_process_img(img, C, blur_range = [.7, 2.1]):
 	"""Post processing applied to all artificial images.
 	Currently, rotate, add noise, add edge, blur and offset phases."""
 		
@@ -43,6 +42,7 @@ def post_process_img(img, C, blur_range = [.8, 1.9]):
 	img = img * random.gauss(1,.05) + random.gauss(0,.05)
 	
 	return img
+
 
 ####################################
 ### POST-PROCESSING METHODS
@@ -77,7 +77,6 @@ def add_edge(img, edge_frac=0.2, min_val = -.7):
 	
 	return img
 
-
 def blur_2d(orig_img, sigma):
 	"""Apply gaussian blur to images in the x/y plane only."""
 
@@ -88,14 +87,12 @@ def blur_2d(orig_img, sigma):
 		
 	return img
 
-
 def get_sizes(C, n):
 	side_rat = np.linspace(1/C.max_side_ratio, 1, 6)
 	side_rat = list(sum(zip(reversed(side_rat), side_rat), ())[:len(side_rat)]) * math.ceil(n/6)
 	sizes = np.linspace(C.long_size_frac[0], C.long_size_frac[1], num=n)
 
 	return side_rat, sizes
-
 
 def init_img(C):
 	img = np.zeros(C.dims + [C.nb_channels])
@@ -114,7 +111,7 @@ def gen_cysts(C, n):
 	"""Generate n images of cysts with dimensions of C.dims plus channels defined by the config file.
 	Should be round and hypointense in all phases."""
 	
-	shades = [-0.8, -0.8, -0.8]
+	shades = [-0.65, -0.65, -0.65]
 	return gen_round_lesions(n, shades, C)
 
 def gen_hccs(C, n):
@@ -180,7 +177,7 @@ def gen_hemangiomas(C, n):
 	"""Generate n images of hemangiomas with dimensions of C.dims plus channels defined by the config file.
 	Should be round with a nodularly enhancing rim that fills in over time."""
 	
-	shades = [-0.8, -0.8, -0.8]
+	shades = [-0.65, -0.65, -0.65]
 	rim_shades = [.5,.5,.5]
 	shrink_factor = [0.5, 0.95]
 	rim_ratio = [0.87,1.05]
@@ -392,8 +389,6 @@ def gen_fnhs(C, n, scar_fraction = .3):
 	
 	shades = [0.35, 0.05, 0.05]
 	return gen_scarring_lesions(math.ceil(n*scar_fraction), shades, C) + gen_round_lesions(math.floor(n*(1-scar_fraction)), shades, C)
-
-
 
 
 ####################################

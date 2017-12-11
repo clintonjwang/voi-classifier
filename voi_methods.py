@@ -37,9 +37,14 @@ def reload_accnum(accnum, cls, C):
     voi_dfs = [voi_df_art, voi_df_ven, voi_df_eq]
     dims_df = pd.read_csv(C.dims_df_path)
 
-    if cls=="hcc":
-        voi_dfs = drm.load_vois(cls, xls_name, sheetnames[0], voi_dfs, dims_df, C, acc_nums=[accnum])
-        voi_dfs = drm.load_vois(cls, xls_name, sheetnames[1], voi_dfs, dims_df, C, acc_nums=[accnum])
+    if cls=="5a":
+        voi_dfs = drm.load_vois("hcc", xls_name, sheetnames[0], voi_dfs, dims_df, C, acc_nums=[accnum])
+        cls = "hcc"
+    elif cls=="5b":
+        voi_dfs = drm.load_vois("hcc", xls_name, sheetnames[1], voi_dfs, dims_df, C, acc_nums=[accnum])
+        cls = "hcc"
+    elif cls=="hcc":
+        raise ValueError("Specify 5a or 5b")
     else:
         voi_dfs = drm.load_vois(cls, xls_name, sheetnames[cls_names.index(cls)], voi_dfs, dims_df, C, acc_nums=[accnum])
 
@@ -61,6 +66,18 @@ def reload_accnum(accnum, cls, C):
     img_fn = accnum + ".npy"
     img = np.load(C.full_img_dir+"\\"+cls+"\\"+img_fn)
     art_vois = voi_df_art[(voi_df_art["Filename"] == img_fn) & (voi_df_art["cls"] == cls)]
+
+
+    for fn in os.listdir(C.crops_dir + cls):
+        if fn.startswith(accnum):
+            os.remove(C.crops_dir + cls + "\\" + fn)
+    for fn in os.listdir(C.orig_dir + cls):
+        if fn.startswith(accnum):
+            os.remove(C.orig_dir + cls + "\\" + fn)
+    for fn in os.listdir(C.aug_dir + cls):
+        if fn.startswith(accnum):
+            os.remove(C.aug_dir + cls + "\\" + fn)
+
 
     for voi in art_vois.iterrows():
         ven_voi = voi_df_ven[voi_df_ven["id"] == voi[1]["id"]]

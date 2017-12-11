@@ -32,5 +32,5 @@ class Config:
 		# Artificial sample parameters
 		self.long_size_frac = [0.6, 0.85]
 		self.max_side_ratio = 1.6
-		self.noise_std = 0.11
+		self.noise_std = 0.05
 		self.shade_std = 0.05
