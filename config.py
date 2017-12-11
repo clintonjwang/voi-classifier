@@ -22,11 +22,12 @@ class Config:
 		self.small_voi_path = "small_vois.csv"
 
 		self.full_img_dir = "Z:\\INPUT\\full_imgs_origdims"
-		self.crops_dir = "imgs\\unscaled_training_data\\" #Z:\\INPUT\\
-		self.artif_dir = "imgs\\artif_imgs_3612_scale05\\"
-		self.aug_dir = "imgs\\aug_imgs_3612_scale05\\"
-		self.orig_dir = "imgs\\orig_imgs_3612_scale05\\"
 		self.output_img_dir = "Z:\\OUTPUT\\12-08-3d"
+		self.vois_dir = "Z:\\OUTPUT\\12-11-vois\\"
+		self.crops_dir = "E:\\imgs\\unscaled_training_data\\" #Z:\\INPUT\\
+		self.artif_dir = "E:\\imgs\\artif_imgs_3612_scale05\\"
+		self.aug_dir = "E:\\imgs\\aug_imgs_3612_scale05\\"
+		self.orig_dir = "E:\\imgs\\orig_imgs_3612_scale05\\"
 
 		# Artificial sample parameters
 		self.long_size_frac = [0.6, 0.85]

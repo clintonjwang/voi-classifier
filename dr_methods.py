@@ -4,42 +4,35 @@ import os
 import pandas as pd
 import time
 
-def load_all_vois(base_dir):
+def load_all_vois(C):
+	"""Load all the vois for all classes and save them into the csvs specified by config"""
+
+	xls_name = 'Z:\\Prototype1d.xlsx'
+	base_dir = "Z:"
+
+	for cls in C.classes_to_include:
+	    if not os.path.exists(C.full_img_dir + "\\" + cls):
+	        os.makedirs(C.full_img_dir + "\\" + cls)
+
+	dims_df = pd.read_csv(C.dims_df_path)
 	voi_df_art = pd.DataFrame(columns = ["Filename", "x1", "x2", "y1", "y2", "z1", "z2", "cls",
                                      "flipz", "real_dx", "real_dy", "real_dz", "id", "lesion_num"])
 	voi_df_ven = pd.DataFrame(columns = ["id", "x1", "x2", "y1", "y2", "z1", "z2"]) #voi_df_ven only contains entries where manually specified
 	voi_df_eq = pd.DataFrame(columns = ["id", "x1", "x2", "y1", "y2", "z1", "z2"]) #voi_df_ven only contains entries where manually specified
 	voi_dfs = [voi_df_art, voi_df_ven, voi_df_eq]
-	
-	img_dir = base_dir+'\\OPTN5A'
-	cls = 'hcc'
-	sheetname="OPTN 5A"
-	img_dir = base_dir+'\\optn5b'
-	cls = 'hcc'
-	sheetname="OPTN 5B"
-	img_dir = base_dir+'\\simple_cysts'
-	cls = 'cyst'
-	sheetname="Cyst"
-	img_dir = base_dir+'\\hemangioma'
-	cls = 'hemangioma'
-	sheetname="Hemangioma"
-	img_dir = base_dir+'\\fnh'
-	cls = 'fnh'
-	sheetname="FNH"
-	img_dir = base_dir+'\\cholangio'
-	cls = 'cholangio'
-	sheetname="Cholangio"
-	img_dir = base_dir+'\\colorectal'
-	cls = 'colorectal'
-	sheetname="Colorectal"
-	img_dir = base_dir+'\\adenoma'
-	cls = 'adenoma'
-	sheetname="Adenoma"
 
-	for cls in C.classes_to_include:
-		voi_dfs = drm.load_vois(cls, xls_name, sheetname, voi_dfs, dims_df, C)
+	sheetnames = ['OPTN 5A', 'OPTN 5B', 'Cyst', 'Hemangioma', 'FNH', 'Cholangio', 'Colorectal', 'Adenoma']
+	cls_names = ['hcc', 'hcc', 'cyst', 'hemangioma', 'fnh', 'cholangio', 'colorectal', 'adenoma']
+	img_dirs = ['OPTN5A', 'optn5b', 'simple_cysts', 'hemangioma', 'fnh', 'cholangio', 'colorectal', 'adenoma']
 
-	return voi_dfs
+	for i in range(7):
+		voi_dfs = load_vois(cls_names[i], xls_name, sheetnames[i], voi_dfs, dims_df, C)
+
+	voi_df_art, voi_df_ven, voi_df_eq = voi_dfs
+	voi_df_art.to_csv(C.art_voi_path, index=False)
+	voi_df_ven.to_csv(C.ven_voi_path, index=False)
+	voi_df_eq.to_csv(C.eq_voi_path, index=False)
+
 
 def add_voi(voi_df, acc_num, x, y, z, vox_dims=None, cls=None, flipz=None, return_id=False):
 	"""Append voi info to the dataframe voi_df. Overwrite any previous entries."""
@@ -114,10 +107,10 @@ def load_vois(cls, xls_name, sheetname, voi_dfs, dims_df, C, verbose=False, targ
 	If target_dims is None, do not rescale images."""
 	
 	s = time.time()
-	print("\nLoading VOIs for class", cls)
+	print("\nLoading VOIs from sheet", sheetname)
 	
 	voi_df_art, voi_df_ven, voi_df_eq = voi_dfs
-	df = pd.read_excel(xls_name, sheetname=sheetname)
+	df = pd.read_excel(xls_name, sheetname)
 	df = preprocess_df(df, C)
 	
 	acc_nums = list(set(df['Patient E Number'].dropna().astype(str).tolist()))
@@ -228,7 +221,7 @@ def load_imgs(img_dir, cls, xls_name, sheetname, dims_df, C, verbose=False, targ
 	
 	s = time.time()
 	print("\nLoading DCMs of type", sheetname)
-	df = pd.read_excel(xls_name, sheetname=sheetname)
+	df = pd.read_excel(xls_name, sheetname)
 	df = preprocess_df(df, C)
 	acc_nums = list(set(df['Patient E Number'].dropna().astype(str).tolist()))
 
@@ -296,7 +289,7 @@ def remove_voi(voi_df_art, voi_df_ven, acc_num, voi_num):
 
 def delete_imgs(acc_nums, cls, C, xls_name=None, sheetname=None):
 	if xls_name is not None:
-		df = pd.read_excel(xls_name, sheetname=sheetname)
+		df = pd.read_excel(xls_name, sheetname)
 		df = preprocess_df(df, C)
 
 		acc_nums = list(set(df['Patient E Number'].dropna().astype(str).tolist()))
@@ -308,7 +301,7 @@ def delete_imgs(acc_nums, cls, C, xls_name=None, sheetname=None):
 		#	continue
 
 def check_folders(img_dir, xls_name, sheetname, C):
-	df = pd.read_excel(xls_name, sheetname=sheetname)
+	df = pd.read_excel(xls_name, sheetname)
 	df = preprocess_df(df, C)
 	acc_nums = list(set(df['Patient E Number'].dropna().astype(str).tolist()))
 

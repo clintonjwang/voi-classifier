@@ -1,5 +1,5 @@
 import keras.backend as K
-from keras.layers import Input, Dense, Concatenate, Flatten, Dropout, Conv3D, MaxPooling3D, Conv2D, MaxPooling2D, ZeroPadding3D, Activation
+from keras.layers import Input, Dense, Concatenate, Flatten, Dropout, Conv3D, MaxPooling3D, Conv2D, MaxPooling2D, ZeroPadding3D, Activation, ELU
 from keras.layers.normalization import BatchNormalization
 from keras.models import Model
 from keras.regularizers import l1, l2
@@ -21,46 +21,54 @@ import pandas as pd
 import random
 
 def build_cnn(C, optimizer='adam', inputs=4, batch_norm=True, dilation_rate=(2, 2, 1)):
+    """Main class for setting up a CNN. Returns the compiled model."""
+
     nb_classes = len(C.classes_to_include)
 
     if batch_norm:
         art_img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 1))
         art_x = art_img
-        art_x = Conv3D(filters=64, kernel_size=(3,3,2), dilation_rate=dilation_rate)(art_x)
+        art_x = Conv3D(filters=64, kernel_size=(3,3,3), dilation_rate=dilation_rate)(art_x)
         art_x = BatchNormalization()(art_x)
-        art_x = Activation('relu')(art_x)
+        art_x = ELU(alpha=1.0)(art_x)
+        #art_x = Activation('relu')(art_x)
         art_x = MaxPooling3D((2, 2, 2))(art_x)
 
         ven_img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 1))
         ven_x = ven_img
-        ven_x = Conv3D(filters=64, kernel_size=(3,3,2), dilation_rate=dilation_rate)(ven_x)
+        ven_x = Conv3D(filters=64, kernel_size=(3,3,3), dilation_rate=dilation_rate)(ven_x)
         ven_x = BatchNormalization()(ven_x)
-        ven_x = Activation('relu')(ven_x)
+        ven_x = ELU(alpha=1.0)(ven_x)
+        #ven_x = Activation('relu')(ven_x)
         ven_x = MaxPooling3D((2, 2, 2))(ven_x)
 
         eq_img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 1))
         eq_x = eq_img
-        eq_x = Conv3D(filters=64, kernel_size=(3,3,2), dilation_rate=dilation_rate)(eq_x)
+        eq_x = Conv3D(filters=64, kernel_size=(3,3,3), dilation_rate=dilation_rate)(eq_x)
         eq_x = BatchNormalization()(eq_x)
-        eq_x = Activation('relu')(eq_x)
+        eq_x = ELU(alpha=1.0)(eq_x)
+        #eq_x = Activation('relu')(eq_x)
         eq_x = MaxPooling3D((2, 2, 2))(eq_x)
 
         intermed = Concatenate(axis=4)([art_x, ven_x, eq_x])
-        x = Conv3D(filters=128, kernel_size=(3,3,2), dilation_rate=dilation_rate)(intermed)
+        x = Conv3D(filters=128, kernel_size=(3,3,3))(intermed)
         x = BatchNormalization()(x)
-        x = Activation('relu')(x)
-        x = Conv3D(filters=100, kernel_size=(3,3,2), padding='same', dilation_rate=dilation_rate)(x)
+        x = ELU(alpha=1.0)(x)
+        #x = Activation('relu')(x)
+        x = Conv3D(filters=100, kernel_size=(3,3,3))(x)
         x = BatchNormalization()(x)
-        x = Activation('relu')(x)
+        x = ELU(alpha=1.0)(x)
+        #x = Activation('relu')(x)
         x = MaxPooling3D((2, 2, 1))(x)
         x = Flatten()(x)
 
         img_traits = Input(shape=(2,)) #bounding volume and aspect ratio of lesion
 
         intermed = Concatenate(axis=1)([x, img_traits])
-        x = Dense(100)(intermed)#, kernel_initializer='normal', kernel_regularizer=l1(.01), kernel_constraint=max_norm(3.))(x)
+        x = Dense(100)(intermed)#, kernel_initializer='normal', kernel_regularizer=l2(.01), kernel_constraint=max_norm(3.))(x)
         x = BatchNormalization()(x)
-        x = Activation('relu')(x)
+        x = ELU(alpha=1.0)(x)
+        #x = Activation('relu')(x)
         x = Dense(nb_classes)(x)
         x = BatchNormalization()(x)
         pred_class = Activation('softmax')(x)
@@ -131,26 +139,28 @@ def build_cnn(C, optimizer='adam', inputs=4, batch_norm=True, dilation_rate=(2, 
     return model
 
 def build_2d_cnn(C, optimizer='adam', inputs=4, batch_norm=True, dilation_rate=(2, 2)):
+    """Sets up a 2D CNN. Returns the compiled model."""
+
     nb_classes = len(C.classes_to_include)
 
     if batch_norm:
         art_img = Input(shape=(C.dims[0], C.dims[1], 1))
         art_x = art_img
-        art_x = Conv2D(filters=64, kernel_size=(3,3))(art_x)
+        art_x = Conv2D(filters=64, kernel_size=(3,3), dilation_rate=dilation_rate)(art_x)
         art_x = BatchNormalization()(art_x)
         art_x = Activation('relu')(art_x)
         art_x = MaxPooling2D((2, 2))(art_x)
 
         ven_img = Input(shape=(C.dims[0], C.dims[1], 1))
         ven_x = ven_img
-        ven_x = Conv2D(filters=64, kernel_size=(3,3))(ven_x)
+        ven_x = Conv2D(filters=64, kernel_size=(3,3), dilation_rate=dilation_rate)(ven_x)
         ven_x = BatchNormalization()(ven_x)
         ven_x = Activation('relu')(ven_x)
         ven_x = MaxPooling2D((2, 2))(ven_x)
 
         eq_img = Input(shape=(C.dims[0], C.dims[1],  1))
         eq_x = eq_img
-        eq_x = Conv2D(filters=64, kernel_size=(3,3))(eq_x)
+        eq_x = Conv2D(filters=64, kernel_size=(3,3), dilation_rate=dilation_rate)(eq_x)
         eq_x = BatchNormalization()(eq_x)
         eq_x = Activation('relu')(eq_x)
         eq_x = MaxPooling2D((2, 2))(eq_x)
@@ -236,7 +246,7 @@ def build_2d_cnn(C, optimizer='adam', inputs=4, batch_norm=True, dilation_rate=(
     return model
 
 def build_pretrain_model(trained_model, C):
-    """CNN with pretrained weights"""
+    """Sets up CNN with pretrained weights"""
 
     nb_classes = len(C.classes_to_include)
 
@@ -270,7 +280,7 @@ def build_pretrain_model(trained_model, C):
     return model_pretrain
 
 def run_cnn(model, C, n=4, n_art=4, steps_per_epoch=25, epochs=50, run_2d=True, verbose=False):
-    """Run CNN"""
+    """Subroutine to run CNN"""
 
     nb_classes = len(C.classes_to_include)
     voi_df = pd.read_csv(C.art_voi_path)
@@ -349,6 +359,8 @@ def run_cnn(model, C, n=4, n_art=4, steps_per_epoch=25, epochs=50, run_2d=True, 
     return model, X_test, Y_test
 
 def overnight_run(C):
+    """Runs the CNN indefinitely, saving performance metrics."""
+
     running_stats = pd.DataFrame(columns = ["n", "n_art", "steps_per_epoch", "epochs", "2d", "batchnorm", "num_cnn_inputs", "Acc6cls", "Acc3cls", "time_elapsed"])
     running_acc_6 = []
     running_acc_3 = []
@@ -378,6 +390,7 @@ def overnight_run(C):
 
 def train_generator_func(C, train_ids, voi_df, avg_X2, n=12, n_art=0):
     """n is the number of samples from each class, n_art is the number of artificial samples"""
+    
     classes_to_include = C.classes_to_include
     
     num_classes = len(classes_to_include)
@@ -403,8 +416,6 @@ def train_generator_func(C, train_ids, voi_df, avg_X2, n=12, n_art=0):
                 img_fn = random.choice(img_fns)
                 if img_fn[:img_fn.rfind('_')] + ".npy" in train_ids[cls]:
                     x1[train_cnt] = np.load(C.aug_dir+cls+"\\"+img_fn)
-                    #x1[train_cnt] = cfunc.rescale_int(x1[train_cnt],
-                    #                      intensity_df[intensity_df["AccNum"] == img_fn[:img_fn.find('_')]])
 
                     row = voi_df[(voi_df["Filename"] == img_fn[:img_fn.find('_')] + ".npy") &
                                  (voi_df["lesion_num"] == int(img_fn[img_fn.find('_')+1:img_fn.rfind('_')]))]
