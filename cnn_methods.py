@@ -62,10 +62,7 @@ def collect_unaug_data(C, voi_df):
                 x2[index] = [(float(row["real_dx"]) * float(row["real_dy"]) * float(row["real_dz"])) ** (1/3) / 50,
                             max(float(row["real_dx"]), float(row["real_dy"])) / float(row["real_dz"])]
             except TypeError:
-                continue
                 raise ValueError(img_fn + " is probably missing a voi_df entry.")
-            
-            #x[index] = rescale_int(x[index], intensity_df[intensity_df["AccNum"] == img_fn[:img_fn.find('_')]])
 
         x.resize((index, C.dims[0], C.dims[1], C.dims[2], C.nb_channels)) #shrink first dimension to fit
         x2.resize((index, 2)) #shrink first dimension to fit
@@ -78,7 +75,6 @@ def collect_unaug_data(C, voi_df):
 ###########################
 ### FOR OUTPUTTING IMAGES AFTER TRAINING
 ###########################
-
 
 def save_output(Z, y_pred, y_true, voi_df_art, small_vois, cls_mapping, C, save_dir=None):
     """Parent method; saves all imgs in """

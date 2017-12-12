@@ -4,6 +4,11 @@ import os
 import pandas as pd
 import time
 
+
+###########################
+### BULK METHODS ACROSS ALL CLASSES
+###########################
+
 def load_all_vois(C, cls=None):
     """Load all the vois for all classes and save them into the csvs specified by config"""
 
@@ -55,80 +60,32 @@ def reload_img(acc_num, cls, C, update_intensities=False):
     dims_df = load_imgs("Z:\\" + img_dirs[index], cls, xls_name, sheetnames[index], dims_df, C, acc_nums=[acc_num])
     
     if update_intensities:
-        intensity_df = drm.load_ints(C)
+        intensity_df = get_intensities(C)
         intensity_df.to_csv(C.int_df_path, index=False)
 
     dims_df.to_csv(C.dims_df_path, index=False)
     
+def get_intensities(C, acc_num=None, cls=None):
+    """Return a dataframe with the normalizing intensities of each image's channels"""
 
-def add_voi(voi_df, acc_num, x, y, z, vox_dims=None, cls=None, flipz=None, return_id=False):
-    """Append voi info to the dataframe voi_df. Overwrite any previous entries."""
-    
-    if return_id:
-        try:
-            lesion_num = max(voi_df[voi_df["Filename"] == str(acc_num) + ".npy"]["lesion_num"]) + 1
-        except ValueError:
-            lesion_num = 0
-            
-        row_id = str(acc_num)+'_'+str(lesion_num)
-    else:
-        row_id = acc_num
-    
-    voi_df = voi_df[voi_df["id"] != row_id]
-    
-    if len(voi_df) == 0:
-        i = 0
-    else:
-        i = voi_df.index[-1]+1
-        
-    if return_id:
-        dx = (x[1] - x[0])*vox_dims[0]
-        dy = (y[1] - y[0])*vox_dims[1]
-        dz = (z[1] - z[0])*vox_dims[2]
-        
-        voi_df.loc[i] = [str(acc_num) + ".npy", x[0], x[1], y[0], y[1], z[0], z[1], cls, flipz, dx, dy, dz, row_id, lesion_num]
-        return voi_df, row_id
-        
-    else:
-        voi_df.loc[i] = [row_id, x[0], x[1], y[0], y[1], z[0], z[1]]
-        return voi_df
+    if acc_num is None:
+        intensity_df = pd.DataFrame(columns = ["AccNum", "art_int", "ven_int", "eq_int"])
+        for cls in C.classes_to_include:
+            for fn in os.listdir(C.full_img_dir + "\\" + cls):
+                img = np.load(C.full_img_dir + "\\" + cls + "\\" + fn)
+                intensity_df = add_intensity_df(intensity_df, img, fn[:-4])
 
-
-def add_intensity_df(intensity_df, img, acc_num):
-    """Append scale info to the dataframe dims_df. Overwrite any previous entries."""
-    
-    intensity_df = intensity_df[intensity_df["AccNum"] != acc_num]
-    
-    if len(intensity_df) == 0:
-        i = 0
     else:
-        i = intensity_df.index[-1] + 1
+        intensity_df = pd.read_csv(C.int_df_path)
+        img = np.load(C.full_img_dir + "\\" + cls + "\\" + acc_num + ".npy")
+        intensity_df = add_intensity_df(intensity_df, img, acc_num)
         
-    intensity_df.loc[i] = [acc_num, get_scaling_intensity(img[:,:,:,0]),
-                           get_scaling_intensity(img[:,:,:,1]),
-                           get_scaling_intensity(img[:,:,:,2])]
-    
     return intensity_df
 
-def get_scaling_intensity(img):
-    """Return intensity value to normalize img and all its transforms to. img should be 3D with no channels."""
 
-    """temp_img = img[img.shape[0]//5:img.shape[0]*3//5,
-                   img.shape[1]//5:img.shape[1]*3//5,
-                   img.shape[2]//5:img.shape[2]*4//5]
-    temp_img = temp_img[temp_img > np.mean(temp_img)*2/3]
-    hist = np.histogram(temp_img, bins=15)
-    a = list(hist[0])
-    max_value = max(a)
-    max_index = a.index(max_value)
-    ret = (hist[1][max_index] + hist[1][max_index+1]) / 2"""
-    #temp_img = img[img.shape[0]//5:img.shape[0]//2,
-    #               img.shape[1]//5:img.shape[1]//2,
-    #               img.shape[2]//5:img.shape[2]*4//5]
-    ret = np.amax(img)
-    
-    return ret
-
+###########################
+### BULK METHODS ACROSS A SINGLE CLASS
+###########################
 
 def load_vois(cls, xls_name, sheetname, voi_dfs, dims_df, C, verbose=False, target_dims=None, acc_nums=None):
     """Load all vois belonging to a class based on the contents of the spreadsheet.
@@ -278,17 +235,77 @@ def load_imgs(img_dir, cls, xls_name, sheetname, dims_df, C, verbose=False, targ
     return dims_df
 
 
-def get_intensities(C):
-    """Return a dataframe with the normalizing intensities of each image's channels"""
 
-    intensity_df = pd.DataFrame(columns = ["AccNum", "art_int", "ven_int", "eq_int"])
+###########################
+### SINGLE ACC_NUM METHODS
+###########################
 
-    for cls in C.classes_to_include:
-        for fn in os.listdir(C.full_img_dir + "\\" + cls):
-            img = np.load(C.full_img_dir + "\\" + cls + "\\" + fn)
-            intensity_df = add_intensity_df(intensity_df, img, fn[:-4])
+def add_voi(voi_df, acc_num, x, y, z, vox_dims=None, cls=None, flipz=None, return_id=False):
+    """Append voi info to the dataframe voi_df. Overwrite any previous entries."""
+    
+    if return_id:
+        try:
+            lesion_num = max(voi_df[voi_df["Filename"] == str(acc_num) + ".npy"]["lesion_num"]) + 1
+        except ValueError:
+            lesion_num = 0
+            
+        row_id = str(acc_num)+'_'+str(lesion_num)
+    else:
+        row_id = acc_num
+    
+    voi_df = voi_df[voi_df["id"] != row_id]
+    
+    if len(voi_df) == 0:
+        i = 0
+    else:
+        i = voi_df.index[-1]+1
         
+    if return_id:
+        dx = (x[1] - x[0])*vox_dims[0]
+        dy = (y[1] - y[0])*vox_dims[1]
+        dz = (z[1] - z[0])*vox_dims[2]
+        
+        voi_df.loc[i] = [str(acc_num) + ".npy", x[0], x[1], y[0], y[1], z[0], z[1], cls, flipz, dx, dy, dz, row_id, lesion_num]
+        return voi_df, row_id
+        
+    else:
+        voi_df.loc[i] = [row_id, x[0], x[1], y[0], y[1], z[0], z[1]]
+        return voi_df
+
+def add_intensity_df(intensity_df, img, acc_num):
+    """Append scale info to the dataframe dims_df. Overwrite any previous entries."""
+    
+    intensity_df = intensity_df[intensity_df["AccNum"] != acc_num]
+    
+    if len(intensity_df) == 0:
+        i = 0
+    else:
+        i = intensity_df.index[-1] + 1
+        
+    intensity_df.loc[i] = [acc_num, get_scaling_intensity(img[:,:,:,0]),
+                           get_scaling_intensity(img[:,:,:,1]),
+                           get_scaling_intensity(img[:,:,:,2])]
+    
     return intensity_df
+
+def get_scaling_intensity(img):
+    """Return intensity value to normalize img and all its transforms to. img should be 3D with no channels."""
+
+    """temp_img = img[img.shape[0]//5:img.shape[0]*3//5,
+                   img.shape[1]//5:img.shape[1]*3//5,
+                   img.shape[2]//5:img.shape[2]*4//5]
+    temp_img = temp_img[temp_img > np.mean(temp_img)*2/3]
+    hist = np.histogram(temp_img, bins=15)
+    a = list(hist[0])
+    max_value = max(a)
+    max_index = a.index(max_value)
+    ret = (hist[1][max_index] + hist[1][max_index+1]) / 2"""
+    #temp_img = img[img.shape[0]//5:img.shape[0]//2,
+    #               img.shape[1]//5:img.shape[1]//2,
+    #               img.shape[2]//5:img.shape[2]*4//5]
+    ret = np.amax(img)
+    
+    return ret
 
 def add_to_dims_df(dims_df, acc_num, cur_dims):
     """Append scale info to the dataframe dims_df. Overwrite any previous entries."""
@@ -304,6 +321,12 @@ def add_to_dims_df(dims_df, acc_num, cur_dims):
     
     return dims_df
 
+
+
+###########################
+### FILE I/O
+###########################
+
 def preprocess_df(df, C):
     """Select only rows for this run. Collect acc_nums and voi coordinates."""
     
@@ -313,19 +336,6 @@ def preprocess_df(df, C):
           'x1', 'x2', 'y1', 'y2', 'z1', 'z2', 'Image type', 'Flipped',
           'x3', 'x4', 'y3', 'y4', 'z3', 'z4', 'Image type2',
           'x5', 'x6', 'y5', 'y6', 'z5', 'z6', 'Image type3']), axis=1)
-
-def remove_voi(voi_df_art, voi_df_ven, acc_num, voi_num):
-    try:
-        voi_row = voi_df_art[voi_df_art["Filename"] == acc_num + ".npy"].iloc[voi_num]
-        if len(voi_df_ven[voi_df_ven["id"] == voi_row["id"]]) > 0:
-            voi_df_ven = voi_df_ven[voi_df_ven["id"] != voi_row["id"]]
-        voi_df_art = voi_df_art[voi_df_art["id"] != voi_row["id"]]
-        
-    except:
-        print(acc_num, "with lesion number", voi_num, "not found.")
-        
-    return voi_df_art, voi_df_ven
-
 
 def delete_imgs(acc_nums, cls, C, xls_name=None, sheetname=None):
     if xls_name is not None:
@@ -354,3 +364,16 @@ def check_folders(img_dir, xls_name, sheetname, C):
             print(img_dir + "\\" +acc_num + "\\T1_VP is missing")
         if not os.path.exists(img_dir + "\\" +acc_num + "\\T1_EQ"):
             print(img_dir + "\\" +acc_num + "\\T1_EQ is missing")
+
+def remove_voi(voi_df_art, voi_df_ven, acc_num, voi_num):
+    """Not used"""
+    try:
+        voi_row = voi_df_art[voi_df_art["Filename"] == acc_num + ".npy"].iloc[voi_num]
+        if len(voi_df_ven[voi_df_ven["id"] == voi_row["id"]]) > 0:
+            voi_df_ven = voi_df_ven[voi_df_ven["id"] != voi_row["id"]]
+        voi_df_art = voi_df_art[voi_df_art["id"] != voi_row["id"]]
+        
+    except:
+        print(acc_num, "with lesion number", voi_num, "not found.")
+        
+    return voi_df_art, voi_df_ven

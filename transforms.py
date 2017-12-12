@@ -30,7 +30,6 @@ def scale3d(img, scale):
 
 	return scaled
 
-
 def scalex(img, scale):
 	scaled = np.zeros([round(img.shape[0] * scale)] + list(img.shape[1:]))
 
@@ -85,7 +84,6 @@ def scalez(img, scale):
 
 	return scaled
 
-
 def rotate(img, angle):
 	rotated = np.zeros(img.shape)
 
@@ -94,51 +92,6 @@ def rotate(img, angle):
 		for s in range(img.shape[-2]):
 			rotated[:,:,s,ch] = imutils.rotate(img[:,:,s,ch], angle)
 	return rotated
-
-
-def add_noise(image, noise_typ="gauss"):
-	if noise_typ == "gauss":
-		row,col,dep,ch= image.shape
-		mean = 0
-		var = 0.1
-		sigma = var**0.5
-		gauss = np.random.normal(mean,sigma,(row,col,dep,ch))
-		gauss = gauss.reshape(row,col,ch)
-		noisy = image + gauss
-		return noisy
-		
-	elif noise_typ == "s&p":
-		row,col,ch = image.shape
-		s_vs_p = 0.5
-		amount = 0.004
-		out = np.copy(image)
-		# Salt mode
-		num_salt = np.ceil(amount * image.size * s_vs_p)
-		coords = [np.random.randint(0, i - 1, int(num_salt))
-			  for i in image.shape]
-		out[coords] = 1
-
-		# Pepper mode
-		num_pepper = np.ceil(amount* image.size * (1. - s_vs_p))
-		coords = [np.random.randint(0, i - 1, int(num_pepper))
-			  for i in image.shape]
-		out[coords] = 0
-		return out
-
-	elif noise_typ == "poisson":
-		vals = len(np.unique(image))
-		vals = 2 ** np.ceil(np.log2(vals))
-		noisy = np.random.poisson(image * vals) / float(vals)
-		return noisy
-
-	elif noise_typ =="speckle":
-		row,col,ch = image.shape
-		gauss = np.random.randn(row,col,ch)
-		gauss = gauss.reshape(row,col,ch)		
-		noisy = image + image * gauss
-		return noisy
-
-	return None
 
 def generate_reflected_img(img):
 	"""Randomly generate an image by reflecting half of img across one of its axes"""
@@ -161,7 +114,6 @@ def generate_reflected_img(img):
 	else:
 		return np.flip(np.concatenate([img[:,:, :math.ceil(img.shape[2]/2)-1, :],
 						img[:,:, img.shape[2]//2::-1,:]], axis=2), axis=1)
-
 
 def offset_phases(img, max_offset=2, max_z_offset=1):
 	"""Return an img by offsetting the second and third channels of img
