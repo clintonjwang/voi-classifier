@@ -21,6 +21,130 @@ import pandas as pd
 import random
 import time
 
+####################################
+### OVERNIGHT PROCESSES
+####################################
+
+def run_all():
+    """Reruns everything except dimensions. Meant for overnight runs."""
+    
+    import dr_methods as drm
+    import voi_methods as vm
+    import artif_gen_methods as agm
+    import config
+    import cnn_builder as cbuild
+    
+    C = config.Config()
+    drm.load_all_vois(C)
+    
+    intensity_df = drm.load_ints(C)
+    intensity_df.to_csv(C.int_df_path, index=False)
+    
+    n = 1500
+    for cls in C.classes_to_include:
+        agm.gen_imgs(cls, C, n)
+        if not os.path.exists(C.orig_dir + cls):
+            os.makedirs(C.orig_dir + cls)
+        if not os.path.exists(C.aug_dir + cls):
+            os.makedirs(C.aug_dir + cls)
+        if not os.path.exists(C.crops_dir + cls):
+            os.makedirs(C.crops_dir + cls)
+            
+    final_size = C.dims
+
+    voi_df_art = pd.read_csv(C.art_voi_path)
+    voi_df_ven = pd.read_csv(C.ven_voi_path)
+    voi_df_eq = pd.read_csv(C.eq_voi_path)
+    intensity_df = pd.read_csv(C.int_df_path)
+    
+    small_vois = {}
+    small_vois = vm.extract_vois(small_vois, C, voi_df_art, voi_df_ven, voi_df_eq, intensity_df)
+
+    with open(C.small_voi_path, 'w', newline='') as csv_file:
+        writer = csv.writer(csv_file)
+        for key, value in small_vois.items():
+            writer.writerow([key, value])
+            
+    # scaled imgs
+    t = time.time()
+    for cls in C.classes_to_include:
+        for fn in os.listdir(C.crops_dir + cls):
+            img = np.load(C.crops_dir + cls + "\\" + fn)
+            unaug_img = vm.resize_img(img, C.dims, small_vois[fn[:-4]])
+            np.save(C.orig_dir + cls + "\\" + fn, unaug_img)
+    print(time.time()-t)
+    
+    # augmented imgs
+    t = time.time()
+    for cls in C.classes_to_include:
+        vm.parallel_augment(cls, small_vois, C)
+        print(cls, time.time()-t)
+        
+    for cls in C.classes_to_include:
+        vm.save_all_vois(cls, C)
+        
+    cbuild.overnight_run(C)
+
+def overnight_run(C, overwrite=False):
+    """Runs the CNN indefinitely, saving performance metrics."""
+
+    if overwrite:
+        running_stats = pd.DataFrame(columns = ["n", "n_art", "steps_per_epoch", "epochs",
+            "num_phases", "input_res", "training_fraction", "augment_factor", "non_imaging_inputs",
+            "kernel_size", "batchnorm", "conv_filters", "activation_type", "dilation", "dense_units",
+            "acc6cls", "acc3cls", "time_elapsed(s)", "loss_hist"])
+        index = 0
+    else:
+        running_stats = pd.read_csv(C.run_stats_path)
+        index = len(running_stats)
+
+    running_acc_6 = []
+    running_acc_3 = []
+    index = 0
+    n = 4
+    n_art = 4
+    steps_per_epoch = 200
+    epochs = 15
+    run_2d = False
+    batch_norm = True
+    non_imaging_inputs = True
+    f = [[64,128,128]]
+    dense_units = [100]
+    dilation_rate = [(1, 1, 1)]
+    kernel_size = (3,3,3)
+    activation_type = ['elu']#, 'relu']
+
+    while True:
+        t = time.time()
+
+        model = build_cnn(C, 'adam', activation_type=activation_type[index % len(activation_type)],
+                dilation_rate=dilation_rate[index % len(dilation_rate)], f=f[index % len(f)], dense_units=dense_units[index % len(dense_units)], kernel_size=kernel_size)
+
+        model, X_test, Y_test, loss_hist = run_cnn(model, C, n=4, n_art=4, steps_per_epoch=steps_per_epoch, epochs=epochs, run_2d=run_2d)
+
+        Y_pred = model.predict(X_test)
+        y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_test])
+        y_pred = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_pred])
+
+        running_acc_6.append(accuracy_score(y_true, y_pred))
+        print("6cls accuracy:", running_acc_6[-1], " - average:", np.mean(running_acc_6))
+
+        y_true_simp, y_pred_simp, _ = cfunc.condense_cm(y_true, y_pred, C.classes_to_include)
+        running_acc_3.append(accuracy_score(y_true_simp, y_pred_simp))
+        print("3cls accuracy:", running_acc_3[-1], " - average:", np.mean(running_acc_3))
+
+        running_stats.loc[index] = [n, n_art, steps_per_epoch, epochs,
+                            C.nb_channels, C.dims, C.train_frac, C.aug_factor, non_imaging_inputs,
+                            kernel_size, batch_norm, f[index % len(f)], activation_type[index % len(activation_type)], dilation_rate[index % len(dilation_rate)], dense_units[index % len(dense_units)],
+                            running_acc_6[-1], running_acc_3[-1], time.time()-t, loss_hist]
+        running_stats.to_csv(C.run_stats_path, index=False)
+        index += 1
+
+
+####################################
+### BUILD CNNS
+####################################
+
 def build_cnn(C, optimizer='adam', batch_norm=True, dilation_rate=(2, 2, 1), activation_type='elu', f=[64,128,100], dense_units=100, kernel_size=(3,3,3), merge_layer=1):
     """Main class for setting up a CNN. Returns the compiled model."""
 
@@ -249,6 +373,11 @@ def build_pretrain_model(trained_model, C):
 
     return model_pretrain
 
+
+####################################
+### TRAIN CNNS
+####################################
+
 def run_cnn(model, C, n=4, n_art=4, steps_per_epoch=25, epochs=50, run_2d=True, verbose=False):
     """Subroutine to run CNN"""
 
@@ -327,56 +456,6 @@ def run_cnn(model, C, n=4, n_art=4, steps_per_epoch=25, epochs=50, run_2d=True, 
     hist = model.fit_generator(train_generator, steps_per_epoch=steps_per_epoch, epochs=epochs, verbose=verbose)#, callbacks=[early_stopping])
 
     return model, X_test, Y_test, hist.history['loss']
-
-def overnight_run(C):
-    """Runs the CNN indefinitely, saving performance metrics."""
-
-    running_stats = pd.DataFrame(columns = ["n", "n_art", "steps_per_epoch", "epochs",
-        "num_phases", "input_res", "training_fraction", "augment_factor", "non_imaging_inputs",
-        "kernel_size", "batchnorm", "conv_filters", "activation_type", "dilation", "dense_units",
-        "acc6cls", "acc3cls", "time_elapsed(s)", "loss_hist"])
-    running_acc_6 = []
-    running_acc_3 = []
-    index = 0
-    n = 4
-    n_art = 4
-    steps_per_epoch = 200
-    epochs = 15
-    run_2d = False
-    batch_norm = True
-    non_imaging_inputs = True
-    f = [[64,128,64], [64,128,128]]
-    dense_units = [64,100]
-    dilation_rate = (2, 2, 1)
-    kernel_size = (3,3,3)
-    activation_type = ['elu']#, 'relu']
-
-    index = 0
-    while True:
-        t = time.time()
-
-        model = build_cnn(C, 'adam', activation_type=activation_type[index % len(activation_type)],
-                dilation_rate=dilation_rate, f=f[index % len(f)], dense_units=dense_units[index % len(dense_units)], kernel_size=kernel_size)
-
-        model, X_test, Y_test, loss_hist = run_cnn(model, C, n=4, n_art=4, steps_per_epoch=steps_per_epoch, epochs=epochs, run_2d=run_2d)
-
-        Y_pred = model.predict(X_test)
-        y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_test])
-        y_pred = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_pred])
-        
-        running_acc_6.append(accuracy_score(y_true, y_pred))
-        print("6cls accuracy:", running_acc_6[-1], " - average:", np.mean(running_acc_6))
-
-        y_true_simp, y_pred_simp, _ = cfunc.condense_cm(y_true, y_pred, C.classes_to_include)
-        running_acc_3.append(accuracy_score(y_true_simp, y_pred_simp))
-        print("3cls accuracy:", running_acc_3[-1], " - average:", np.mean(running_acc_3))
-
-        running_stats.loc[index] = [n, n_art, steps_per_epoch, epochs,
-                            C.nb_channels, C.dims, C.train_frac, C.aug_factor, non_imaging_inputs,
-                            kernel_size, batch_norm, f[index % len(f)], activation_type[index % len(activation_type)], dilation_rate, dense_units,
-                            running_acc_6[-1], running_acc_3[-1], time.time()-t, loss_hist]
-        running_stats.to_csv("overnight_run.csv", index=False)
-        index += 1
 
 def train_generator_func(C, train_ids, voi_df, avg_X2, n=12, n_art=0):
     """n is the number of samples from each class, n_art is the number of artificial samples"""

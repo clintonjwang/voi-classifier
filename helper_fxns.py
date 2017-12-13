@@ -1,6 +1,7 @@
 from convert_dicom import dicom_series_to_nifti
 from convert_siemens import dicom_to_nifti
 import copy
+import dicom
 import math
 import matplotlib
 import matplotlib.pyplot as plt
@@ -135,48 +136,6 @@ def reg_imgs(moving, fixed, params, rescale_only=False):
 		
 	return moving, scale
 
-
-###########################
-### IMAGE AUGMENTATION
-##########################
-
-"""def augment(img, final_size, num_samples = 100, exceed_ratio=1, translate=None):
-	aug_imgs = []
-	
-	for _ in range(num_samples):
-		temp_img = img
-		angle = random.randint(0, 359)
-		temp_img = tr.rotate(temp_img, angle)
-		
-		if translate is not None:
-			trans = [random.randint(-translate[0], translate[0]),
-					 random.randint(-translate[1], translate[1]),
-					 random.randint(-translate[2], translate[2])]
-		else:
-			trans = [0,0,0]
-		
-		flip = [random.choice([-1, 1]), random.choice([-1, 1]), random.choice([-1, 1])]
-
-		if exceed_ratio < 1:
-			scales = [(1 + 1/exceed_ratio) / 2, (1 + 5/exceed_ratio) / 6]
-			scale = [random.uniform(scales[0],scales[1]), random.uniform(scales[0],scales[1]), random.uniform(scales[0],scales[1])]
-		else:
-			scale = 1
-
-		crops = [(temp_img.shape[i] - final_size[i])*scale[i] for i in range(3)]
-
-		#temp_img = add_noise(temp_img)
-
-		temp_img = temp_img[math.floor(crops[0]/2)*flip[0] + trans[0] : -math.ceil(crops[0]/2)*flip[0] + trans[0] : flip[0],
-								 math.floor(crops[1]/2)*flip[1] + trans[1] : -math.ceil(crops[1]/2)*flip[1] + trans[1] : flip[1],
-								 math.floor(crops[2]/2)*flip[2] + trans[2] : -math.ceil(crops[2]/2)*flip[2] + trans[2] : flip[2], :]
-
-		if scale != 1:
-			temp_img = tr.scale3d(temp_img, scale)
-		
-		aug_imgs.append(temp_img)
-	
-	return aug_imgs"""
 
 ###########################
 ### VOIs
