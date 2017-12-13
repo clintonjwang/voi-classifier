@@ -25,7 +25,7 @@ class Config:
 
 		self.full_img_dir = "Z:\\INPUT\\full_imgs_origdims"
 		self.output_img_dir = "Z:\\OUTPUT\\12-08-3d"
-		self.vois_dir = "Z:\\OUTPUT\\12-11-vois_art-int\\"
+		self.vois_dir = "Z:\\OUTPUT\\12-11-cysts\\"
 		self.crops_dir = "E:\\imgs\\unscaled_crops\\"
 		self.artif_dir = "E:\\imgs\\artif_imgs\\"
 		self.aug_dir = "E:\\imgs\\aug_imgs\\"

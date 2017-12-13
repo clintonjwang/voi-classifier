@@ -100,9 +100,8 @@ def overnight_run(C, overwrite=False):
 
     running_acc_6 = []
     running_acc_3 = []
-    index = 0
-    n = 4
-    n_art = 4
+    n = [4,8]
+    n_art = [4,0]
     steps_per_epoch = 200
     epochs = 15
     run_2d = False
@@ -120,7 +119,8 @@ def overnight_run(C, overwrite=False):
         model = build_cnn(C, 'adam', activation_type=activation_type[index % len(activation_type)],
                 dilation_rate=dilation_rate[index % len(dilation_rate)], f=f[index % len(f)], dense_units=dense_units[index % len(dense_units)], kernel_size=kernel_size)
 
-        model, X_test, Y_test, loss_hist = run_cnn(model, C, n=4, n_art=4, steps_per_epoch=steps_per_epoch, epochs=epochs, run_2d=run_2d)
+        model, X_test, Y_test, loss_hist = run_cnn(model, C, n=n[index % len(n)], n_art=n_art[index % len(n_art)],
+                    steps_per_epoch=steps_per_epoch, epochs=epochs, run_2d=run_2d)
 
         Y_pred = model.predict(X_test)
         y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_test])
@@ -133,7 +133,7 @@ def overnight_run(C, overwrite=False):
         running_acc_3.append(accuracy_score(y_true_simp, y_pred_simp))
         print("3cls accuracy:", running_acc_3[-1], " - average:", np.mean(running_acc_3))
 
-        running_stats.loc[index] = [n, n_art, steps_per_epoch, epochs,
+        running_stats.loc[index] = [n[index % len(n)], n_art[index % len(n_art)], steps_per_epoch, epochs,
                             C.nb_channels, C.dims, C.train_frac, C.aug_factor, non_imaging_inputs,
                             kernel_size, batch_norm, f[index % len(f)], activation_type[index % len(activation_type)], dilation_rate[index % len(dilation_rate)], dense_units[index % len(dense_units)],
                             running_acc_6[-1], running_acc_3[-1], time.time()-t, loss_hist]
