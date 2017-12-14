@@ -245,6 +245,26 @@ def plot_section_auto(img, normalize=False):
 
 	plt.subplots_adjust(wspace=0, hspace=0)
 
+def plot_section_auto_1ch(img, normalize=False):
+	if normalize:
+		img[0,0,:]=-1
+		img[0,-1,:]=.8
+
+	plt.subplot(131)
+	fig=plt.imshow(np.transpose(img[:, ::-1, img.shape[2]//4], (1,0)), cmap='gray')
+	fig.axes.get_xaxis().set_visible(False)
+	fig.axes.get_yaxis().set_visible(False)
+	plt.subplot(132)
+	fig=plt.imshow(np.transpose(img[:, ::-1, img.shape[2]//2], (1,0)), cmap='gray')
+	fig.axes.get_xaxis().set_visible(False)
+	fig.axes.get_yaxis().set_visible(False)
+	plt.subplot(133)
+	fig=plt.imshow(np.transpose(img[:, ::-1, img.shape[2]*3//4], (1,0)), cmap='gray')
+	fig.axes.get_xaxis().set_visible(False)
+	fig.axes.get_yaxis().set_visible(False)
+
+	plt.subplots_adjust(wspace=0, hspace=0)
+
 def plot_section_auto_scan(img, frac, normalize=True):
 	if normalize:
 		img[0,0,:,:]=-1

@@ -94,6 +94,8 @@ def save_output(Z, y_pred, y_true, voi_df_art, small_vois, cls_mapping, C, save_
 			plot_multich_with_bbox(Z[i], cls_mapping[y_pred[i]], voi_df_art, small_vois, save_dir=save_dir + "\\correct\\" + cls_mapping[y_true[i]], C=C)
 
 def plot_multich_with_bbox(fn, pred_class, voi_df_art, small_vois, num_ch=3, save_dir=None, C=None):
+	normalize = True
+
 	if not os.path.exists(save_dir):
 		os.makedirs(save_dir)
 		
@@ -103,8 +105,12 @@ def plot_multich_with_bbox(fn, pred_class, voi_df_art, small_vois, num_ch=3, sav
 	
 	img = np.load(C.crops_dir + voi["cls"] + "\\" + fn)
 	img_slice = img[:,:, img.shape[2]//2, :].astype(float)
-	for ch in range(img_slice.shape[-1]):
-		img_slice[:, :, ch] *= 255/np.amax(img_slice[:, :, ch])
+	#for ch in range(img_slice.shape[-1]):
+	#	img_slice[:, :, ch] *= 255/np.amax(img_slice[:, :, ch])
+	if normalize:
+		img_slice[0,0,:]=-1
+		img_slice[0,-1,:]=.8
+
 	img_slice = np.stack([img_slice, img_slice, img_slice], axis=2)
 	
 	img_slice = draw_bbox(img_slice, C.dims, small_vois[fn[:-4]])
@@ -128,7 +134,39 @@ def plot_multich_with_bbox(fn, pred_class, voi_df_art, small_vois, num_ch=3, sav
 	else:
 		raise ValueError("Invalid num channels")
 		
-	imsave("%s\\%s (pred %s).png" % (save_dir, fn[:-4], pred_class), ret)
+	imsave("%s\\large-%s (pred %s).png" % (save_dir, fn[:-4], pred_class), ret)
+
+
+	from skimage.transform import rescale
+
+
+	rescale_factor = 3
+	cls = voi["cls"]
+	img = np.load(C.orig_dir + cls + "\\" + fn)
+
+	img_slice = img[:,:, img.shape[2]//2, :].astype(float)
+
+	if normalize:
+		img_slice[0,0,:]=-1
+		img_slice[0,-1,:]=.8
+		
+	ch1 = np.transpose(img_slice[:,::-1,0], (1,0))
+	ch2 = np.transpose(img_slice[:,::-1,1], (1,0))
+	
+	if num_ch == 2:
+		ret = np.empty([ch1.shape[0]*2, ch1.shape[1]])
+		ret[:ch1.shape[0],:] = ch1
+		ret[ch1.shape[0]:,:] = ch2
+		
+	elif num_ch == 3:
+		ch3 = np.transpose(img_slice[:,::-1,2], (1,0))
+
+		ret = np.empty([ch1.shape[0]*3, ch1.shape[1]])
+		ret[:ch1.shape[0],:] = ch1
+		ret[ch1.shape[0]:ch1.shape[0]*2,:] = ch2
+		ret[ch1.shape[0]*2:,:] = ch3
+
+	imsave("%s\\small-%s (pred %s).png" % (save_dir, fn[:fn.find('.')], pred_class), rescale(ret, rescale_factor, mode='constant'))
 
 def condense_cm(y_true, y_pred, cls_mapping):
 	simplify_map = {'hcc': 0, 'cyst': 1, 'hemangioma': 1, 'fnh': 1, 'cholangio': 2, 'colorectal': 2}
@@ -161,16 +199,16 @@ def draw_bbox(img_slice, final_dims, voi):
 	y1 = crop[1]//2
 	y2 = -crop[1]//2
 
-	img_slice[x1:x2, y2, 2, :] = 255
-	img_slice[x1:x2, y2, :2, :] = 0
+	img_slice[x1:x2, y2, 2, :] = 1
+	img_slice[x1:x2, y2, :2, :] = -1
 
-	img_slice[x1:x2, y1, 2, :] = 255
-	img_slice[x1:x2, y1, :2, :] = 0
+	img_slice[x1:x2, y1, 2, :] = 1
+	img_slice[x1:x2, y1, :2, :] = -1
 
-	img_slice[x1, y1:y2, 2, :] = 255
-	img_slice[x1, y1:y2, :2, :] = 0
+	img_slice[x1, y1:y2, 2, :] = 1
+	img_slice[x1, y1:y2, :2, :] = -1
 
-	img_slice[x2, y1:y2, 2, :] = 255
-	img_slice[x2, y1:y2, :2, :] = 0
+	img_slice[x2, y1:y2, 2, :] = 1
+	img_slice[x2, y1:y2, :2, :] = -1
 	
 	return img_slice

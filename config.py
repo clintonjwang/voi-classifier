@@ -1,5 +1,13 @@
 import pyelastix
 
+#Run Numbers:
+# 1 - classic
+# 2 - classic but hard
+# 3 - atypical, maybe exclude
+# 4 - atypical, exclude
+# 5 - not yet included
+# 6 - inconsistent slices, missing phase, bad imaging quality, etc. see notes
+
 class Config:
 	def __init__(self):
 		self.run_num = 2
@@ -24,8 +32,8 @@ class Config:
 		self.patient_info_path = "Z:\\INPUT\\patient_info.csv"
 
 		self.full_img_dir = "Z:\\INPUT\\full_imgs_origdims"
-		self.output_img_dir = "Z:\\OUTPUT\\12-08-3d"
-		self.vois_dir = "Z:\\OUTPUT\\12-11-cysts\\"
+		self.output_img_dir = "Z:\\OUTPUT\\12-13"
+		self.vois_dir = "Z:\\OUTPUT\\small-vois\\12-11\\"
 		self.crops_dir = "E:\\imgs\\unscaled_crops\\"
 		self.artif_dir = "E:\\imgs\\artif_imgs\\"
 		self.aug_dir = "E:\\imgs\\aug_imgs\\"

@@ -92,7 +92,9 @@ def overnight_run(C, overwrite=False):
         running_stats = pd.DataFrame(columns = ["n", "n_art", "steps_per_epoch", "epochs",
             "num_phases", "input_res", "training_fraction", "augment_factor", "non_imaging_inputs",
             "kernel_size", "batchnorm", "conv_filters", "activation_type", "dilation", "dense_units",
-            "acc6cls", "acc3cls", "time_elapsed(s)", "loss_hist"])
+            "acc6cls", "acc3cls", "time_elapsed(s)", "loss_hist",
+            'hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh',
+            'confusion_matrix', 'f1', 'timestamp'])
         index = 0
     else:
         running_stats = pd.read_csv(C.run_stats_path)
@@ -100,16 +102,16 @@ def overnight_run(C, overwrite=False):
 
     running_acc_6 = []
     running_acc_3 = []
-    n = [4,8]
-    n_art = [4,0]
+    n = [8]
+    n_art = [0]
     steps_per_epoch = 200
-    epochs = 15
+    epochs = [15]
     run_2d = False
     batch_norm = True
     non_imaging_inputs = True
     f = [[64,128,128]]
     dense_units = [100]
-    dilation_rate = [(1, 1, 1)]
+    dilation_rate = [(2, 2, 1)]
     kernel_size = (3,3,3)
     activation_type = ['elu']#, 'relu']
 
@@ -119,8 +121,8 @@ def overnight_run(C, overwrite=False):
         model = build_cnn(C, 'adam', activation_type=activation_type[index % len(activation_type)],
                 dilation_rate=dilation_rate[index % len(dilation_rate)], f=f[index % len(f)], dense_units=dense_units[index % len(dense_units)], kernel_size=kernel_size)
 
-        model, X_test, Y_test, loss_hist = run_cnn(model, C, n=n[index % len(n)], n_art=n_art[index % len(n_art)],
-                    steps_per_epoch=steps_per_epoch, epochs=epochs, run_2d=run_2d)
+        model, X_test, Y_test, loss_hist, num_samples = run_cnn(model, C, n=n[index % len(n)], n_art=n_art[index % len(n_art)],
+                    steps_per_epoch=steps_per_epoch, epochs=epochs[index % len(epochs)], run_2d=run_2d)
 
         Y_pred = model.predict(X_test)
         y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_test])
@@ -133,10 +135,12 @@ def overnight_run(C, overwrite=False):
         running_acc_3.append(accuracy_score(y_true_simp, y_pred_simp))
         print("3cls accuracy:", running_acc_3[-1], " - average:", np.mean(running_acc_3))
 
-        running_stats.loc[index] = [n[index % len(n)], n_art[index % len(n_art)], steps_per_epoch, epochs,
+        running_stats.loc[index] = [n[index % len(n)], n_art[index % len(n_art)], steps_per_epoch, epochs[index % len(epochs)],
                             C.nb_channels, C.dims, C.train_frac, C.aug_factor, non_imaging_inputs,
                             kernel_size, batch_norm, f[index % len(f)], activation_type[index % len(activation_type)], dilation_rate[index % len(dilation_rate)], dense_units[index % len(dense_units)],
-                            running_acc_6[-1], running_acc_3[-1], time.time()-t, loss_hist]
+                            running_acc_6[-1], running_acc_3[-1], time.time()-t, loss_hist,
+                            num_samples['hcc'], num_samples['cholangio'], num_samples['colorectal'], num_samples['cyst'], num_samples['hemangioma'], num_samples['fnh'],
+                            confusion_matrix(y_true, y_pred), f1_score(y_true, y_pred, average="weighted"), time.time()]
         running_stats.to_csv(C.run_stats_path, index=False)
         index += 1
 
@@ -455,7 +459,7 @@ def run_cnn(model, C, n=4, n_art=4, steps_per_epoch=25, epochs=50, run_2d=True, 
     #early_stopping = EarlyStopping(monitor='acc', min_delta=0.01, patience=4)
     hist = model.fit_generator(train_generator, steps_per_epoch=steps_per_epoch, epochs=epochs, verbose=verbose)#, callbacks=[early_stopping])
 
-    return model, X_test, Y_test, hist.history['loss']
+    return model, X_test, Y_test, hist.history['loss'], num_samples
 
 def train_generator_func(C, train_ids, voi_df, avg_X2, n=12, n_art=0):
     """n is the number of samples from each class, n_art is the number of artificial samples"""

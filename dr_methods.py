@@ -5,7 +5,6 @@ import os
 import pandas as pd
 import time
 
-
 ###########################
 ### BULK METHODS ACROSS ALL CLASSES
 ###########################
@@ -93,15 +92,16 @@ def load_vois(cls, xls_name, sheetname, voi_dfs, dims_df, C, verbose=False, targ
 	If target_dims is None, do not rescale images."""
 	
 	s = time.time()
-	print("\nLoading VOIs from sheet", sheetname)
 	
 	voi_df_art, voi_df_ven, voi_df_eq = voi_dfs
 	df = pd.read_excel(xls_name, sheetname)
 	df = preprocess_df(df, C)
 	
 	if acc_nums is None:
+		print("\nLoading VOIs from sheet", sheetname)
 		acc_nums = list(set(df['Patient E Number'].dropna().astype(str).tolist()))
 	else:
+		print("\nLoading VOIs for", acc_nums)
 		for acc_num in acc_nums:
 			ids_to_delete = list(voi_df_art[(voi_df_art["Filename"] == acc_num+".npy") & (voi_df_art["cls"] == cls)]["id"].values)
 			voi_df_ven = voi_df_ven[~voi_df_ven["id"].isin(ids_to_delete)]
@@ -133,7 +133,7 @@ def load_vois(cls, xls_name, sheetname, voi_dfs, dims_df, C, verbose=False, targ
 			voi_df_art, art_id = add_voi(voi_df_art, acc_num, x,y,z, vox_dims=cur_dims,
 										 cls=cls, flipz=(row['Flipped'] == "Yes"), return_id = True)
 
-			if "Image type2" in row.keys() and row['Image type2'] == 'VP-T1':
+			if "Image type2" in row.keys() and row['Image type2'] == "VP-T1":
 				x = (int(row['x3']), int(row['x4']))
 				y = (int(row['y3']), int(row['y4']))
 				z = (int(row['z3']), int(row['z4']))
@@ -147,7 +147,7 @@ def load_vois(cls, xls_name, sheetname, voi_dfs, dims_df, C, verbose=False, targ
 					
 				voi_df_ven = add_voi(voi_df_ven, art_id, x,y,z)
 				
-			if "Image type3" in row.keys() and row['Image type3'] == 'EQ-T1':
+			if "Image type3" in row.keys() and row['Image type3'] in ["EQ-T1", "DP-T1"]:
 				x = (int(row['x5']), int(row['x6']))
 				y = (int(row['y5']), int(row['y6']))
 				z = (int(row['z5']), int(row['z6']))
@@ -176,14 +176,15 @@ def load_imgs(img_dir, cls, xls_name, sheetname, dims_df, C, verbose=False, targ
 	"""
 	
 	s = time.time()
-	print("\nLoading DCMs of type", sheetname)
 	df = pd.read_excel(xls_name, sheetname)
 	df = preprocess_df(df, C)
 
 	if acc_nums is None:
+		print("\nLoading DCMs of type", sheetname)
 		acc_nums = list(set(df['Patient E Number'].dropna().astype(str).tolist()))
 		canskip = True
 	else:
+		print("\nLoading DCM for", acc_nums)
 		canskip = False
 
 	for cnt, acc_num in enumerate(acc_nums):
@@ -194,12 +195,12 @@ def load_imgs(img_dir, cls, xls_name, sheetname, dims_df, C, verbose=False, targ
 		df_subset = df.loc[df['Patient E Number'].astype(str) == acc_num]
 		subdir = img_dir+"\\"+acc_num
 		#try:
-		art, cur_dims = hf.dcm_load(subdir+r"\T1_AP")
+		art, cur_dims = hf.dcm_load(subdir+"\\T1_AP")
 		#except:
 		#    print(subdir+"\\T1_AP error")
 		#    continue
 		try:
-			ven, _ = hf.dcm_load(subdir+r"\T1_VP")
+			ven, _ = hf.dcm_load(subdir+"\\T1_VP")
 		except:
 			print(subdir+"\\T1_VP missing")
 			continue

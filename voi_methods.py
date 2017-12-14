@@ -32,11 +32,14 @@ def parallel_augment(cls, small_vois, C, num_cores=None):
 
 def save_augmented_img(fn, cls, voi_coords, C):
 	img = np.load(C.crops_dir + cls + "\\" + fn)
-	augment_img(img, C.dims, voi_coords, num_samples=50, translate=[2,2,1], save_name=C.aug_dir + cls + "\\" + fn[:-4], intensity_scaling=C.intensity_scaling)
+	augment_img(img, C.dims, voi_coords, num_samples=C.aug_factor, translate=[2,2,1], save_name=C.aug_dir + cls + "\\" + fn[:-4], intensity_scaling=C.intensity_scaling)
 
-def save_all_vois(cls, C, num_ch=3, normalize=True, rescale_factor=3):
+def save_all_vois(cls, C, num_ch=3, normalize=True, rescale_factor=3, acc_nums=None):
 	"""Save all voi images as jpg."""
-	fns = os.listdir(C.crops_dir + cls)
+
+	os.listdir(C.crops_dir + cls)
+	if acc_nums is not None:
+		fns = [acc_num+".npy" for acc_num in acc_nums]
 	save_dir = C.vois_dir + cls
 	if not os.path.exists(save_dir):
 		os.makedirs(save_dir)
@@ -116,16 +119,21 @@ def reload_accnum(accnum, cls, C):
 	voi_dfs = [voi_df_art, voi_df_ven, voi_df_eq]
 	dims_df = pd.read_csv(C.dims_df_path)
 
-	if cls=="5a":
-		voi_dfs = drm.load_vois("hcc", xls_name, sheetnames[0], voi_dfs, dims_df, C, acc_nums=[accnum])
-		cls = "hcc"
-	elif cls=="5b":
-		voi_dfs = drm.load_vois("hcc", xls_name, sheetnames[1], voi_dfs, dims_df, C, acc_nums=[accnum])
-		cls = "hcc"
-	elif cls=="hcc":
-		raise ValueError("Specify 5a or 5b")
-	else:
-		voi_dfs = drm.load_vois(cls, xls_name, sheetnames[cls_names.index(cls)], voi_dfs, dims_df, C, acc_nums=[accnum])
+	try:
+		if cls=="5a":
+			voi_dfs = drm.load_vois("hcc", xls_name, sheetnames[0], voi_dfs, dims_df, C, acc_nums=[accnum])
+			cls = "hcc"
+		elif cls=="5b":
+			voi_dfs = drm.load_vois("hcc", xls_name, sheetnames[1], voi_dfs, dims_df, C, acc_nums=[accnum])
+			cls = "hcc"
+		elif cls=="hcc":
+			raise ValueError("Specify 5a or 5b")
+		else:
+			voi_dfs = drm.load_vois(cls, xls_name, sheetnames[cls_names.index(cls)], voi_dfs, dims_df, C, acc_nums=[accnum])
+	except:
+		print(accnum, "is not loaded or included.")
+		remove_accnum(accnum, cls, C)
+		return
 
 	voi_df_art, voi_df_ven, voi_df_eq = voi_dfs
 	voi_df_art.to_csv(C.art_voi_path, index=False)
@@ -168,18 +176,39 @@ def reload_accnum(accnum, cls, C):
 		fn = img_fn[:-4] + "_" + str(voi[1]["lesion_num"])
 		np.save(C.crops_dir + cls + "\\" + fn, cropped_img)
 		small_vois[fn] = small_voi
-		#print(cropped_img.shape)
-		#print(small_voi)
 
 		# Update scaled and augmented images
 		unaug_img = resize_img(copy.deepcopy(cropped_img), C.dims, small_voi)
 		np.save(C.orig_dir + cls + "\\" + fn, unaug_img)
-		augment_img(cropped_img, C.dims, small_voi, num_samples=40, translate=[2,2,1], save_name=C.aug_dir + cls + "\\" + fn)
+		augment_img(cropped_img, C.dims, small_voi, num_samples=C.aug_factor, translate=[2,2,1], save_name=C.aug_dir + cls + "\\" + fn)
 
 	with open(C.small_voi_path, 'w', newline='') as csv_file:
 		writer = csv.writer(csv_file)
 		for key, value in small_vois.items():
 			writer.writerow([key, value])
+
+def remove_accnum(accnum, cls, C):
+	with open(C.small_voi_path, 'r') as csv_file:
+		reader = csv.reader(csv_file)
+		small_vois = dict(reader)
+	for key in small_vois:
+		if key[:key.find('_')] != accnum:
+			small_vois[key] = [int(x) for x in small_vois[key][1:-1].split(', ')]
+
+	with open(C.small_voi_path, 'w', newline='') as csv_file:
+		writer = csv.writer(csv_file)
+		for key, value in small_vois.items():
+			writer.writerow([key, value])
+
+	for fn in os.listdir(C.crops_dir + cls):
+		if fn.startswith(accnum):
+			os.remove(C.crops_dir + cls + "\\" + fn)
+	for fn in os.listdir(C.orig_dir + cls):
+		if fn.startswith(accnum):
+			os.remove(C.orig_dir + cls + "\\" + fn)
+	for fn in os.listdir(C.aug_dir + cls):
+		if fn.startswith(accnum):
+			os.remove(C.aug_dir + cls + "\\" + fn)
 
 def extract_voi(img, voi, min_dims, ven_voi=[], eq_voi=[]):
 	"""Input: image, a voi to center on, and the min dims of the unaugmented img.
