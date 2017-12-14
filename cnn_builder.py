@@ -109,17 +109,18 @@ def overnight_run(C, overwrite=False):
     run_2d = False
     batch_norm = True
     non_imaging_inputs = True
-    f = [[64,128,128]]
+    f = [[64,128,128,128]]
     dense_units = [100]
-    dilation_rate = [(2, 2, 1)]
-    kernel_size = (3,3,3)
-    activation_type = ['elu']#, 'relu']
+    dilation_rate = [(1, 1, 1)]
+    kernel_size = [(3,3,3)]
+    activation_type = ['elu']
 
     while True:
         t = time.time()
 
         model = build_cnn(C, 'adam', activation_type=activation_type[index % len(activation_type)],
-                dilation_rate=dilation_rate[index % len(dilation_rate)], f=f[index % len(f)], dense_units=dense_units[index % len(dense_units)], kernel_size=kernel_size)
+                dilation_rate=dilation_rate[index % len(dilation_rate)], f=f[index % len(f)],
+                dense_units=dense_units[index % len(dense_units)], kernel_size=kernel_size[index % len(kernel_size)])
 
         model, X_test, Y_test, loss_hist, num_samples = run_cnn(model, C, n=n[index % len(n)], n_art=n_art[index % len(n_art)],
                     steps_per_epoch=steps_per_epoch, epochs=epochs[index % len(epochs)], run_2d=run_2d)
@@ -137,7 +138,7 @@ def overnight_run(C, overwrite=False):
 
         running_stats.loc[index] = [n[index % len(n)], n_art[index % len(n_art)], steps_per_epoch, epochs[index % len(epochs)],
                             C.nb_channels, C.dims, C.train_frac, C.aug_factor, non_imaging_inputs,
-                            kernel_size, batch_norm, f[index % len(f)], activation_type[index % len(activation_type)], dilation_rate[index % len(dilation_rate)], dense_units[index % len(dense_units)],
+                            kernel_size[index % len(kernel_size)], batch_norm, f[index % len(f)], activation_type[index % len(activation_type)], dilation_rate[index % len(dilation_rate)], dense_units[index % len(dense_units)],
                             running_acc_6[-1], running_acc_3[-1], time.time()-t, loss_hist,
                             num_samples['hcc'], num_samples['cholangio'], num_samples['colorectal'], num_samples['cyst'], num_samples['hemangioma'], num_samples['fnh'],
                             confusion_matrix(y_true, y_pred), f1_score(y_true, y_pred, average="weighted"), time.time()]
@@ -167,21 +168,21 @@ def build_cnn(C, optimizer='adam', batch_norm=True, dilation_rate=(2, 2, 1), act
         art_x = Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate)(art_x)
         art_x = BatchNormalization()(art_x)
         art_x = ActivationLayer(activation_args)(art_x)
-        art_x = MaxPooling3D((2, 2, 2))(art_x)
+        art_x = MaxPooling3D((2, 2, 1))(art_x)
 
         ven_img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 1))
         ven_x = ven_img
         ven_x = Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate)(ven_x)
         ven_x = BatchNormalization()(ven_x)
         ven_x = ActivationLayer(activation_args)(ven_x)
-        ven_x = MaxPooling3D((2, 2, 2))(ven_x)
+        ven_x = MaxPooling3D((2, 2, 1))(ven_x)
 
         eq_img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 1))
         eq_x = eq_img
         eq_x = Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate)(eq_x)
         eq_x = BatchNormalization()(eq_x)
         eq_x = ActivationLayer(activation_args)(eq_x)
-        eq_x = MaxPooling3D((2, 2, 2))(eq_x)
+        eq_x = MaxPooling3D((2, 2, 1))(eq_x)
 
         x = Concatenate(axis=4)([art_x, ven_x, eq_x])
 

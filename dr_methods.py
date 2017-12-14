@@ -65,6 +65,20 @@ def reload_img(acc_num, cls, C, update_intensities=False):
 
 	dims_df.to_csv(C.dims_df_path, index=False)
 	
+def plot_check(cls, num, C, accnum=None):
+    if accnum==None:
+        fn = random.choice(os.listdir(C.crops_dir + cls))
+        accnum = fn[:fn.find('.')]
+        print(accnum)
+        
+    if num==1:
+        img = np.load(C.crops_dir + cls + "\\" + accnum + ".npy")
+    elif num==2:
+        img = np.load(C.orig_dir + cls + "\\" + accnum + ".npy")
+    else:
+        img = np.load(C.aug_dir + cls + "\\" + accnum + "_0.npy")
+    hf.plot_section_auto(img, normalize=True)
+
 def get_intensities(C, acc_num=None, cls=None):
 	"""Return a dataframe with the normalizing intensities of each image's channels"""
 
