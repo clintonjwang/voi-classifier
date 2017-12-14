@@ -98,7 +98,7 @@ def init_img(C):
 	img = np.zeros(C.dims + [C.nb_channels])
 	enh_parenchyma_int = .15 * random.random() + .1
 	img[:,:,:,1] = enh_parenchyma_int
-	img[:,:,:,2] = enh_parenchyma_int
+	img[:,:,:,2] = enh_parenchyma_int - .03
 
 	return img
 

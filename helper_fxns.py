@@ -225,7 +225,8 @@ def get_hist(img):
 def get_voi_id(acc_num, x, y, z):
 	return ''.join(map(str, [acc_num, x[0], y[0], z[0]]))
 
-def plot_section_auto(img, normalize=False):
+def plot_section_auto(orig_img, normalize=False):
+	img = copy.deepcopy(orig_img)
 	if normalize:
 		img[0,0,:,:]=-1
 		img[0,-1,:,:]=.8

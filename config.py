@@ -36,7 +36,7 @@ class Config:
 		self.vois_dir = "Z:\\OUTPUT\\small-vois\\12-11\\"
 		self.crops_dir = "E:\\imgs\\unscaled_crops\\"
 		self.artif_dir = "E:\\imgs\\artif_imgs\\"
-		self.aug_dir = "E:\\imgs\\aug_imgs\\"
+		self.aug_dir = "E:\\imgs\\aug_imgs_hard_intensities\\"
 		self.orig_dir = "E:\\imgs\\orig_imgs\\"
 
 		# Artificial sample parameters

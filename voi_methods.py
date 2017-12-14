@@ -40,9 +40,12 @@ def save_all_vois(cls, C, num_ch=3, normalize=True, rescale_factor=3, acc_nums=N
 	os.listdir(C.crops_dir + cls)
 	if acc_nums is not None:
 		fns = [acc_num+".npy" for acc_num in acc_nums]
+	else:
+		fns = os.listdir(C.orig_dir + cls)
 	save_dir = C.vois_dir + cls
 	if not os.path.exists(save_dir):
 		os.makedirs(save_dir)
+
 	for fn in fns:
 		img = np.load(C.orig_dir + cls + "\\" + fn)
 
@@ -105,7 +108,7 @@ def extract_vois(small_vois, C, voi_df_art, voi_df_ven, voi_df_eq, intensity_df)
 ### SINGLE ACC_NUM METHODS
 ###########################
 
-def reload_accnum(accnum, cls, C):
+def reload_accnum(accnum, cls, C, augment=True):
 	"""Reloads cropped, scaled and augmented images. Updates voi_dfs and small_vois accordingly."""
 
 	# Update VOIs
@@ -161,9 +164,11 @@ def reload_accnum(accnum, cls, C):
 	for fn in os.listdir(C.orig_dir + cls):
 		if fn.startswith(accnum):
 			os.remove(C.orig_dir + cls + "\\" + fn)
-	for fn in os.listdir(C.aug_dir + cls):
-		if fn.startswith(accnum):
-			os.remove(C.aug_dir + cls + "\\" + fn)
+
+	if augment:
+		for fn in os.listdir(C.aug_dir + cls):
+			if fn.startswith(accnum):
+				os.remove(C.aug_dir + cls + "\\" + fn)
 
 
 	for voi in art_vois.iterrows():
@@ -180,7 +185,8 @@ def reload_accnum(accnum, cls, C):
 		# Update scaled and augmented images
 		unaug_img = resize_img(copy.deepcopy(cropped_img), C.dims, small_voi)
 		np.save(C.orig_dir + cls + "\\" + fn, unaug_img)
-		augment_img(cropped_img, C.dims, small_voi, num_samples=C.aug_factor, translate=[2,2,1], save_name=C.aug_dir + cls + "\\" + fn)
+		if augment:
+			augment_img(cropped_img, C.dims, small_voi, num_samples=C.aug_factor, translate=[2,2,1], save_name=C.aug_dir + cls + "\\" + fn)
 
 	with open(C.small_voi_path, 'w', newline='') as csv_file:
 		writer = csv.writer(csv_file)
@@ -292,6 +298,7 @@ def augment_img(img, final_dims, voi, num_samples, translate=None, add_reflectio
 	buffer2 = 0.9
 	scale_ratios = [final_dims[0]/dx, final_dims[1]/dy, final_dims[2]/dz]
 
+	#img = adjust_cropped_intensity(img)
 	aug_imgs = []
 	
 	for img_num in range(num_samples):
@@ -302,7 +309,6 @@ def augment_img(img, final_dims, voi, num_samples, translate=None, add_reflectio
 		angle = random.randint(0, 359)
 
 		temp_img = tr.scale3d(img, scales)
-		temp_img = temp_img * random.gauss(1,intensity_scaling[0]) + random.gauss(0,intensity_scaling[1])
 		temp_img = tr.rotate(temp_img, angle)
 		
 		if translate is not None:
@@ -321,11 +327,15 @@ def augment_img(img, final_dims, voi, num_samples, translate=None, add_reflectio
 
 		#temp_img = add_noise(temp_img)
 
+		temp_img = tr.offset_phases(temp_img, max_offset=2, max_z_offset=1)
 		temp_img = temp_img[crops[0]//2 *flip[0] + trans[0] : -crops[0]//2 *flip[0] + trans[0] : flip[0],
 							crops[1]//2 *flip[1] + trans[1] : -crops[1]//2 *flip[1] + trans[1] : flip[1],
 							crops[2]//2 *flip[2] + trans[2] : -crops[2]//2 *flip[2] + trans[2] : flip[2], :]
 		
-		temp_img = tr.offset_phases(temp_img, max_offset=2, max_z_offset=1)
+		temp_img = adjust_cropped_intensity(temp_img)
+		temp_img[:,:,:,0] = temp_img[:,:,:,0] * random.gauss(1,intensity_scaling[0]) + random.gauss(0,intensity_scaling[1])
+		temp_img[:,:,:,1] = temp_img[:,:,:,1] * random.gauss(1,intensity_scaling[0]) + random.gauss(0,intensity_scaling[1])
+		temp_img[:,:,:,2] = temp_img[:,:,:,2] * random.gauss(1,intensity_scaling[0]) + random.gauss(0,intensity_scaling[1])
 
 		if save_name is None:
 			aug_imgs.append(temp_img)
@@ -337,15 +347,31 @@ def augment_img(img, final_dims, voi, num_samples, translate=None, add_reflectio
 	
 	return aug_imgs
 
-def rescale_int(img, intensity_row, min_int=.7):
+def rescale_int(img, intensity_row, min_int=1):
 	"""Rescale intensities in img by the """
 	try:
 		img = img.astype(float)
-		img[:,:,:,0] = (img[:,:,:,0] * 2 / float(intensity_row["art_int"])) - min_int
-		img[:,:,:,1] = (img[:,:,:,1] * 2 / float(intensity_row["ven_int"])) - min_int #ven_int
-		img[:,:,:,2] = (img[:,:,:,2] * 2 / float(intensity_row["eq_int"])) - min_int #eq_int
+		img[:,:,:,0] = (img[:,:,:,0] * 3 / float(intensity_row["art_int"])) - min_int
+		img[:,:,:,1] = (img[:,:,:,1] * 3 / float(intensity_row["ven_int"])) - min_int
+		img[:,:,:,2] = (img[:,:,:,2] * 3 / float(intensity_row["eq_int"])) - min_int
 	except:
 		raise ValueError("intensity_row is probably missing")
+
+	return img
+
+def adjust_cropped_intensity(img):
+	"""Force max to be 1 and min to be -1, scaling each channel separately"""
+
+	img = img.astype(float)
+
+	img[:,:,:,0] = img[:,:,:,0] - np.amin(img[:,:,:,0])
+	img[:,:,:,0] = img[:,:,:,0] * 2 / np.amax(img[:,:,:,0]) - 1
+
+	img[:,:,:,1] = img[:,:,:,1] - np.amin(img[:,:,:,1])
+	img[:,:,:,1] = img[:,:,:,1] * 2 / np.amax(img[:,:,:,1]) - 1
+
+	img[:,:,:,2] = img[:,:,:,2] - np.amin(img[:,:,:,2])
+	img[:,:,:,2] = img[:,:,:,2] * 2 / np.amax(img[:,:,:,2]) - 1
 
 	return img
 
@@ -379,7 +405,10 @@ def resize_img(img, final_dims, voi):
 	for i in range(3):
 		assert crop[i]>=0
 	
-	return img[crop[0]//2:-crop[0]//2, crop[1]//2:-crop[1]//2, crop[2]//2:-crop[2]//2, :]
+	img = img[crop[0]//2:-crop[0]//2, crop[1]//2:-crop[1]//2, crop[2]//2:-crop[2]//2, :]
+	img = adjust_cropped_intensity(img)
+
+	return img
 
 if __name__ == '__main__':
 	print("This is not meant to be called as a script.")

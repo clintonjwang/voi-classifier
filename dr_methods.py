@@ -3,6 +3,7 @@ import helper_fxns as hf
 import numpy as np
 import os
 import pandas as pd
+import random
 import time
 
 ###########################
@@ -76,8 +77,10 @@ def plot_check(cls, num, C, accnum=None):
     elif num==2:
         img = np.load(C.orig_dir + cls + "\\" + accnum + ".npy")
     else:
-        img = np.load(C.aug_dir + cls + "\\" + accnum + "_0.npy")
+        img = np.load(C.aug_dir + cls + "\\" + accnum + "_" + str(random.randint(0,C.aug_factor-1)) + ".npy")
     hf.plot_section_auto(img, normalize=True)
+
+    return img
 
 def get_intensities(C, acc_num=None, cls=None):
 	"""Return a dataframe with the normalizing intensities of each image's channels"""
