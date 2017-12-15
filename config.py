@@ -20,11 +20,12 @@ class Config:
 		#self.train_frac = {"cyst": .8, "fnh": .8, "hcc": .8, "hemangioma": .8, 'adenoma': .8, "colorectal": .8, "cholangio": .8}
 		self.padding = 0.85
 		self.intensity_scaling = [.05,.05]
+		self.intensity_local_frac = .8
 
 		self.model_path = "model.hdf5"		
 		self.art_voi_path = "voi_art.csv"
 		self.ven_voi_path = "voi_ven.csv"
-		self.eq_voi_path = "eq_ven.csv"
+		self.eq_voi_path = "voi_eq.csv"
 		self.dims_df_path = "img_dims.csv"
 		self.int_df_path = "intensity.csv"
 		self.small_voi_path = "small_vois.csv"
@@ -35,9 +36,9 @@ class Config:
 		self.output_img_dir = "Z:\\OUTPUT\\12-13"
 		self.vois_dir = "Z:\\OUTPUT\\small-vois\\12-11\\"
 		self.crops_dir = "E:\\imgs\\unscaled_crops\\"
-		self.artif_dir = "E:\\imgs\\artif_imgs\\"
-		self.aug_dir = "E:\\imgs\\aug_imgs_hard_intensities\\"
-		self.orig_dir = "E:\\imgs\\orig_imgs\\"
+		self.artif_dir = "E:\\imgs\\artif_imgs_3612\\"
+		self.aug_dir = "E:\\imgs\\aug_imgs_3612\\"
+		self.orig_dir = "E:\\imgs\\orig_imgs_3612\\"
 
 		# Artificial sample parameters
 		self.long_size_frac = [0.6, 0.85]

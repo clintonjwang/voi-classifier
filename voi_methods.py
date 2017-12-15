@@ -32,7 +32,7 @@ def parallel_augment(cls, small_vois, C, num_cores=None):
 
 def save_augmented_img(fn, cls, voi_coords, C):
 	img = np.load(C.crops_dir + cls + "\\" + fn)
-	augment_img(img, C.dims, voi_coords, num_samples=C.aug_factor, translate=[2,2,1], save_name=C.aug_dir + cls + "\\" + fn[:-4], intensity_scaling=C.intensity_scaling)
+	augment_img(img, C, voi_coords, num_samples=C.aug_factor, translate=[2,2,1], save_name=C.aug_dir + cls + "\\" + fn[:-4], intensity_scaling=C.intensity_scaling)
 
 def save_all_vois(cls, C, num_ch=3, normalize=True, rescale_factor=3, acc_nums=None):
 	"""Save all voi images as jpg."""
@@ -52,8 +52,8 @@ def save_all_vois(cls, C, num_ch=3, normalize=True, rescale_factor=3, acc_nums=N
 		img_slice = img[:,:, img.shape[2]//2, :].astype(float)
 
 		if normalize:
-			img_slice[0,0,:]=-1
-			img_slice[0,-1,:]=.8
+			img_slice[0,0,:]=-.7
+			img_slice[0,-1,:]=.7
 			
 		ch1 = np.transpose(img_slice[:,::-1,0], (1,0))
 		ch2 = np.transpose(img_slice[:,::-1,1], (1,0))
@@ -183,10 +183,10 @@ def reload_accnum(accnum, cls, C, augment=True):
 		small_vois[fn] = small_voi
 
 		# Update scaled and augmented images
-		unaug_img = resize_img(copy.deepcopy(cropped_img), C.dims, small_voi)
+		unaug_img = resize_img(copy.deepcopy(cropped_img), C, small_voi)
 		np.save(C.orig_dir + cls + "\\" + fn, unaug_img)
 		if augment:
-			augment_img(cropped_img, C.dims, small_voi, num_samples=C.aug_factor, translate=[2,2,1], save_name=C.aug_dir + cls + "\\" + fn)
+			augment_img(cropped_img, C, small_voi, num_samples=C.aug_factor, translate=[2,2,1], save_name=C.aug_dir + cls + "\\" + fn)
 
 	with open(C.small_voi_path, 'w', newline='') as csv_file:
 		writer = csv.writer(csv_file)
@@ -232,9 +232,9 @@ def extract_voi(img, voi, min_dims, ven_voi=[], eq_voi=[]):
 	dx = x2 - x1
 	dy = y2 - y1
 	dz = z2 - z1
-	assert dx > 0
-	assert dy > 0
-	assert dz > 0
+	assert dx > 0, "Bad voi for " + str(voi["id"])
+	assert dy > 0, "Bad voi for " + str(voi["id"])
+	assert dz > 0, "Bad voi for " + str(voi["id"])
 	
 	# align all phases
 	if len(ven_voi) > 0:
@@ -280,10 +280,11 @@ def extract_voi(img, voi, min_dims, ven_voi=[], eq_voi=[]):
 		
 	return pad_img[x1:x2, y1:y2, z1:z2, :], [int(x) for x in new_voi]
 
-def augment_img(img, final_dims, voi, num_samples, translate=None, add_reflections=False, save_name=None, intensity_scaling=[.05,.05]):
+def augment_img(img, C, voi, num_samples, translate=None, add_reflections=False, save_name=None, intensity_scaling=[.05,.05]):
 	"""For rescaling an img to final_dims while scaling to make sure the image contains the voi.
 	add_reflections and save_name cannot be used simultaneously"""
 
+	final_dims = C.dims
 	x1 = voi[0]
 	x2 = voi[1]
 	y1 = voi[2]
@@ -298,7 +299,6 @@ def augment_img(img, final_dims, voi, num_samples, translate=None, add_reflectio
 	buffer2 = 0.9
 	scale_ratios = [final_dims[0]/dx, final_dims[1]/dy, final_dims[2]/dz]
 
-	#img = adjust_cropped_intensity(img)
 	aug_imgs = []
 	
 	for img_num in range(num_samples):
@@ -332,7 +332,7 @@ def augment_img(img, final_dims, voi, num_samples, translate=None, add_reflectio
 							crops[1]//2 *flip[1] + trans[1] : -crops[1]//2 *flip[1] + trans[1] : flip[1],
 							crops[2]//2 *flip[2] + trans[2] : -crops[2]//2 *flip[2] + trans[2] : flip[2], :]
 		
-		temp_img = adjust_cropped_intensity(temp_img)
+		temp_img = scale_intensity(temp_img, random.gauss(C.intensity_local_frac, 0.05))
 		temp_img[:,:,:,0] = temp_img[:,:,:,0] * random.gauss(1,intensity_scaling[0]) + random.gauss(0,intensity_scaling[1])
 		temp_img[:,:,:,1] = temp_img[:,:,:,1] * random.gauss(1,intensity_scaling[0]) + random.gauss(0,intensity_scaling[1])
 		temp_img[:,:,:,2] = temp_img[:,:,:,2] * random.gauss(1,intensity_scaling[0]) + random.gauss(0,intensity_scaling[1])
@@ -348,37 +348,41 @@ def augment_img(img, final_dims, voi, num_samples, translate=None, add_reflectio
 	return aug_imgs
 
 def rescale_int(img, intensity_row, min_int=1):
-	"""Rescale intensities in img by the """
+	"""Rescale intensities in img such that the max intensity of the original image has a value of 1. Min intensity is -1."""
 	try:
 		img = img.astype(float)
-		img[:,:,:,0] = (img[:,:,:,0] * 3 / float(intensity_row["art_int"])) - min_int
-		img[:,:,:,1] = (img[:,:,:,1] * 3 / float(intensity_row["ven_int"])) - min_int
-		img[:,:,:,2] = (img[:,:,:,2] * 3 / float(intensity_row["eq_int"])) - min_int
+		img[:,:,:,0] = (img[:,:,:,0] * 2 / float(intensity_row["art_int"])) - min_int
+		img[:,:,:,1] = (img[:,:,:,1] * 2 / float(intensity_row["ven_int"])) - min_int
+		img[:,:,:,2] = (img[:,:,:,2] * 2 / float(intensity_row["eq_int"])) - min_int
 	except:
 		raise ValueError("intensity_row is probably missing")
 
 	return img
 
-def adjust_cropped_intensity(img):
-	"""Force max to be 1 and min to be -1, scaling each channel separately"""
+def scale_intensity(img, fraction=.5):
+	"""Scales each channel intensity separately.
+	Assumes original is within a 0 to 1 scale.
+	When fraction is 1, force max to be 1 and min to be -1.
+	When fraction is 0, rescale within a -1 to 1 scale."""
 
 	img = img.astype(float)
+	fraction = min(max(fraction, 0), 1)
 
-	img[:,:,:,0] = img[:,:,:,0] - np.amin(img[:,:,:,0])
-	img[:,:,:,0] = img[:,:,:,0] * 2 / np.amax(img[:,:,:,0]) - 1
-
-	img[:,:,:,1] = img[:,:,:,1] - np.amin(img[:,:,:,1])
-	img[:,:,:,1] = img[:,:,:,1] * 2 / np.amax(img[:,:,:,1]) - 1
-
-	img[:,:,:,2] = img[:,:,:,2] - np.amin(img[:,:,:,2])
-	img[:,:,:,2] = img[:,:,:,2] * 2 / np.amax(img[:,:,:,2]) - 1
+	for ch in range(img.shape[3]):
+		ch_max = np.amax(img[:,:,:,ch])
+		ch_min = np.amin(img[:,:,:,ch])
+		target_max = 1 * fraction + ch_max * (1-fraction)
+		target_min = -1 * fraction + ch_min * (1-fraction)
+		img[:,:,:,ch] = img[:,:,:,ch] - ch_min
+		img[:,:,:,ch] = img[:,:,:,ch] * (target_max - target_min) / (ch_max - ch_min) + target_min
 
 	return img
 
-def resize_img(img, final_dims, voi):
+def resize_img(img, C, voi):
 	"""For rescaling an img to final_dims while scaling to make sure the image contains the voi.
 	Do not reuse img
 	"""
+	final_dims = C.dims
 	
 	x1 = voi[0]
 	x2 = voi[1]
@@ -406,7 +410,7 @@ def resize_img(img, final_dims, voi):
 		assert crop[i]>=0
 	
 	img = img[crop[0]//2:-crop[0]//2, crop[1]//2:-crop[1]//2, crop[2]//2:-crop[2]//2, :]
-	img = adjust_cropped_intensity(img)
+	img = scale_intensity(img, C.intensity_local_frac)
 
 	return img
 

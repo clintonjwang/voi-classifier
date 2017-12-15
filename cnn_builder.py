@@ -102,18 +102,18 @@ def overnight_run(C, overwrite=False):
 
     running_acc_6 = []
     running_acc_3 = []
-    n = [8]
+    n = [6]
     n_art = [0]
-    steps_per_epoch = 200
+    steps_per_epoch = 250
     epochs = [15]
     run_2d = False
     batch_norm = True
     non_imaging_inputs = True
-    f = [[64,128,128,128]]
+    f = [[64,128,128], [64,128,128,128]]
     dense_units = [100]
     dilation_rate = [(1, 1, 1)]
     kernel_size = [(3,3,3)]
-    activation_type = ['elu']
+    activation_type = ['elu', 'elu', 'relu', 'relu']
 
     while True:
         t = time.time()
@@ -150,7 +150,7 @@ def overnight_run(C, overwrite=False):
 ### BUILD CNNS
 ####################################
 
-def build_cnn(C, optimizer='adam', batch_norm=True, dilation_rate=(2, 2, 1), activation_type='elu', f=[64,128,100], dense_units=100, kernel_size=(3,3,3), merge_layer=1):
+def build_cnn(C, optimizer='adam', batch_norm=True, dilation_rate=(1, 1, 1), padding=['valid', 'same'], dropout=[0.2,0.2], activation_type='elu', f=[64,128,100], dense_units=100, kernel_size=(3,3,3), merge_layer=1):
     """Main class for setting up a CNN. Returns the compiled model."""
 
     if activation_type == 'elu':
@@ -165,21 +165,21 @@ def build_cnn(C, optimizer='adam', batch_norm=True, dilation_rate=(2, 2, 1), act
     if merge_layer == 1:
         art_img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 1))
         art_x = art_img
-        art_x = Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate)(art_x)
+        art_x = Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0])(art_x)
         art_x = BatchNormalization()(art_x)
         art_x = ActivationLayer(activation_args)(art_x)
         art_x = MaxPooling3D((2, 2, 1))(art_x)
 
         ven_img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 1))
         ven_x = ven_img
-        ven_x = Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate)(ven_x)
+        ven_x = Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0])(ven_x)
         ven_x = BatchNormalization()(ven_x)
         ven_x = ActivationLayer(activation_args)(ven_x)
         ven_x = MaxPooling3D((2, 2, 1))(ven_x)
 
         eq_img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 1))
         eq_x = eq_img
-        eq_x = Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate)(eq_x)
+        eq_x = Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0])(eq_x)
         eq_x = BatchNormalization()(eq_x)
         eq_x = ActivationLayer(activation_args)(eq_x)
         eq_x = MaxPooling3D((2, 2, 1))(eq_x)
@@ -187,11 +187,12 @@ def build_cnn(C, optimizer='adam', batch_norm=True, dilation_rate=(2, 2, 1), act
         x = Concatenate(axis=4)([art_x, ven_x, eq_x])
 
         for layer_num in range(1,len(f)):
-            x = Conv3D(filters=f[layer_num], kernel_size=kernel_size)(x)
+            x = Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1])(x)
             x = BatchNormalization()(x)
             x = ActivationLayer(activation_args)(x)
+            x = Dropout(dropout[0])(x)
 
-        x = MaxPooling3D((2, 2, 1))(x)
+        x = MaxPooling3D((2, 2, 2))(x)
         x = Flatten()(x)
 
         img_traits = Input(shape=(2,)) #bounding volume and aspect ratio of lesion
@@ -199,6 +200,7 @@ def build_cnn(C, optimizer='adam', batch_norm=True, dilation_rate=(2, 2, 1), act
         intermed = Concatenate(axis=1)([x, img_traits])
         x = Dense(dense_units)(intermed)#, kernel_initializer='normal', kernel_regularizer=l2(.01), kernel_constraint=max_norm(3.))(x)
         x = BatchNormalization()(x)
+        x = Dropout(dropout[1])(x)
         x = ActivationLayer(activation_args)(x)
         x = Dense(nb_classes)(x)
         x = BatchNormalization()(x)
@@ -212,7 +214,8 @@ def build_cnn(C, optimizer='adam', batch_norm=True, dilation_rate=(2, 2, 1), act
         #x = GaussianNoise(1)(x)
         #x = ZeroPadding3D(padding=(3,3,2))(voi_img)
         x = Conv3D(filters=128, kernel_size=(3,3,2), activation='relu')(x)
-        x = Dropout(0.5)(x)
+        if activation_type == 'fc':
+            x = Dropout(0.5)(x)
         x = Conv3D(filters=128, kernel_size=(3,3,2), activation='relu')(x)
         x = MaxPooling3D((2, 2, 2))(x)
         x = Dropout(0.5)(x)

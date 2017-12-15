@@ -44,6 +44,7 @@ def collect_unaug_data(C, voi_df):
 	num_samples = {}
 
 	for cls in C.classes_to_include:
+		print("\n"+cls)
 		x = np.empty((10000, C.dims[0], C.dims[1], C.dims[2], C.nb_channels))
 		x2 = np.empty((10000, 2))
 		z = []
@@ -59,15 +60,20 @@ def collect_unaug_data(C, voi_df):
 						 (voi_df["lesion_num"] == int(img_fn[img_fn.find('_')+1:-4]))]
 			
 			try:
+				skip=False
 				x2[index] = [(float(row["real_dx"]) * float(row["real_dy"]) * float(row["real_dz"])) ** (1/3) / 50,
 							max(float(row["real_dx"]), float(row["real_dy"])) / float(row["real_dz"])]
 			except TypeError:
-				raise ValueError(img_fn + " is probably missing a voi_df entry.")
+				print(img_fn[:img_fn.find('_')], end=",")
+				skip=True
+				continue
+				#raise ValueError(img_fn + " is probably missing a voi_df entry.")
 
-		x.resize((index, C.dims[0], C.dims[1], C.dims[2], C.nb_channels)) #shrink first dimension to fit
-		x2.resize((index, 2)) #shrink first dimension to fit
-		orig_data_dict[cls] = [x,x2,np.array(z)]
-		num_samples[cls] = index
+		if not skip:
+			x.resize((index, C.dims[0], C.dims[1], C.dims[2], C.nb_channels)) #shrink first dimension to fit
+			x2.resize((index, 2)) #shrink first dimension to fit
+			orig_data_dict[cls] = [x,x2,np.array(z)]
+			num_samples[cls] = index
 		
 	return orig_data_dict, num_samples
 

@@ -39,7 +39,7 @@ def load_all_vois(C, cls=None):
 	voi_df_ven.to_csv(C.ven_voi_path, index=False)
 	voi_df_eq.to_csv(C.eq_voi_path, index=False)
 
-def reload_img(acc_num, cls, C, update_intensities=False):
+def reload_img(acc_num, cls, C, update_intensities=True):
 	xls_name = 'Z:\\Prototype1d.xlsx'
 	cls_names = ['hcc', 'hcc', 'cyst', 'hemangioma', 'fnh', 'cholangio', 'colorectal', 'adenoma']
 	sheetnames = ['OPTN 5A', 'OPTN 5B', 'Cyst', 'Hemangioma', 'FNH', 'Cholangio', 'Colorectal', 'Adenoma']
@@ -61,42 +61,50 @@ def reload_img(acc_num, cls, C, update_intensities=False):
 	dims_df = load_imgs("Z:\\" + img_dirs[index], cls, xls_name, sheetnames[index], dims_df, C, acc_nums=[acc_num])
 	
 	if update_intensities:
-		intensity_df = get_intensities(C)
+		intensity_df = get_intensities(C, acc_num=acc_num, cls=cls)
 		intensity_df.to_csv(C.int_df_path, index=False)
 
 	dims_df.to_csv(C.dims_df_path, index=False)
 	
 def plot_check(cls, num, C, accnum=None):
-    if accnum==None:
-        fn = random.choice(os.listdir(C.crops_dir + cls))
-        accnum = fn[:fn.find('.')]
-        print(accnum)
-        
-    if num==1:
-        img = np.load(C.crops_dir + cls + "\\" + accnum + ".npy")
-    elif num==2:
-        img = np.load(C.orig_dir + cls + "\\" + accnum + ".npy")
-    else:
-        img = np.load(C.aug_dir + cls + "\\" + accnum + "_" + str(random.randint(0,C.aug_factor-1)) + ".npy")
-    hf.plot_section_auto(img, normalize=True)
+	if accnum==None:
+		fn = random.choice(os.listdir(C.crops_dir + cls))
+		accnum = fn[:fn.find('.')]
+		print(accnum)
+		
+	if num==1:
+		img = np.load(C.crops_dir + cls + "\\" + accnum + ".npy")
+	elif num==2:
+		img = np.load(C.orig_dir + cls + "\\" + accnum + ".npy")
+	else:
+		img = np.load(C.aug_dir + cls + "\\" + accnum + "_" + str(random.randint(0,C.aug_factor-1)) + ".npy")
+	hf.plot_section_auto(img, normalize=True)
 
-    return img
+	return img
 
 def get_intensities(C, acc_num=None, cls=None):
 	"""Return a dataframe with the normalizing intensities of each image's channels"""
 
-	if acc_num is None:
+	if acc_num is not None:
+		intensity_df = pd.read_csv(C.int_df_path)
+		img = np.load(C.full_img_dir + "\\" + cls + "\\" + acc_num + ".npy")
+		intensity_df = add_intensity_df(intensity_df, img, acc_num)
+
+	elif cls is not None:
+		intensity_df = pd.read_csv(C.int_df_path)
+		for fn in os.listdir(C.full_img_dir + "\\" + cls):
+			img = np.load(C.full_img_dir + "\\" + cls + "\\" + fn)
+			intensity_df = add_intensity_df(intensity_df, img, fn[:-4])
+
+	else:
 		intensity_df = pd.DataFrame(columns = ["AccNum", "art_int", "ven_int", "eq_int"])
 		for cls in C.classes_to_include:
 			for fn in os.listdir(C.full_img_dir + "\\" + cls):
 				img = np.load(C.full_img_dir + "\\" + cls + "\\" + fn)
 				intensity_df = add_intensity_df(intensity_df, img, fn[:-4])
+				
+	intensity_df.to_csv(C.int_df_path, index=False)
 
-	else:
-		intensity_df = pd.read_csv(C.int_df_path)
-		img = np.load(C.full_img_dir + "\\" + cls + "\\" + acc_num + ".npy")
-		intensity_df = add_intensity_df(intensity_df, img, acc_num)
-		
 	return intensity_df
 
 
@@ -141,7 +149,7 @@ def load_vois(cls, xls_name, sheetname, voi_dfs, dims_df, C, verbose=False, targ
 				
 			if target_dims is not None:
 				vox_scale = [float(cur_dims[i]/target_dims[i]) for i in range(3)]
-				x,y,z = hf.scale_vois(x, y, z, vox_scale)
+				x,y,z = scale_vois(x, y, z, vox_scale)
 			
 			y = (img.shape[1]-y[1], img.shape[1]-y[0]) # flip y
 			if row['Flipped'] != "Yes":
@@ -156,7 +164,7 @@ def load_vois(cls, xls_name, sheetname, voi_dfs, dims_df, C, verbose=False, targ
 				z = (int(row['z3']), int(row['z4']))
 				
 				if target_dims is not None:
-					x,y,z = hf.scale_vois(x, y, z, vox_scale)
+					x,y,z = scale_vois(x, y, z, vox_scale)
 				
 				y = (img.shape[1]-y[1], img.shape[1]-y[0]) # flip y
 				if row['Flipped'] != "Yes":
@@ -170,7 +178,7 @@ def load_vois(cls, xls_name, sheetname, voi_dfs, dims_df, C, verbose=False, targ
 				z = (int(row['z5']), int(row['z6']))
 				
 				if target_dims is not None:
-					x,y,z = hf.scale_vois(x, y, z, vox_scale)
+					x,y,z = scale_vois(x, y, z, vox_scale)
 				
 				y = (img.shape[1]-y[1], img.shape[1]-y[0]) # flip y
 				if row['Flipped'] != "Yes":
@@ -277,7 +285,21 @@ def load_patient_info(img_dir, cls, xls_name, sheetname, patient_info_df, C, ver
 		subdir = img_dir+"\\"+acc_num
 		fn = subdir+"\\T1_AP\\metadata.xml"
 
-		f = open(fn, 'r')
+		try:
+			f = open(fn, 'r')
+		except:
+			skip = True
+			foldernames = [x for x in os.listdir(subdir) if 'T1' in x or 'post' in x or 'post' in x]
+			for folder in foldernames:
+				fn = subdir + "\\" + folder + "\\metadata.xml"
+				if os.path.exists(fn):
+					f = open(fn, 'r')
+					skip = False
+					break
+			if skip:
+				print(acc_num, end=",")
+				continue
+
 		txt = ''.join(f.readlines())
 		result = {}
 		mrn_tag = '<DicomAttribute tag="00100020" vr="LO" keyword="PatientID">'
@@ -293,7 +315,10 @@ def load_patient_info(img_dir, cls, xls_name, sheetname, patient_info_df, C, ver
 			result[search_term] = txt[index:index + txt[index:].find("</Value>")].lower()
 
 		mrn = result[mrn_tag]
-		imgdate = datetime.datetime.strptime(result[curdate_tag], "%Y%m%d").date()
+		try:
+			imgdate = datetime.datetime.strptime(result[curdate_tag], "%Y%m%d").date()
+		except:
+			print(acc_num + "\\" + folder, end=",")
 		birthdate = datetime.datetime.strptime(result[birthdate_tag], "%Y%m%d").date()
 
 		if imgdate.month > birthdate.month or (imgdate.month > birthdate.month and imgdate.day >= birthdate.day):
@@ -307,11 +332,11 @@ def load_patient_info(img_dir, cls, xls_name, sheetname, patient_info_df, C, ver
 
 		if verbose:
 			print(acc_num, "%d out of %d acc_nums loaded" % (cnt+1, len(acc_nums)))
-		elif cnt % 4 == 0:
-			print(".", end="")
+		#elif cnt % 4 == 0:
+		#	print(".", end="")
 			
 	print("Overall time: %s" % str(time.time() - s))
-	return heads
+	return patient_info_df
 
 def get_demographics(metadata_path):
 	ds = metadata_path
@@ -324,7 +349,7 @@ def get_demographics(metadata_path):
 
 
 ###########################
-### SINGLE ACC_NUM METHODS
+### SINGLE ACC_NUM/VOI METHODS
 ###########################
 
 def add_voi(voi_df, acc_num, x, y, z, vox_dims=None, cls=None, flipz=None, return_id=False):
@@ -408,6 +433,53 @@ def add_to_dims_df(dims_df, acc_num, cur_dims):
 	
 	return dims_df
 
+def scale_vois(x, y, z, pre_reg_scale, field=None, post_reg_scale=None):
+	scale = pre_reg_scale
+	x = (round(x[0]*scale[0]), round(x[1]*scale[0]))
+	y = (round(y[0]*scale[1]), round(y[1]*scale[1]))
+	z = (round(z[0]*scale[2]), round(z[1]*scale[2]))
+	
+	if field is not None:
+		xvoi_distortions = field[0][x[0]:x[1]+1, y[0]:y[1]+1, z[0]:z[1]+1]
+		yvoi_distortions = field[1][x[0]:x[1]+1, y[0]:y[1]+1, z[0]:z[1]+1]
+		zvoi_distortions = field[2][x[0]:x[1]+1, y[0]:y[1]+1, z[0]:z[1]+1]
+
+		x = (x[0] + int(np.amin(xvoi_distortions[0,:,:])), x[1] + int(np.amax(xvoi_distortions[-1,:,:])))
+		y = (y[0] + int(np.amin(yvoi_distortions[:,0,:])), y[1] + int(np.amax(yvoi_distortions[:,-1,:])))
+		z = (z[0] + int(np.amin(zvoi_distortions[:,:,0])), z[1] + int(np.amax(zvoi_distortions[:,:,-1])))
+	
+		scale = post_reg_scale
+		x = (round(x[0]*scale[0]), round(x[1]*scale[0]))
+		y = (round(y[0]*scale[1]), round(y[1]*scale[1]))
+		z = (round(z[0]*scale[2]), round(z[1]*scale[2]))
+	
+	return x, y, z
+
+def align_phases(img, voi, ven_voi):
+	"""Translates venous phase to align with arterial phase"""
+	temp_ven = copy.deepcopy(img[:,:,:,1])
+	dx = ((voi["x1"] + voi["x2"]) - (ven_voi["x1"] + ven_voi["x2"])) // 2
+	dy = ((voi["y1"] + voi["y2"]) - (ven_voi["y1"] + ven_voi["y2"])) // 2
+	dz = ((voi["z1"] + voi["z2"]) - (ven_voi["z1"] + ven_voi["z2"])) // 2
+	
+	pad = int(max(abs(dx), abs(dy), abs(dz)))+1
+	temp_ven = np.pad(temp_ven, pad, 'constant')[pad+dx:-pad+dx, pad+dy:-pad+dy, pad+dz:-pad+dz]
+	
+	return np.stack([img[:,:,:,0], temp_ven], axis=3)
+
+def align(img, voi, ven_voi, ch):
+	temp_ven = copy.deepcopy(img[:,:,:,ch])
+	dx = ((ven_voi["x1"] + ven_voi["x2"]) - (voi["x1"] + voi["x2"])) // 2
+	dy = ((ven_voi["y1"] + ven_voi["y2"]) - (voi["y1"] + voi["y2"])) // 2
+	dz = ((ven_voi["z1"] + ven_voi["z2"]) - (voi["z1"] + voi["z2"])) // 2
+	
+	pad = int(max(abs(dx), abs(dy), abs(dz)))+1
+	temp_ven = np.pad(temp_ven, pad, 'constant')[pad+dx:-pad+dx, pad+dy:-pad+dy, pad+dz:-pad+dz]
+	
+	if ch == 1:
+		return np.stack([img[:,:,:,0], temp_ven, img[:,:,:,2]], axis=3)
+	elif ch == 2:
+		return np.stack([img[:,:,:,0], img[:,:,:,1], temp_ven], axis=3)
 
 
 ###########################
@@ -423,6 +495,15 @@ def preprocess_df(df, C):
 		  'x1', 'x2', 'y1', 'y2', 'z1', 'z2', 'Image type', 'Flipped',
 		  'x3', 'x4', 'y3', 'y4', 'z3', 'z4', 'Image type2',
 		  'x5', 'x6', 'y5', 'y6', 'z5', 'z6', 'Image type3']), axis=1)
+
+def add_deltas(voi_df):
+	"""No longer in use"""
+	voi_df = voi_df.astype({"x1": int, "x2": int, "y1": int, "y2": int, "z1": int, "z2": int})
+	voi_df['dx'] = voi_df.apply(lambda row: row['x2'] - row['x1'], axis=1)
+	voi_df['dy'] = voi_df.apply(lambda row: row['y2'] - row['y1'], axis=1)
+	voi_df['dz'] = voi_df.apply(lambda row: row['z2'] - row['z1'], axis=1)
+	
+	return voi_df
 
 def delete_imgs(acc_nums, cls, C, xls_name=None, sheetname=None):
 	if xls_name is not None:

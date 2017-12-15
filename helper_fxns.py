@@ -68,6 +68,53 @@ def ni_load(filename):
 	
 	return img, dims
 
+def get_spect_series(path, just_header=False):
+    import convert_dicom
+    import tempfile
+    import shutil
+    import dicom2nifti.settings as settings
+    import dicom2nifti.common as common
+    temp_directory = tempfile.mkdtemp()
+    dicom_directory = os.path.join(temp_directory, 'dicom')
+    shutil.copytree(path, dicom_directory)
+
+    if convert_dicom.is_compressed(dicom_directory):
+        if settings.gdcmconv_path is None and convert_dicom._which('gdcmconv') is None and convert_dicom._which('gdcmconv.exe') is None:
+            raise ConversionError('GDCMCONV_NOT_FOUND')
+
+        convert_dicom.logger.info('Decompressing dicom files in %s' % dicom_directory)
+        for root, _, files in os.walk(dicom_directory):
+            for dicom_file in files:
+                if common.is_dicom_file(os.path.join(root, dicom_file)):
+                    convert_dicom.decompress_dicom(os.path.join(root, dicom_file))
+
+    dicom_input = common.read_dicom_directory(dicom_directory)
+    
+    if just_header:
+        return dicom_input[0]
+    
+    rows = dicom_input[0][('0028', '0010')].value
+    cols = dicom_input[0][('0028', '0011')].value
+    ch = dicom_input[0][('0028', '0002')].value
+    frames = dicom_input[0][('0028', '0008')].value
+    bytelen = dicom_input[0][('0028', '0101')].value//8
+
+    if len(dicom_input) == 1:
+        ls = list(dicom_input[0][('7fe0', '0010')].value)
+        img = [ls[x]+ls[x+1]*256 for x in range(0,len(ls),2)]
+        img = np.reshape(img,(frames,rows,cols))
+        canon_img = np.transpose(img, (2,1,0))[:,::-1,:]
+    else:
+        sl_list = []
+
+        for sl in dicom_input:
+            arr = sl[('7fe0', '0010')].value
+            sl_list.append(np.reshape(list(arr),(rows,cols,ch)))
+        img = np.array(sl_list)
+        canon_img = np.transpose(img, (2,1,0,3))[:,::-1,:,:]
+
+    return canon_img
+
 
 ###########################
 ### IMAGE PREPROCESSING
@@ -90,10 +137,10 @@ def apply_mask(img, mask_file):
 	return img
 
 def create_diff(art_img, pre_img):
-	diff = art_img - pre_img # Calculate the subtracted image.
+	diff = art_img - pre_img # Calculate the subtracted image
 	diff[diff < 0] = 0  # The pre-contrast should never be more than the arterial. Clamp negative values to zero.
 
-	draw_fig(diff, 'whole')
+	#draw_fig(diff, 'whole')
 	
 	return diff
 
@@ -103,22 +150,10 @@ def rescale(img, target_dims, cur_dims):
 	
 	return img, vox_scale
 
-def normalize(img):
-	#t2[mrn] = t2[mrn] * 255/np.amax(t2[mrn])
+def normalize(img, desired_max=255):
+	img = img.astype(float)
 	i_min = np.amin(img)
-	return (img - i_min) / (np.amax(img) - i_min) * 255
-
-def flipz(img_fn, voi_df):
-	def func(row):
-		if row["Filename"] == img_fn:
-			z1 = row['z1']
-			row['z1'] = img.shape[2]-row['z2']
-			row['z2'] = img.shape[2]-z1
-		return row
-	
-	img = np.load("full_imgs\\"+img_fn)
-	
-	return voi_df.apply(lambda row: func(row), axis=1)
+	return (img - i_min) / (np.amax(img) - i_min) * desired_max
 
 def reg_imgs(moving, fixed, params, rescale_only=False):	
 	fshape = fixed.shape
@@ -135,69 +170,6 @@ def reg_imgs(moving, fixed, params, rescale_only=False):
 		moving, _ = pyelastix.register(moving, fixed, params, verbose=0)
 		
 	return moving, scale
-
-
-###########################
-### VOIs
-###########################
-
-def align(img, voi, ven_voi, ch):
-	temp_ven = copy.deepcopy(img[:,:,:,ch])
-	dx = ((ven_voi["x1"] + ven_voi["x2"]) - (voi["x1"] + voi["x2"])) // 2
-	dy = ((ven_voi["y1"] + ven_voi["y2"]) - (voi["y1"] + voi["y2"])) // 2
-	dz = ((ven_voi["z1"] + ven_voi["z2"]) - (voi["z1"] + voi["z2"])) // 2
-	
-	pad = int(max(abs(dx), abs(dy), abs(dz)))+1
-	temp_ven = np.pad(temp_ven, pad, 'constant')[pad+dx:-pad+dx, pad+dy:-pad+dy, pad+dz:-pad+dz]
-	
-	if ch == 1:
-		return np.stack([img[:,:,:,0], temp_ven, img[:,:,:,2]], axis=3)
-	elif ch == 2:
-		return np.stack([img[:,:,:,0], img[:,:,:,1], temp_ven], axis=3)
-
-def scale_vois(x, y, z, pre_reg_scale, field=None, post_reg_scale=None):
-	scale = pre_reg_scale
-	x = (round(x[0]*scale[0]), round(x[1]*scale[0]))
-	y = (round(y[0]*scale[1]), round(y[1]*scale[1]))
-	z = (round(z[0]*scale[2]), round(z[1]*scale[2]))
-	
-	if field is not None:
-		xvoi_distortions = field[0][x[0]:x[1]+1, y[0]:y[1]+1, z[0]:z[1]+1]
-		yvoi_distortions = field[1][x[0]:x[1]+1, y[0]:y[1]+1, z[0]:z[1]+1]
-		zvoi_distortions = field[2][x[0]:x[1]+1, y[0]:y[1]+1, z[0]:z[1]+1]
-
-		x = (x[0] + int(np.amin(xvoi_distortions[0,:,:])), x[1] + int(np.amax(xvoi_distortions[-1,:,:])))
-		y = (y[0] + int(np.amin(yvoi_distortions[:,0,:])), y[1] + int(np.amax(yvoi_distortions[:,-1,:])))
-		z = (z[0] + int(np.amin(zvoi_distortions[:,:,0])), z[1] + int(np.amax(zvoi_distortions[:,:,-1])))
-	
-		scale = post_reg_scale
-		x = (round(x[0]*scale[0]), round(x[1]*scale[0]))
-		y = (round(y[0]*scale[1]), round(y[1]*scale[1]))
-		z = (round(z[0]*scale[2]), round(z[1]*scale[2]))
-	
-	return x, y, z
-
-def add_deltas(voi_df):
-	"""No longer in use"""
-	voi_df = voi_df.astype({"x1": int, "x2": int, "y1": int, "y2": int, "z1": int, "z2": int})
-	voi_df['dx'] = voi_df.apply(lambda row: row['x2'] - row['x1'], axis=1)
-	voi_df['dy'] = voi_df.apply(lambda row: row['y2'] - row['y1'], axis=1)
-	voi_df['dz'] = voi_df.apply(lambda row: row['z2'] - row['z1'], axis=1)
-	
-	return voi_df
-
-def align_phases(img, voi, ven_voi):
-	"""Translates venous phase to align with arterial phase"""
-	temp_ven = copy.deepcopy(img[:,:,:,1])
-	dx = ((voi["x1"] + voi["x2"]) - (ven_voi["x1"] + ven_voi["x2"])) // 2
-	dy = ((voi["y1"] + voi["y2"]) - (ven_voi["y1"] + ven_voi["y2"])) // 2
-	dz = ((voi["z1"] + voi["z2"]) - (ven_voi["z1"] + ven_voi["z2"])) // 2
-	
-	pad = int(max(abs(dx), abs(dy), abs(dz)))+1
-	temp_ven = np.pad(temp_ven, pad, 'constant')[pad+dx:-pad+dx, pad+dy:-pad+dy, pad+dz:-pad+dz]
-	
-	return np.stack([img[:,:,:,0], temp_ven], axis=3)
-
 
 ###########################
 ### IMAGE FEATURES
@@ -218,8 +190,9 @@ def get_hist(img):
 
 	return h, plt.gcf()
 	
+
 #########################
-### UTILITY
+### PLOTTING
 #########################
 
 def get_voi_id(acc_num, x, y, z):
@@ -228,7 +201,7 @@ def get_voi_id(acc_num, x, y, z):
 def plot_section_auto(orig_img, normalize=False):
 	img = copy.deepcopy(orig_img)
 	if normalize:
-		img[0,0,:,:]=-1
+		img[0,0,:,:]=0
 		img[0,-1,:,:]=.8
 
 	plt.subplot(131)
