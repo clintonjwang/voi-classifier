@@ -42,9 +42,10 @@ def collect_unaug_data(C, voi_df):
 	"""Return dictionary pointing to X (img data) and Z (filenames) and dictionary storing number of samples of each class."""
 	orig_data_dict = {}
 	num_samples = {}
+	import voi_methods as vm
 
 	for cls in C.classes_to_include:
-		print("\n"+cls)
+		#print("\n"+cls)
 		x = np.empty((10000, C.dims[0], C.dims[1], C.dims[2], C.nb_channels))
 		x2 = np.empty((10000, 2))
 		z = []
@@ -52,6 +53,7 @@ def collect_unaug_data(C, voi_df):
 		for index, img_fn in enumerate(os.listdir(C.orig_dir+cls)):
 			try:
 				x[index] = np.load(C.orig_dir+cls+"\\"+img_fn)
+				x[index] = vm.scale_intensity(x[index], 1)
 			except:
 				raise ValueError(C.orig_dir+cls+"\\"+img_fn + " not found")
 			z.append(img_fn)

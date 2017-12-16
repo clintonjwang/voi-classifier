@@ -332,7 +332,7 @@ def augment_img(img, C, voi, num_samples, translate=None, add_reflections=False,
 							crops[1]//2 *flip[1] + trans[1] : -crops[1]//2 *flip[1] + trans[1] : flip[1],
 							crops[2]//2 *flip[2] + trans[2] : -crops[2]//2 *flip[2] + trans[2] : flip[2], :]
 		
-		temp_img = scale_intensity(temp_img, random.gauss(C.intensity_local_frac, 0.05))
+		temp_img = scale_intensity(temp_img, C.intensity_local_frac)#random.gauss(C.intensity_local_frac, 0.1))
 		temp_img[:,:,:,0] = temp_img[:,:,:,0] * random.gauss(1,intensity_scaling[0]) + random.gauss(0,intensity_scaling[1])
 		temp_img[:,:,:,1] = temp_img[:,:,:,1] * random.gauss(1,intensity_scaling[0]) + random.gauss(0,intensity_scaling[1])
 		temp_img[:,:,:,2] = temp_img[:,:,:,2] * random.gauss(1,intensity_scaling[0]) + random.gauss(0,intensity_scaling[1])
@@ -361,7 +361,7 @@ def rescale_int(img, intensity_row, min_int=1):
 
 def scale_intensity(img, fraction=.5):
 	"""Scales each channel intensity separately.
-	Assumes original is within a 0 to 1 scale.
+	Assumes original is within a -1 to 1 scale.
 	When fraction is 1, force max to be 1 and min to be -1.
 	When fraction is 0, rescale within a -1 to 1 scale."""
 

@@ -11,16 +11,16 @@ import pyelastix
 class Config:
 	def __init__(self):
 		self.run_num = 2
-		self.dims = [36,36,12] #[48,48,12]
+		self.dims = [24,24,12] #[48,48,12]
 		self.nb_channels = 3
 		self.params = pyelastix.get_default_params(type="AFFINE")
 		self.classes_to_include = ['hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh']
-		self.aug_factor = 50#{"cyst": 65, "hcc": 65, "hemangioma": 75, "fnh": 70, "adenoma": 70, "colorectal": 70, "cholangio": 70}
+		self.aug_factor = 30#{"cyst": 65, "hcc": 65, "hemangioma": 75, "fnh": 70, "adenoma": 70, "colorectal": 70, "cholangio": 70}
 		self.train_frac = .8
 		#self.train_frac = {"cyst": .8, "fnh": .8, "hcc": .8, "hemangioma": .8, 'adenoma': .8, "colorectal": .8, "cholangio": .8}
 		self.padding = 0.85
 		self.intensity_scaling = [.05,.05]
-		self.intensity_local_frac = .8
+		self.intensity_local_frac = .5
 
 		self.model_path = "model.hdf5"		
 		self.art_voi_path = "voi_art.csv"
@@ -33,12 +33,12 @@ class Config:
 		self.patient_info_path = "Z:\\INPUT\\patient_info.csv"
 
 		self.full_img_dir = "Z:\\INPUT\\full_imgs_origdims"
-		self.output_img_dir = "Z:\\OUTPUT\\12-13"
+		self.output_img_dir = "Z:\\OUTPUT\\12-15"
 		self.vois_dir = "Z:\\OUTPUT\\small-vois\\12-11\\"
 		self.crops_dir = "E:\\imgs\\unscaled_crops\\"
-		self.artif_dir = "E:\\imgs\\artif_imgs_3612\\"
-		self.aug_dir = "E:\\imgs\\aug_imgs_3612\\"
-		self.orig_dir = "E:\\imgs\\orig_imgs_3612\\"
+		self.artif_dir = "E:\\imgs\\artif_imgs_2412\\"
+		self.aug_dir = "E:\\imgs\\aug_imgs_2412\\"
+		self.orig_dir = "E:\\imgs\\orig_imgs_2412\\"
 
 		# Artificial sample parameters
 		self.long_size_frac = [0.6, 0.85]

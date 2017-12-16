@@ -91,7 +91,8 @@ def overnight_run(C, overwrite=False):
     if overwrite:
         running_stats = pd.DataFrame(columns = ["n", "n_art", "steps_per_epoch", "epochs",
             "num_phases", "input_res", "training_fraction", "augment_factor", "non_imaging_inputs",
-            "kernel_size", "batchnorm", "conv_filters", "activation_type", "dilation", "dense_units",
+            "kernel_size", "batchnorm", "conv_filters", "conv_padding",
+            "dropout", "activation_type", "dilation", "dense_units",
             "acc6cls", "acc3cls", "time_elapsed(s)", "loss_hist",
             'hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh',
             'confusion_matrix', 'f1', 'timestamp'])
@@ -105,21 +106,24 @@ def overnight_run(C, overwrite=False):
     n = [6]
     n_art = [0]
     steps_per_epoch = 250
-    epochs = [15]
+    epochs = [18]
     run_2d = False
     batch_norm = True
     non_imaging_inputs = True
-    f = [[64,128,128], [64,128,128,128]]
+    f = [[64,128,128]]
+    padding = [['same','valid']]
+    dropout = [[0.1,0.1]]
     dense_units = [100]
     dilation_rate = [(1, 1, 1)]
     kernel_size = [(3,3,3)]
-    activation_type = ['elu', 'elu', 'relu', 'relu']
+    activation_type = ['elu']
 
     while True:
         t = time.time()
 
         model = build_cnn(C, 'adam', activation_type=activation_type[index % len(activation_type)],
                 dilation_rate=dilation_rate[index % len(dilation_rate)], f=f[index % len(f)],
+                padding=padding[index % len(padding)], dropout=dropout[index % len(dropout)],
                 dense_units=dense_units[index % len(dense_units)], kernel_size=kernel_size[index % len(kernel_size)])
 
         model, X_test, Y_test, loss_hist, num_samples = run_cnn(model, C, n=n[index % len(n)], n_art=n_art[index % len(n_art)],
@@ -138,7 +142,8 @@ def overnight_run(C, overwrite=False):
 
         running_stats.loc[index] = [n[index % len(n)], n_art[index % len(n_art)], steps_per_epoch, epochs[index % len(epochs)],
                             C.nb_channels, C.dims, C.train_frac, C.aug_factor, non_imaging_inputs,
-                            kernel_size[index % len(kernel_size)], batch_norm, f[index % len(f)], activation_type[index % len(activation_type)], dilation_rate[index % len(dilation_rate)], dense_units[index % len(dense_units)],
+                            kernel_size[index % len(kernel_size)], batch_norm, f[index % len(f)], padding[index % len(padding)],
+                            dropout[index % len(dropout)], activation_type[index % len(activation_type)], dilation_rate[index % len(dilation_rate)], dense_units[index % len(dense_units)],
                             running_acc_6[-1], running_acc_3[-1], time.time()-t, loss_hist,
                             num_samples['hcc'], num_samples['cholangio'], num_samples['colorectal'], num_samples['cyst'], num_samples['hemangioma'], num_samples['fnh'],
                             confusion_matrix(y_true, y_pred), f1_score(y_true, y_pred, average="weighted"), time.time()]
@@ -150,7 +155,7 @@ def overnight_run(C, overwrite=False):
 ### BUILD CNNS
 ####################################
 
-def build_cnn(C, optimizer='adam', batch_norm=True, dilation_rate=(1, 1, 1), padding=['valid', 'same'], dropout=[0.2,0.2], activation_type='elu', f=[64,128,100], dense_units=100, kernel_size=(3,3,3), merge_layer=1):
+def build_cnn(C, optimizer='adam', batch_norm=True, dilation_rate=(1, 1, 1), padding=['valid', 'valid'], dropout=[0.2,0.2], activation_type='elu', f=[64,128,100], dense_units=100, kernel_size=(3,3,3), merge_layer=1):
     """Main class for setting up a CNN. Returns the compiled model."""
 
     if activation_type == 'elu':
@@ -468,6 +473,7 @@ def run_cnn(model, C, n=4, n_art=4, steps_per_epoch=25, epochs=50, run_2d=True, 
 def train_generator_func(C, train_ids, voi_df, avg_X2, n=12, n_art=0):
     """n is the number of samples from each class, n_art is the number of artificial samples"""
 
+    import voi_methods as vm
     classes_to_include = C.classes_to_include
     
     num_classes = len(classes_to_include)
@@ -493,6 +499,7 @@ def train_generator_func(C, train_ids, voi_df, avg_X2, n=12, n_art=0):
                 img_fn = random.choice(img_fns)
                 if img_fn[:img_fn.rfind('_')] + ".npy" in train_ids[cls]:
                     x1[train_cnt] = np.load(C.aug_dir+cls+"\\"+img_fn)
+                    x1[train_cnt] = vm.scale_intensity(x1[train_cnt], 1)
 
                     row = voi_df[(voi_df["Filename"] == img_fn[:img_fn.find('_')] + ".npy") &
                                  (voi_df["lesion_num"] == int(img_fn[img_fn.find('_')+1:img_fn.rfind('_')]))]
