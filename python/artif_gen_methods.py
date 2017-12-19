@@ -2,6 +2,7 @@ import copy
 import math
 import numpy as np
 import random
+import voi_methods as vm
 import os
 import transforms as tr
 from scipy.ndimage.filters import gaussian_filter
@@ -35,11 +36,12 @@ def post_process_img(img, C, blur_range = [.7, 2.1]):
 	Currently, rotate, add noise, add edge, blur and offset phases."""
 		
 	img = tr.rotate(img, random.randint(0, 359))
-	img = add_edge(img)
+	img = add_edge(img, min_val=random.gauss(-.7,.2), fill=random.random()<.7)
 	img = tr.offset_phases(img)
 	img += np.random.normal(scale = C.noise_std, size = img.shape)
 	img = blur_2d(img, random.uniform(blur_range[0], blur_range[1])) 
-	img = img * random.gauss(1,.05) + random.gauss(0,.05)
+	img = vm.scale_intensity(img, 1, max_int=2)
+	img = img * random.gauss(1,C.intensity_scaling[0]) + random.gauss(0,C.intensity_scaling[1])
 	
 	return img
 
@@ -48,33 +50,59 @@ def post_process_img(img, C, blur_range = [.7, 2.1]):
 ### POST-PROCESSING METHODS
 ####################################
 
-def add_edge(img, edge_frac=0.2, min_val = -.7):
+def add_edge(img, edge_frac=0.2, min_val = -.7, fill=True):
 	"""Add an artificial edge along one of the x/y sides (spans the entire z axis"""
 
 	dims = img.shape
 	edge_slope = random.uniform(-.2, .2)
-	
 	edge_choice = random.randint(1, 4)
-	if edge_choice == 1: #vertical
-		edge_start = random.uniform(0, dims[0]*edge_frac)
-		for y in range(dims[1]):
-			img[:max(math.floor(edge_start + edge_slope*y),0), y, :, :] = min_val
-
-	elif edge_choice == 2:
-		edge_start = random.uniform(dims[0]*(1-edge_frac), dims[0])
-		for y in range(dims[1]):
-			img[math.ceil(edge_start + edge_slope*y):, y, :, :] = min_val
-
-	elif edge_choice == 3: #horizontal
-		edge_start = random.uniform(0, dims[1]*edge_frac)
-		for x in range(dims[0]):
-			img[x, :max(math.floor(edge_start + edge_slope*x),0), :, :] = min_val
-
-	else:
-		edge_start = random.uniform(dims[1]*(1-edge_frac), dims[1])
-		for x in range(dims[0]):
-			img[x, math.ceil(edge_start + edge_slope*x):, :, :] = min_val
 	
+	if fill:
+		if edge_choice == 1: #vertical
+			edge_start = random.uniform(0, dims[0]*edge_frac)
+			for y in range(dims[1]):
+				img[:max(math.floor(edge_start + edge_slope*y),0), y, :, :] = min_val
+
+		elif edge_choice == 2:
+			edge_start = random.uniform(dims[0]*(1-edge_frac), dims[0])
+			for y in range(dims[1]):
+				img[math.ceil(edge_start + edge_slope*y):, y, :, :] = min_val
+
+		elif edge_choice == 3: #horizontal
+			edge_start = random.uniform(0, dims[1]*edge_frac)
+			for x in range(dims[0]):
+				img[x, :max(math.floor(edge_start + edge_slope*x),0), :, :] = min_val
+
+		else:
+			edge_start = random.uniform(dims[1]*(1-edge_frac), dims[1])
+			for x in range(dims[0]):
+				img[x, math.ceil(edge_start + edge_slope*x):, :, :] = min_val
+	
+	else:
+		if edge_choice == 1: #vertical
+			edge_start = random.uniform(0, dims[0]*edge_frac)
+			for y in range(dims[1]):
+				x = max(math.floor(edge_start + edge_slope*y),1)
+				img[x-1:x, y, :, :] = min_val
+
+		elif edge_choice == 2:
+			edge_start = random.uniform(dims[0]*(1-edge_frac), dims[0])
+			for y in range(dims[1]):
+				x=math.ceil(edge_start + edge_slope*y)-1
+				img[x:x+1, y, :, :] = min_val
+
+		elif edge_choice == 3: #horizontal
+			edge_start = random.uniform(0, dims[1]*edge_frac)
+			for x in range(dims[0]):
+				y = max(math.floor(edge_start + edge_slope*x),1)
+				img[x, y-1:y, :, :] = min_val
+
+		else:
+			edge_start = random.uniform(dims[1]*(1-edge_frac), dims[1])
+			for x in range(dims[0]):
+				y=math.ceil(edge_start + edge_slope*x)-1
+				img[x, y:y+1, :, :] = min_val
+
 	return img
 
 def blur_2d(orig_img, sigma):
@@ -178,9 +206,9 @@ def gen_hemangiomas(C, n):
 	Should be round with a nodularly enhancing rim that fills in over time."""
 	
 	shades = [-0.65, -0.65, -0.65]
-	rim_shades = [.5,.5,.5]
-	shrink_factor = [0.5, 0.95]
-	rim_ratio = [0.87,1.05]
+	rim_shades = [.4,.4,.4]
+	shrink_factor = [0.8, 1]
+	rim_ratio = [0.95,1.05]
 
 	imgs = []
 	side_rat, sizes = get_sizes(C, n)
@@ -189,8 +217,8 @@ def gen_hemangiomas(C, n):
 	midz = C.dims[2]//2
 	z_ratio = midy/midz
 
-	spread = 2
-	prob_nodule = 0.3
+	spread = [1,2,5]
+	prob_nodule = 0.2
 	
 	for i in range(n):
 		r = midx * sizes[i]
@@ -224,10 +252,13 @@ def gen_hemangiomas(C, n):
 					if z > midz:
 						z = midz
 
-					if random.random() < prob_nodule and z_sq < rad**2 * .2:
+					if random.random() < prob_nodule and z_sq < rad**2 * .3:
 						for ch in range(3):
-							img[x+midx-round(spread*random.uniform(0,(ch+1)*.5)):x+midx+1+round(spread*random.uniform(0,ch)),
-								y+midy-round(spread*random.uniform(0,ch*.5)):y+midy+1+round(spread*random.uniform(0,ch*.5)),
+							x1 = x+midx - int(min((rad**2-y**2)**.5, round(spread[ch]*random.uniform(0,(ch+1)*.5))))
+							x2 = x+midx+1 + int(min((rad**2-y**2)**.5, round(spread[ch]*random.uniform(0,ch))))
+							y1 = y+midy - int(min((rad**2-x**2)**.5, round(spread[ch]*random.uniform(0,ch*.5))))
+							y2 = y+midy+1 + int(min((rad**2-x**2)**.5, round(spread[ch]*random.uniform(0,ch*.5))))
+							img[x1:x2, y1:y2,
 								midz-z:midz+z, ch] = rim_shades[ch]*random.uniform(.8,1)
 					else:
 						img[x+midx, y+midy, midz-z:midz+z, ch] = shades_i[ch]
@@ -323,11 +354,11 @@ def gen_colorectals(C, n):
 	"""Generate n images of colorectal mets with dimensions of C.dims plus channels defined by the config file.
 	Should be hypointense in all phases (necrotic core) with a continuous enhancing rim. Sometimes enhances or shrinks over time."""
 	
-	shades = [-0.5, -0.5, -0.45]
+	shades = [-0.5, -0.45, -0.4]
 	rim_shades=[.5,.4,.4]
-	shrink_factor=[.95, 1]
+	shrink_factor=[.85, 1]
 	rim_ratio=[.83,0.98]
-	internal_structure = 0.1
+	internal_structure = 0.2
 	
 	imgs = []
 	side_rat, sizes = get_sizes(C, n)

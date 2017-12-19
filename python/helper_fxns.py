@@ -1,5 +1,5 @@
-from convert_dicom import dicom_series_to_nifti
-from convert_siemens import dicom_to_nifti
+from custom_mods.convert_dicom import dicom_series_to_nifti
+from custom_mods.convert_siemens import dicom_to_nifti
 import copy
 import dicom
 import math
@@ -115,6 +115,15 @@ def get_spect_series(path, just_header=False):
 
     return canon_img
 
+def get_dcm_header_value(txt, search_term):
+	"""Gets value corresponding to a dicom tag
+	search_term should be formatted like '<DicomAttribute tag="00100020" vr="LO" keyword="PatientID">'
+	"""
+
+	index = txt.find(search_term) + len(search_term+'\n      <Value number="1">')
+	if index == -1:
+		raise ValueError(search_term, "not found")
+	return txt[index:index + txt[index:].find("</Value>")]
 
 ###########################
 ### IMAGE PREPROCESSING
@@ -195,94 +204,67 @@ def get_hist(img):
 ### PLOTTING
 #########################
 
-def get_voi_id(acc_num, x, y, z):
-	return ''.join(map(str, [acc_num, x[0], y[0], z[0]]))
+def _plot_without_axes(img, cmap):
+	"""Gets rid of axes in a figure"""
 
-def plot_section_auto(orig_img, normalize=False):
-	img = copy.deepcopy(orig_img)
-	if normalize:
-		img[0,0,:,:]=0
-		img[0,-1,:,:]=.8
-
-	plt.subplot(131)
-	fig=plt.imshow(np.transpose(img[:, ::-1, img.shape[2]//2, 0], (1,0)), cmap='gray')
-	fig.axes.get_xaxis().set_visible(False)
-	fig.axes.get_yaxis().set_visible(False)
-	plt.subplot(132)
-	fig=plt.imshow(np.transpose(img[:, ::-1, img.shape[2]//2, 1], (1,0)), cmap='gray')
-	fig.axes.get_xaxis().set_visible(False)
-	fig.axes.get_yaxis().set_visible(False)
-	plt.subplot(133)
-	fig=plt.imshow(np.transpose(img[:, ::-1, img.shape[2]//2, 2], (1,0)), cmap='gray')
+	fig = plt.imshow(img, cmap=cmap)
 	fig.axes.get_xaxis().set_visible(False)
 	fig.axes.get_yaxis().set_visible(False)
 
-	plt.subplots_adjust(wspace=0, hspace=0)
+def plot_section_auto(orig_img, normalize=False, frac=None):
+	"""Only accepts 3D images or 4D images with at least 3 channels.
+	If 3D, outputs slices at 1/4, 1/2 and 3/4.
+	If 4D, outputs middle slice for the first 3 channels.
+	If 4D, can specify an optional frac argument to also output a slice at a different fraction."""
 
-def plot_section_auto_1ch(img, normalize=False):
-	if normalize:
-		img[0,0,:]=-1
-		img[0,-1,:]=.8
+	if len(orig_img.shape) == 4:
+		img = copy.deepcopy(orig_img)
+		if normalize:
+			if np.amin(img) < -.2:
+				img[0,0,:,:]=-.7
+			else:
+				img[0,0,:,:]=0
+			img[0,-1,:,:]=.7
 
-	plt.subplot(131)
-	fig=plt.imshow(np.transpose(img[:, ::-1, img.shape[2]//4], (1,0)), cmap='gray')
-	fig.axes.get_xaxis().set_visible(False)
-	fig.axes.get_yaxis().set_visible(False)
-	plt.subplot(132)
-	fig=plt.imshow(np.transpose(img[:, ::-1, img.shape[2]//2], (1,0)), cmap='gray')
-	fig.axes.get_xaxis().set_visible(False)
-	fig.axes.get_yaxis().set_visible(False)
-	plt.subplot(133)
-	fig=plt.imshow(np.transpose(img[:, ::-1, img.shape[2]*3//4], (1,0)), cmap='gray')
-	fig.axes.get_xaxis().set_visible(False)
-	fig.axes.get_yaxis().set_visible(False)
+		if frac is None:
+			plt.subplot(131)
+			_plot_without_axes(np.transpose(img[:, ::-1, img.shape[2]//2, 0], (1,0)), cmap='gray')
+			plt.subplot(132)
+			_plot_without_axes(np.transpose(img[:, ::-1, img.shape[2]//2, 1], (1,0)), cmap='gray')
+			plt.subplot(133)
+			_plot_without_axes(np.transpose(img[:, ::-1, img.shape[2]//2, 2], (1,0)), cmap='gray')
+		else:
+			plt.subplot(231)
+			_plot_without_axes(np.transpose(img[:, ::-1, img.shape[2]//2, 0], (1,0)), cmap='gray')
+			plt.subplot(232)
+			_plot_without_axes(np.transpose(img[:, ::-1, img.shape[2]//2, 1], (1,0)), cmap='gray')
+			plt.subplot(233)
+			_plot_without_axes(np.transpose(img[:, ::-1, img.shape[2]//2, 2], (1,0)), cmap='gray')
 
-	plt.subplots_adjust(wspace=0, hspace=0)
-
-def plot_section_auto_scan(img, frac, normalize=True):
-	if normalize:
-		img[0,0,:,:]=-1
-		img[0,-1,:,:]=1
-
-	plt.subplot(231)
-	plt.imshow(np.transpose(img[:, ::-1, img.shape[2]//2, 0], (1,0)), cmap='gray')
-	plt.subplot(232)
-	plt.imshow(np.transpose(img[:, ::-1, img.shape[2]//2, 1], (1,0)), cmap='gray')
-	plt.subplot(233)
-	plt.imshow(np.transpose(img[:, ::-1, img.shape[2]//2, 2], (1,0)), cmap='gray')
-
-	plt.subplot(234)
-	plt.imshow(np.transpose(img[:, ::-1, int(img.shape[2]*frac), 0], (1,0)), cmap='gray')
-	plt.subplot(235)
-	plt.imshow(np.transpose(img[:, ::-1, int(img.shape[2]*frac), 1], (1,0)), cmap='gray')
-	plt.subplot(236)
-	plt.imshow(np.transpose(img[:, ::-1, int(img.shape[2]*frac), 2], (1,0)), cmap='gray')
-
-def plot_section_scan(img, frac=None):
-	plt.subplot(231)
-	plt.imshow(np.transpose(img[:, ::-1, 0, 0], (1,0)), cmap='gray')
-	plt.subplot(232)
-	plt.imshow(np.transpose(img[:, ::-1, 0, 1], (1,0)), cmap='gray')
-	plt.subplot(233)
-	plt.imshow(np.transpose(img[:, ::-1, 0, 2], (1,0)), cmap='gray')
-
-	if frac is None:
-		plt.subplot(234)
-		plt.imshow(np.transpose(img[:, ::-1, -1, 0], (1,0)), cmap='gray')
-		plt.subplot(235)
-		plt.imshow(np.transpose(img[:, ::-1, -1, 1], (1,0)), cmap='gray')
-		plt.subplot(236)
-		plt.imshow(np.transpose(img[:, ::-1, -1, 2], (1,0)), cmap='gray')
+			plt.subplot(234)
+			_plot_without_axes(np.transpose(img[:, ::-1, int(img.shape[2]*frac), 0], (1,0)), cmap='gray')
+			plt.subplot(235)
+			_plot_without_axes(np.transpose(img[:, ::-1, int(img.shape[2]*frac), 1], (1,0)), cmap='gray')
+			plt.subplot(236)
+			_plot_without_axes(np.transpose(img[:, ::-1, int(img.shape[2]*frac), 2], (1,0)), cmap='gray')
 
 	else:
-		plt.subplot(234)
-		plt.imshow(np.transpose(img[:, ::-1, int(img.shape[2]*frac), 0], (1,0)), cmap='gray')
-		plt.subplot(235)
-		plt.imshow(np.transpose(img[:, ::-1, int(img.shape[2]*frac), 1], (1,0)), cmap='gray')
-		plt.subplot(236)
-		plt.imshow(np.transpose(img[:, ::-1, int(img.shape[2]*frac), 2], (1,0)), cmap='gray')
+		if normalize:
+			img[0,0,:]=-1
+			img[0,-1,:]=.8
 
-def plot_section(img, df, pad=30, flipz="both"):
+		plt.subplot(131)
+		_plot_without_axes(np.transpose(img[:, ::-1, img.shape[2]//4], (1,0)), cmap='gray')
+		plt.subplot(132)
+		_plot_without_axes(np.transpose(img[:, ::-1, img.shape[2]//2], (1,0)), cmap='gray')
+		plt.subplot(133)
+		_plot_without_axes(np.transpose(img[:, ::-1, img.shape[2]*3//4], (1,0)), cmap='gray')
+
+	plt.subplots_adjust(wspace=0, hspace=0)
+
+def plot_slice_flips(img, df, pad=30, flipz="both"):
+	"""Function to plot an image slice given a VOI, to test whether the z axis is flipped."""
+
 	if flipz=="both":
 		plt.subplot(121)
 		plt.imshow(np.transpose(img[df['x1']-pad:df['x2']+pad,
@@ -297,10 +279,6 @@ def plot_section(img, df, pad=30, flipz="both"):
 def plot_section_xyz(img, x,y,z, pad=30):
 	plt.subplot(121)
 	plt.imshow(np.transpose(img[x[0]-pad:x[1]+pad, y[1]+pad:y[0]-pad:-1, (z[0]+z[1])//2,0], (1,0)), cmap='gray')
-	
-def plot_section_mrn(mrn,x,y,z, pad=30):
-	plt.subplot(211)
-	plt.imshow(np.transpose(art[mrn][x[0]-pad:x[1]+pad, y[1]+pad:y[0]-pad:-1, (z[0]+z[1])//2], (1,0)), cmap='gray')
 
 def flatten(l, times=1):
 	for _ in range(times):
@@ -308,7 +286,7 @@ def flatten(l, times=1):
 	return l
 
 def draw_slice(img, filename, slice=None):
-	"""Draw a slice of an image of type np array and save it to disk."""
+	"""Draw a slice of an image of type np array and save it to disk. Unused."""
 	cnorm = matplotlib.colors.Normalize(vmin=0, vmax=np.amax(img))
 	
 	if slice is None and len(img.shape)>2:

@@ -38,14 +38,16 @@ def separate_phases_2d(X):
 	
 	return X
 
-def collect_unaug_data(C, voi_df):
+def collect_unaug_data(C, voi_df, verbose=False):
 	"""Return dictionary pointing to X (img data) and Z (filenames) and dictionary storing number of samples of each class."""
 	orig_data_dict = {}
 	num_samples = {}
 	import voi_methods as vm
 
 	for cls in C.classes_to_include:
-		#print("\n"+cls)
+		if verbose:
+			print("\n"+cls)
+
 		x = np.empty((10000, C.dims[0], C.dims[1], C.dims[2], C.nb_channels))
 		x2 = np.empty((10000, 2))
 		z = []
@@ -53,7 +55,8 @@ def collect_unaug_data(C, voi_df):
 		for index, img_fn in enumerate(os.listdir(C.orig_dir+cls)):
 			try:
 				x[index] = np.load(C.orig_dir+cls+"\\"+img_fn)
-				x[index] = vm.scale_intensity(x[index], 1)
+				if C.hard_scale:
+					x[index] = vm.scale_intensity(x[index], 1, max_int=2)#, keep_min=True)
 			except:
 				raise ValueError(C.orig_dir+cls+"\\"+img_fn + " not found")
 			z.append(img_fn)
@@ -102,6 +105,8 @@ def save_output(Z, y_pred, y_true, voi_df_art, small_vois, cls_mapping, C, save_
 			plot_multich_with_bbox(Z[i], cls_mapping[y_pred[i]], voi_df_art, small_vois, save_dir=save_dir + "\\correct\\" + cls_mapping[y_true[i]], C=C)
 
 def plot_multich_with_bbox(fn, pred_class, voi_df_art, small_vois, num_ch=3, save_dir=None, C=None):
+	"""Plot"""
+
 	normalize = True
 
 	if not os.path.exists(save_dir):
@@ -121,7 +126,7 @@ def plot_multich_with_bbox(fn, pred_class, voi_df_art, small_vois, num_ch=3, sav
 
 	img_slice = np.stack([img_slice, img_slice, img_slice], axis=2)
 	
-	img_slice = draw_bbox(img_slice, C.dims, small_vois[fn[:-4]])
+	img_slice = draw_bbox(img_slice, C, small_vois[fn[:-4]])
 		
 	ch1 = np.transpose(img_slice[:,::-1,:,0], (1,0,2))
 	ch2 = np.transpose(img_slice[:,::-1,:,1], (1,0,2))
@@ -183,7 +188,8 @@ def condense_cm(y_true, y_pred, cls_mapping):
 	
 	return y_true_simp, y_pred_simp, ['hcc', 'benign', 'malignant non-hcc']
 
-def draw_bbox(img_slice, final_dims, voi):
+def draw_bbox(img_slice, C, voi):
+	final_dims = C.dims
 	x1 = voi[0]
 	x2 = voi[1]
 	y1 = voi[2]
@@ -194,7 +200,7 @@ def draw_bbox(img_slice, final_dims, voi):
 	dy = y2 - y1
 	dz = z2 - z1
 	
-	buffer = 0.85
+	buffer = C.padding
 	scale_ratios = [final_dims[0]/dx * buffer, final_dims[1]/dy * buffer, final_dims[2]/dz * buffer]
 	
 	crop = [img_slice.shape[i] - round(final_dims[i]/scale_ratios[i]) for i in range(2)]

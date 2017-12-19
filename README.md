@@ -1,1 +1,1 @@
-Classifier for liver lesions into different classes (HCC, FNH, etc.). Uses a 3D CNN.
+# CNN-based classifier for liver lesions across multiple phases

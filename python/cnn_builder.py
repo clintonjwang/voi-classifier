@@ -81,13 +81,12 @@ def run_all():
         print(cls, time.time()-t)
         
     for cls in C.classes_to_include:
-        vm.save_all_vois(cls, C)
+        vm.save_vois_as_imgs(cls, C)
         
-    cbuild.overnight_run(C)
+    overnight_run(C)
 
-def overnight_run(C, overwrite=False):
+def overnight_run(C_list, overwrite=False, max_runs=999):
     """Runs the CNN indefinitely, saving performance metrics."""
-
     if overwrite:
         running_stats = pd.DataFrame(columns = ["n", "n_art", "steps_per_epoch", "epochs",
             "num_phases", "input_res", "training_fraction", "augment_factor", "non_imaging_inputs",
@@ -95,18 +94,19 @@ def overnight_run(C, overwrite=False):
             "dropout", "activation_type", "dilation", "dense_units",
             "acc6cls", "acc3cls", "time_elapsed(s)", "loss_hist",
             'hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh',
-            'confusion_matrix', 'f1', 'timestamp'])
+            'confusion_matrix', 'f1', 'timestamp', 'comments'])
         index = 0
     else:
-        running_stats = pd.read_csv(C.run_stats_path)
+        running_stats = pd.read_csv(C_list[0].run_stats_path)
         index = len(running_stats)
+
 
     running_acc_6 = []
     running_acc_3 = []
-    n = [6]
-    n_art = [0]
-    steps_per_epoch = 250
-    epochs = [18]
+    n = [2,4]
+    n_art = [2,0]
+    steps_per_epoch = 600
+    epochs = [12]
     run_2d = False
     batch_norm = True
     non_imaging_inputs = True
@@ -115,47 +115,57 @@ def overnight_run(C, overwrite=False):
     dropout = [[0.1,0.1]]
     dense_units = [100]
     dilation_rate = [(1, 1, 1)]
-    kernel_size = [(3,3,3)]
+    kernel_size = [(3,3,2)]
     activation_type = ['elu']
+    merge_layer = [1]
+    cycle_len = 2
 
-    while True:
-        t = time.time()
+    C_index = 0
+    while index < max_runs:
+        C = C_list[C_index % len(C_list)]
 
-        model = build_cnn(C, 'adam', activation_type=activation_type[index % len(activation_type)],
-                dilation_rate=dilation_rate[index % len(dilation_rate)], f=f[index % len(f)],
-                padding=padding[index % len(padding)], dropout=dropout[index % len(dropout)],
-                dense_units=dense_units[index % len(dense_units)], kernel_size=kernel_size[index % len(kernel_size)])
+        X_test, Y_test, train_generator, num_samples, _ = get_cnn_data(C, n=n[index % len(n)], n_art=n_art[index % len(n_art)], run_2d=run_2d)
 
-        model, X_test, Y_test, loss_hist, num_samples = run_cnn(model, C, n=n[index % len(n)], n_art=n_art[index % len(n_art)],
-                    steps_per_epoch=steps_per_epoch, epochs=epochs[index % len(epochs)], run_2d=run_2d)
+        for _ in range(cycle_len):
+            model = build_cnn(C, 'adam', activation_type=activation_type[index % len(activation_type)],
+                    dilation_rate=dilation_rate[index % len(dilation_rate)], f=f[index % len(f)],
+                    padding=padding[index % len(padding)], dropout=dropout[index % len(dropout)],
+                    dense_units=dense_units[index % len(dense_units)], kernel_size=kernel_size[index % len(kernel_size)], merge_layer=merge_layer[index % len(merge_layer)])
 
-        Y_pred = model.predict(X_test)
-        y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_test])
-        y_pred = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_pred])
+            t = time.time()
+            hist = model.fit_generator(train_generator, steps_per_epoch=steps_per_epoch, epochs=epochs[index % len(epochs)], verbose=False)
+            loss_hist = hist.history['loss']
 
-        running_acc_6.append(accuracy_score(y_true, y_pred))
-        print("6cls accuracy:", running_acc_6[-1], " - average:", np.mean(running_acc_6))
+            Y_pred = model.predict(X_test)
+            y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_test])
+            y_pred = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_pred])
 
-        y_true_simp, y_pred_simp, _ = cfunc.condense_cm(y_true, y_pred, C.classes_to_include)
-        running_acc_3.append(accuracy_score(y_true_simp, y_pred_simp))
-        print("3cls accuracy:", running_acc_3[-1], " - average:", np.mean(running_acc_3))
+            running_acc_6.append(accuracy_score(y_true, y_pred))
+            print("6cls accuracy:", running_acc_6[-1], " - average:", np.mean(running_acc_6))
 
-        running_stats.loc[index] = [n[index % len(n)], n_art[index % len(n_art)], steps_per_epoch, epochs[index % len(epochs)],
-                            C.nb_channels, C.dims, C.train_frac, C.aug_factor, non_imaging_inputs,
-                            kernel_size[index % len(kernel_size)], batch_norm, f[index % len(f)], padding[index % len(padding)],
-                            dropout[index % len(dropout)], activation_type[index % len(activation_type)], dilation_rate[index % len(dilation_rate)], dense_units[index % len(dense_units)],
-                            running_acc_6[-1], running_acc_3[-1], time.time()-t, loss_hist,
-                            num_samples['hcc'], num_samples['cholangio'], num_samples['colorectal'], num_samples['cyst'], num_samples['hemangioma'], num_samples['fnh'],
-                            confusion_matrix(y_true, y_pred), f1_score(y_true, y_pred, average="weighted"), time.time()]
-        running_stats.to_csv(C.run_stats_path, index=False)
-        index += 1
+            y_true_simp, y_pred_simp, _ = cfunc.condense_cm(y_true, y_pred, C.classes_to_include)
+            running_acc_3.append(accuracy_score(y_true_simp, y_pred_simp))
+            #print("3cls accuracy:", running_acc_3[-1], " - average:", np.mean(running_acc_3))
+
+            running_stats.loc[index] = [n[index % len(n)], n_art[index % len(n_art)], steps_per_epoch, epochs[index % len(epochs)],
+                                C.nb_channels, C.dims, C.train_frac, C.aug_factor, non_imaging_inputs,
+                                kernel_size[index % len(kernel_size)], batch_norm, f[index % len(f)], padding[index % len(padding)],
+                                dropout[index % len(dropout)], activation_type[index % len(activation_type)], dilation_rate[index % len(dilation_rate)], dense_units[index % len(dense_units)],
+                                running_acc_6[-1], running_acc_3[-1], time.time()-t, loss_hist,
+                                num_samples['hcc'], num_samples['cholangio'], num_samples['colorectal'], num_samples['cyst'], num_samples['hemangioma'], num_samples['fnh'],
+                                confusion_matrix(y_true, y_pred), f1_score(y_true, y_pred, average="weighted"), time.time(), str(C.hard_scale)]
+            running_stats.to_csv(C.run_stats_path, index=False)
+            index += 1
+
+        C_index += 1
 
 
 ####################################
 ### BUILD CNNS
 ####################################
 
-def build_cnn(C, optimizer='adam', batch_norm=True, dilation_rate=(1, 1, 1), padding=['valid', 'valid'], dropout=[0.2,0.2], activation_type='elu', f=[64,128,100], dense_units=100, kernel_size=(3,3,3), merge_layer=1):
+def build_cnn(C, optimizer='adam', batch_norm=True, dilation_rate=(1, 1, 1), padding=['valid', 'valid'],
+    dropout=[0.2,0.2], activation_type='elu', f=[64,128,100], dense_units=100, kernel_size=(3,3,3), merge_layer=1):
     """Main class for setting up a CNN. Returns the compiled model."""
 
     if activation_type == 'elu':
@@ -214,31 +224,38 @@ def build_cnn(C, optimizer='adam', batch_norm=True, dilation_rate=(1, 1, 1), pad
         model = Model([art_img, ven_img, eq_img, img_traits], pred_class)
 
     elif merge_layer == 0:
-        voi_img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], C.nb_channels))
-        x = voi_img
+        art_img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 1))
+        art_x = art_img
+        ven_img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 1))
+        ven_x = ven_img
+        eq_img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 1))
+        eq_x = eq_img
+        #voi_img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], C.nb_channels))
+        #x = voi_img
+
+        x = Concatenate(axis=4)([art_x, ven_x, eq_x])
         #x = GaussianNoise(1)(x)
-        #x = ZeroPadding3D(padding=(3,3,2))(voi_img)
-        x = Conv3D(filters=128, kernel_size=(3,3,2), activation='relu')(x)
-        if activation_type == 'fc':
-            x = Dropout(0.5)(x)
-        x = Conv3D(filters=128, kernel_size=(3,3,2), activation='relu')(x)
-        x = MaxPooling3D((2, 2, 2))(x)
-        x = Dropout(0.5)(x)
-        #x = Conv3D(filters=64, kernel_size=(3,3,2), strides=(2, 2, 2), activation='relu', kernel_constraint=max_norm(4.))(x)
-        #x = Dropout(0.5)(x)
-        x = Conv3D(filters=64, kernel_size=(3,3,2), activation='relu')(x)
+        #x = ZeroPadding3D(padding=(3,3,2))(x)
+        for layer_num in range(1,len(f)):
+            x = Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[0])(x)
+            x = BatchNormalization()(x)
+            x = ActivationLayer(activation_args)(x)
+            x = Dropout(dropout[0])(x)
         x = MaxPooling3D((2, 2, 1))(x)
-        x = Dropout(0.5)(x)
         x = Flatten()(x)
 
         img_traits = Input(shape=(2,)) #bounding volume and aspect ratio of lesion
 
         intermed = Concatenate(axis=1)([x, img_traits])
-        x = Dense(64, activation='relu')(intermed)#, kernel_initializer='normal', kernel_regularizer=l1(.01), kernel_constraint=max_norm(3.))(x)
-        x = Dropout(0.5)(x)
-        pred_class = Dense(nb_classes, activation='softmax')(x)#Dense(nb_classes, activation='softmax')(x)
+        x = Dense(dense_units)(intermed)#, kernel_initializer='normal', kernel_regularizer=l2(.01), kernel_constraint=max_norm(3.))(x)
+        x = BatchNormalization()(x)
+        x = Dropout(dropout[1])(x)
+        x = ActivationLayer(activation_args)(x)
+        x = Dense(nb_classes)(x)
+        x = BatchNormalization()(x)
+        pred_class = Activation('softmax')(x)
 
-        model = Model([voi_img, img_traits], pred_class)
+        model = Model([art_img, ven_img, eq_img, img_traits], pred_class)
     
     #optim = Adam(lr=0.01)#5, decay=0.001)
     model.compile(optimizer=optimizer, loss='categorical_crossentropy', metrics=['accuracy'])
@@ -391,16 +408,12 @@ def build_pretrain_model(trained_model, C):
 ### TRAIN CNNS
 ####################################
 
-def run_cnn(model, C, n=4, n_art=4, steps_per_epoch=25, epochs=50, run_2d=True, verbose=False):
+def get_cnn_data(C, n=4, n_art=4, run_2d=False, verbose=False):
     """Subroutine to run CNN"""
 
     nb_classes = len(C.classes_to_include)
     voi_df = pd.read_csv(C.art_voi_path)
     intensity_df = pd.read_csv(C.int_df_path)
-    #intensity_df.loc[intensity_df["art_int"] == 0, "art_int"] = np.mean(intensity_df[intensity_df["art_int"] > 0]["art_int"])
-    #intensity_df.loc[intensity_df["ven_int"] == 0, "ven_int"] = np.mean(intensity_df[intensity_df["ven_int"] > 0]["ven_int"])
-    #intensity_df.loc[intensity_df["eq_int"] == 0, "eq_int"] = np.mean(intensity_df[intensity_df["eq_int"] > 0]["eq_int"])
-
     orig_data_dict, num_samples = cfunc.collect_unaug_data(C, voi_df)
 
     avg_X2 = {}
@@ -465,10 +478,7 @@ def run_cnn(model, C, n=4, n_art=4, steps_per_epoch=25, epochs=50, run_2d=True, 
 
         train_generator = train_generator_func(C, train_ids, voi_df, avg_X2, n=n, n_art=n_art)
 
-    #early_stopping = EarlyStopping(monitor='acc', min_delta=0.01, patience=4)
-    hist = model.fit_generator(train_generator, steps_per_epoch=steps_per_epoch, epochs=epochs, verbose=verbose)#, callbacks=[early_stopping])
-
-    return model, X_test, Y_test, hist.history['loss'], num_samples
+    return X_test, Y_test, train_generator, num_samples, [X_train_orig, Y_train_orig, Z_train_orig]
 
 def train_generator_func(C, train_ids, voi_df, avg_X2, n=12, n_art=0):
     """n is the number of samples from each class, n_art is the number of artificial samples"""
@@ -484,7 +494,7 @@ def train_generator_func(C, train_ids, voi_df, avg_X2, n=12, n_art=0):
 
         train_cnt = 0
         for cls in classes_to_include:
-            if n_art>0:
+            if n_art > 0:
                 img_fns = os.listdir(C.artif_dir+cls)
                 for _ in range(n_art):
                     img_fn = random.choice(img_fns)
@@ -495,11 +505,12 @@ def train_generator_func(C, train_ids, voi_df, avg_X2, n=12, n_art=0):
                     train_cnt += 1
 
             img_fns = os.listdir(C.aug_dir+cls)
-            while n>0:
+            while n > 0:
                 img_fn = random.choice(img_fns)
                 if img_fn[:img_fn.rfind('_')] + ".npy" in train_ids[cls]:
                     x1[train_cnt] = np.load(C.aug_dir+cls+"\\"+img_fn)
-                    x1[train_cnt] = vm.scale_intensity(x1[train_cnt], 1)
+                    if C.hard_scale:
+                        x1[train_cnt] = vm.scale_intensity(x1[train_cnt], 1, max_int=2)#, keep_min=True)
 
                     row = voi_df[(voi_df["Filename"] == img_fn[:img_fn.find('_')] + ".npy") &
                                  (voi_df["lesion_num"] == int(img_fn[img_fn.find('_')+1:img_fn.rfind('_')]))]
