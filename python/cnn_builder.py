@@ -94,7 +94,7 @@ def overnight_run(C_list, overwrite=False, max_runs=999):
             "dropout", "activation_type", "dilation", "dense_units",
             "acc6cls", "acc3cls", "time_elapsed(s)", "loss_hist",
             'hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh',
-            'confusion_matrix', 'f1', 'timestamp', 'comments'])
+            'confusion_matrix', 'f1', 'timestamp', 'comments', 'run_num'])
         index = 0
     else:
         running_stats = pd.read_csv(C_list[0].run_stats_path)
@@ -103,28 +103,29 @@ def overnight_run(C_list, overwrite=False, max_runs=999):
 
     running_acc_6 = []
     running_acc_3 = []
-    n = [2,4]
-    n_art = [2,0]
-    steps_per_epoch = 600
-    epochs = [12]
+    n = [4]
+    n_art = [0]
+    steps_per_epoch = [500]
+    epochs = [25,30]
     run_2d = False
     batch_norm = True
     non_imaging_inputs = True
     f = [[64,128,128]]
     padding = [['same','valid']]
     dropout = [[0.1,0.1]]
-    dense_units = [100]
+    dense_units = [100,100,128,128]
     dilation_rate = [(1, 1, 1)]
     kernel_size = [(3,3,2)]
     activation_type = ['elu']
     merge_layer = [1]
     cycle_len = 2
+    early_stopping = EarlyStopping(monitor='loss', min_delta=0.002, patience=3)
 
     C_index = 0
     while index < max_runs:
         C = C_list[C_index % len(C_list)]
 
-        X_test, Y_test, train_generator, num_samples, _ = get_cnn_data(C, n=n[index % len(n)], n_art=n_art[index % len(n_art)], run_2d=run_2d)
+        X_test, Y_test, train_generator, num_samples, _ = get_cnn_data(C, n=n[C_index % len(n)], n_art=n_art[C_index % len(n_art)], run_2d=run_2d)
 
         for _ in range(cycle_len):
             model = build_cnn(C, 'adam', activation_type=activation_type[index % len(activation_type)],
@@ -133,7 +134,7 @@ def overnight_run(C_list, overwrite=False, max_runs=999):
                     dense_units=dense_units[index % len(dense_units)], kernel_size=kernel_size[index % len(kernel_size)], merge_layer=merge_layer[index % len(merge_layer)])
 
             t = time.time()
-            hist = model.fit_generator(train_generator, steps_per_epoch=steps_per_epoch, epochs=epochs[index % len(epochs)], verbose=False)
+            hist = model.fit_generator(train_generator, steps_per_epoch=steps_per_epoch[index % len(steps_per_epoch)], epochs=epochs[index % len(epochs)], callbacks=[early_stopping], verbose=False)
             loss_hist = hist.history['loss']
 
             Y_pred = model.predict(X_test)
@@ -147,13 +148,13 @@ def overnight_run(C_list, overwrite=False, max_runs=999):
             running_acc_3.append(accuracy_score(y_true_simp, y_pred_simp))
             #print("3cls accuracy:", running_acc_3[-1], " - average:", np.mean(running_acc_3))
 
-            running_stats.loc[index] = [n[index % len(n)], n_art[index % len(n_art)], steps_per_epoch, epochs[index % len(epochs)],
+            running_stats.loc[index] = [n[C_index % len(n)], n_art[C_index % len(n_art)], steps_per_epoch[index % len(steps_per_epoch)], epochs[index % len(epochs)],
                                 C.nb_channels, C.dims, C.train_frac, C.aug_factor, non_imaging_inputs,
                                 kernel_size[index % len(kernel_size)], batch_norm, f[index % len(f)], padding[index % len(padding)],
                                 dropout[index % len(dropout)], activation_type[index % len(activation_type)], dilation_rate[index % len(dilation_rate)], dense_units[index % len(dense_units)],
                                 running_acc_6[-1], running_acc_3[-1], time.time()-t, loss_hist,
                                 num_samples['hcc'], num_samples['cholangio'], num_samples['colorectal'], num_samples['cyst'], num_samples['hemangioma'], num_samples['fnh'],
-                                confusion_matrix(y_true, y_pred), f1_score(y_true, y_pred, average="weighted"), time.time(), str(C.hard_scale)]
+                                confusion_matrix(y_true, y_pred), f1_score(y_true, y_pred, average="weighted"), time.time(), str(C.hard_scale), C.run_num]
             running_stats.to_csv(C.run_stats_path, index=False)
             index += 1
 

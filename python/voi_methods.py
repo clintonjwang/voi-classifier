@@ -33,14 +33,18 @@ def parallel_augment(cls, small_vois, C, num_cores=None, overwrite=True):
 def save_augmented_img(fn, cls, voi_coords, C, overwrite=True):
 	if not overwrite and os.path.exists(C.aug_dir + cls + "\\" + fn[:-4] + "_0.npy"):
 		return
-		
+
 	img = np.load(C.crops_dir + cls + "\\" + fn)
 	augment_img(img, C, voi_coords, num_samples=C.aug_factor, translate=[2,2,1],
-			save_name=C.aug_dir + cls + "\\" + fn[:-4], intensity_scaling=C.intensity_scaling)
+			save_name=C.aug_dir + cls + "\\" + fn[:-4], intensity_scaling=C.intensity_scaling, overwrite=overwrite)
 
-def augment_img(img, C, voi, num_samples, translate=None, add_reflections=False, save_name=None, intensity_scaling=[.05,.05]):
+def augment_img(img, C, voi, num_samples, translate=None, add_reflections=False, save_name=None, intensity_scaling=[.05,.05], overwrite=True):
 	"""For rescaling an img to final_dims while scaling to make sure the image contains the voi.
 	add_reflections and save_name cannot be used simultaneously"""
+	if type(overwrite) == int:
+		start=overwrite
+	else:
+		start=0
 
 	final_dims = C.dims
 	x1 = voi[0]
@@ -59,7 +63,7 @@ def augment_img(img, C, voi, num_samples, translate=None, add_reflections=False,
 
 	aug_imgs = []
 	
-	for img_num in range(num_samples):
+	for img_num in range(start, num_samples):
 		scales = [random.uniform(scale_ratios[0]*buffer1, scale_ratios[0]*buffer2),
 				 random.uniform(scale_ratios[1]*buffer1, scale_ratios[1]*buffer2),
 				 random.uniform(scale_ratios[2]*buffer1, scale_ratios[2]*buffer2)]

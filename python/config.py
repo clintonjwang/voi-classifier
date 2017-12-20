@@ -15,7 +15,7 @@ class Config:
 		self.nb_channels = 3
 		self.params = pyelastix.get_default_params(type="AFFINE")
 		self.classes_to_include = ['hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh']
-		self.aug_factor = 50#{"cyst": 65, "hcc": 65, "hemangioma": 75, "fnh": 70, "adenoma": 70, "colorectal": 70, "cholangio": 70}
+		self.aug_factor = 100#{"cyst": 65, "hcc": 65, "hemangioma": 75, "fnh": 70, "adenoma": 70, "colorectal": 70, "cholangio": 70}
 		self.train_frac = .8
 		#self.train_frac = {"cyst": .8, "fnh": .8, "hcc": .8, "hemangioma": .8, 'adenoma': .8, "colorectal": .8, "cholangio": .8}
 		self.padding = 0.75
@@ -38,8 +38,8 @@ class Config:
 		self.img_dirs = ['OPTN5A', 'optn5b', 'simple_cysts', 'hemangioma', 'fnh', 'cholangio', 'colorectal', 'adenoma']
 
 		self.full_img_dir = "Z:\\INPUT\\full_imgs_origdims"
-		self.output_img_dir = "Z:\\OUTPUT\\12-15"
-		self.vois_dir = "Z:\\OUTPUT\\small-vois\\12-11\\"
+		self.output_img_dir = "Z:\\OUTPUT\\12-18"
+		self.vois_dir = "Z:\\OUTPUT\\small-vois\\12-18\\"
 		self.crops_dir = "E:\\imgs\\unscaled_crops_hardscaled\\"
 		self.artif_dir = "E:\\imgs\\artif_imgs_2412\\"
 		self.aug_dir = "E:\\imgs\\aug_imgs_2412_cropint\\"
