@@ -106,19 +106,19 @@ def overnight_run(C_list, overwrite=False, max_runs=999):
     n = [4]
     n_art = [0]
     steps_per_epoch = [500]
-    epochs = [25,30]
+    epochs = [30]
     run_2d = False
     batch_norm = True
-    non_imaging_inputs = True
+    non_imaging_inputs = False
     f = [[64,128,128]]
     padding = [['same','valid']]
     dropout = [[0.1,0.1]]
-    dense_units = [100,100,128,128]
+    dense_units = [100]
     dilation_rate = [(1, 1, 1)]
     kernel_size = [(3,3,2)]
-    activation_type = ['elu']
+    activation_type = ['relu']
     merge_layer = [1]
-    cycle_len = 2
+    cycle_len = 1
     early_stopping = EarlyStopping(monitor='loss', min_delta=0.002, patience=3)
 
     C_index = 0
@@ -131,7 +131,8 @@ def overnight_run(C_list, overwrite=False, max_runs=999):
             model = build_cnn(C, 'adam', activation_type=activation_type[index % len(activation_type)],
                     dilation_rate=dilation_rate[index % len(dilation_rate)], f=f[index % len(f)],
                     padding=padding[index % len(padding)], dropout=dropout[index % len(dropout)],
-                    dense_units=dense_units[index % len(dense_units)], kernel_size=kernel_size[index % len(kernel_size)], merge_layer=merge_layer[index % len(merge_layer)])
+                    dense_units=dense_units[index % len(dense_units)], kernel_size=kernel_size[index % len(kernel_size)],
+                    merge_layer=merge_layer[index % len(merge_layer)], non_imaging_inputs=non_imaging_inputs)
 
             t = time.time()
             hist = model.fit_generator(train_generator, steps_per_epoch=steps_per_epoch[index % len(steps_per_epoch)], epochs=epochs[index % len(epochs)], callbacks=[early_stopping], verbose=False)
@@ -166,7 +167,8 @@ def overnight_run(C_list, overwrite=False, max_runs=999):
 ####################################
 
 def build_cnn(C, optimizer='adam', batch_norm=True, dilation_rate=(1, 1, 1), padding=['valid', 'valid'],
-    dropout=[0.2,0.2], activation_type='elu', f=[64,128,100], dense_units=100, kernel_size=(3,3,3), merge_layer=1):
+    dropout=[0.2,0.2], activation_type='elu', f=[64,128,100], dense_units=100, kernel_size=(3,3,3), merge_layer=1,
+    non_imaging_inputs=True):
     """Main class for setting up a CNN. Returns the compiled model."""
 
     if activation_type == 'elu':
@@ -213,8 +215,9 @@ def build_cnn(C, optimizer='adam', batch_norm=True, dilation_rate=(1, 1, 1), pad
 
         img_traits = Input(shape=(2,)) #bounding volume and aspect ratio of lesion
 
-        intermed = Concatenate(axis=1)([x, img_traits])
-        x = Dense(dense_units)(intermed)#, kernel_initializer='normal', kernel_regularizer=l2(.01), kernel_constraint=max_norm(3.))(x)
+        if non_imaging_inputs:
+            x = Concatenate(axis=1)([x, img_traits])
+        x = Dense(dense_units)(x)#, kernel_initializer='normal', kernel_regularizer=l2(.01), kernel_constraint=max_norm(3.))(x)
         x = BatchNormalization()(x)
         x = Dropout(dropout[1])(x)
         x = ActivationLayer(activation_args)(x)
