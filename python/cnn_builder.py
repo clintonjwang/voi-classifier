@@ -166,9 +166,9 @@ def overnight_run(C_list, overwrite=False, max_runs=999):
 ### BUILD CNNS
 ####################################
 
-def build_cnn(C, optimizer='adam', batch_norm=True, dilation_rate=(1, 1, 1), padding=['valid', 'valid'],
-    dropout=[0.2,0.2], activation_type='elu', f=[64,128,100], dense_units=100, kernel_size=(3,3,3), merge_layer=1,
-    non_imaging_inputs=True):
+def build_cnn(C, optimizer='adam', batch_norm=True, dilation_rate=(1, 1, 1), padding=['same', 'valid'],
+    dropout=[0.1,0.1], activation_type='relu', f=[64,128,128], dense_units=100, kernel_size=(3,3,2), merge_layer=1,
+    non_imaging_inputs=False):
     """Main class for setting up a CNN. Returns the compiled model."""
 
     if activation_type == 'elu':

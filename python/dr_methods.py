@@ -60,7 +60,7 @@ def load_vois_all(C, classes=None):
 	voi_df_ven.to_csv(C.ven_voi_path, index=False)
 	voi_df_eq.to_csv(C.eq_voi_path, index=False)
 
-def load_vois_batch(cls, sheetname, voi_dfs, dims_df, C, verbose=False, acc_nums=None):
+def load_vois_batch(cls, sheetname, voi_dfs, dims_df, C, verbose=False, acc_nums=None, overwrite=True):
 	"""Load all vois belonging to a class based on the contents of the spreadsheet."""
 	
 	s = time.time()
@@ -74,7 +74,8 @@ def load_vois_batch(cls, sheetname, voi_dfs, dims_df, C, verbose=False, acc_nums
 		acc_nums = list(set(src_data_df['Patient E Number'].dropna().astype(str).tolist()))
 	else:
 		print("\nLoading VOIs for", acc_nums)
-		voi_df_art, voi_df_ven, voi_df_eq = remove_vois(voi_df_art, voi_df_ven, voi_df_eq, acc_nums, cls)
+		if overwrite:
+			voi_df_art, voi_df_ven, voi_df_eq = remove_vois(voi_df_art, voi_df_ven, voi_df_eq, acc_nums, cls)
 
 	for cnt, acc_num in enumerate(acc_nums):
 		voi_df_art, voi_df_ven, voi_df_eq = load_vois(cls, acc_num, src_data_df, dims_df, voi_df_art, voi_df_ven, voi_df_eq, C)

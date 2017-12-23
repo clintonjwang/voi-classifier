@@ -305,7 +305,7 @@ def extract_voi(img, voi, min_dims, ven_voi=[], eq_voi=[]):
 ### SINGLE ACC_NUM METHODS
 #####################################
 
-def reload_accnum(accnum, cls, C, augment=True):
+def reload_accnum(accnum, cls, C, augment=True, overwrite=True):
 	"""Reloads cropped, scaled and augmented images. Updates voi_dfs and small_vois accordingly."""
 
 	# Update VOIs
@@ -321,14 +321,17 @@ def reload_accnum(accnum, cls, C, augment=True):
 	#try:
 	if cls=="5a":
 		cls = "hcc"
-		voi_dfs = drm.load_vois_batch(cls, C.sheetnames[0], voi_dfs, dims_df, C, acc_nums=[accnum])
+		voi_dfs = drm.load_vois_batch(cls, C.sheetnames[0], voi_dfs, dims_df, C, acc_nums=[accnum], overwrite=overwrite)
 	elif cls=="5b":
 		cls = "hcc"
-		voi_dfs = drm.load_vois_batch(cls, C.sheetnames[1], voi_dfs, dims_df, C, acc_nums=[accnum])
+		voi_dfs = drm.load_vois_batch(cls, C.sheetnames[1], voi_dfs, dims_df, C, acc_nums=[accnum], overwrite=overwrite)
 	elif cls=="hcc":
-		raise ValueError("Specify 5a or 5b")
+		#raise ValueError("Specify 5a or 5b")
+		print("be sure you mean both 5a and 5b")
+		voi_dfs = drm.load_vois_batch(cls, C.sheetnames[0], voi_dfs, dims_df, C, acc_nums=[accnum], overwrite=overwrite)
+		voi_dfs = drm.load_vois_batch(cls, C.sheetnames[1], voi_dfs, dims_df, C, acc_nums=[accnum], overwrite=overwrite)
 	else:
-		voi_dfs = drm.load_vois_batch(cls, C.sheetnames[C.cls_names.index(cls)], voi_dfs, dims_df, C, acc_nums=[accnum])
+		voi_dfs = drm.load_vois_batch(cls, C.sheetnames[C.cls_names.index(cls)], voi_dfs, dims_df, C, acc_nums=[accnum], overwrite=overwrite)
 	#except Exception as e:
 	#	print(accnum, "is not loaded or included.")
 	#	remove_accnum(accnum, cls, C)
@@ -346,7 +349,7 @@ def reload_accnum(accnum, cls, C, augment=True):
 		reader = csv.reader(csv_file)
 		small_vois = dict(reader)
 	for key in small_vois:
-		if key[:key.find('_')] != accnum:
+		if overwrite and key[:key.find('_')] != accnum:
 			small_vois[key] = [int(x) for x in small_vois[key][1:-1].split(', ')]
 
 	img_fn = accnum + ".npy"
@@ -354,18 +357,17 @@ def reload_accnum(accnum, cls, C, augment=True):
 	art_vois = voi_df_art[(voi_df_art["Filename"] == img_fn) & (voi_df_art["cls"] == cls)]
 
 
-	for fn in os.listdir(C.crops_dir + cls):
-		if fn.startswith(accnum):
-			os.remove(C.crops_dir + cls + "\\" + fn)
-	for fn in os.listdir(C.orig_dir + cls):
-		if fn.startswith(accnum):
-			os.remove(C.orig_dir + cls + "\\" + fn)
-
-	if augment:
-		for fn in os.listdir(C.aug_dir + cls):
+	if overwrite:
+		for fn in os.listdir(C.crops_dir + cls):
 			if fn.startswith(accnum):
-				os.remove(C.aug_dir + cls + "\\" + fn)
-
+				os.remove(C.crops_dir + cls + "\\" + fn)
+		for fn in os.listdir(C.orig_dir + cls):
+			if fn.startswith(accnum):
+				os.remove(C.orig_dir + cls + "\\" + fn)
+		if augment:
+			for fn in os.listdir(C.aug_dir + cls):
+				if fn.startswith(accnum):
+					os.remove(C.aug_dir + cls + "\\" + fn)
 
 	for voi in art_vois.iterrows():
 		ven_voi = voi_df_ven[voi_df_ven["id"] == voi[1]["id"]]
