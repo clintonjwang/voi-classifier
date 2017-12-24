@@ -4,6 +4,7 @@ import numpy as np
 import os
 import pandas as pd
 import random
+import config
 import time
 
 ###########################
@@ -55,15 +56,14 @@ def load_vois_all(C, classes=None):
 			continue
 		voi_dfs = load_vois_batch(C.cls_names[i], C.sheetnames[i], voi_dfs, dims_df, C)
 
-	voi_df_art, voi_df_ven, voi_df_eq = voi_dfs
-	voi_df_art.to_csv(C.art_voi_path, index=False)
-	voi_df_ven.to_csv(C.ven_voi_path, index=False)
-	voi_df_eq.to_csv(C.eq_voi_path, index=False)
-
-def load_vois_batch(cls, sheetname, voi_dfs, dims_df, C, verbose=False, acc_nums=None, overwrite=True):
+def load_vois_batch(cls, sheetname, voi_dfs, dims_df=None, C=None, verbose=False, acc_nums=None, overwrite=True):
 	"""Load all vois belonging to a class based on the contents of the spreadsheet."""
 	
 	s = time.time()
+	if C is None:
+		C = config.Config()
+	if dims_df is None:
+		dims_df = pd.read_csv(C.dims_df_path)
 	
 	voi_df_art, voi_df_ven, voi_df_eq = voi_dfs
 	src_data_df = pd.read_excel(C.xls_name, sheetname)
@@ -86,11 +86,30 @@ def load_vois_batch(cls, sheetname, voi_dfs, dims_df, C, verbose=False, acc_nums
 			print(".", end="")
 			
 	print("Overall time: %s" % str(time.time() - s))
+
+	voi_df_art.to_csv(C.art_voi_path, index=False)
+	voi_df_ven.to_csv(C.ven_voi_path, index=False)
+	voi_df_eq.to_csv(C.eq_voi_path, index=False)
+
 	return voi_df_art, voi_df_ven, voi_df_eq
 
-def load_vois(cls, acc_num, df, dims_df, voi_df_art, voi_df_ven, voi_df_eq, C, target_dims=None):
+def load_vois(cls, acc_num, df=None, dims_df=None, voi_df_art=None, voi_df_ven=None, voi_df_eq=None, C=None, target_dims=None):
 	"""Load all vois belonging to an acc_num.
 	If target_dims is None, do not rescale images."""
+	if C is None:
+		C = config.Config()
+
+	if voi_df_art is None:
+		voi_df_art = pd.read_csv(C.art_voi_path)
+		voi_df_ven = pd.read_csv(C.ven_voi_path)
+		voi_df_eq = pd.read_csv(C.eq_voi_path)
+	if dims_df is None:
+		dims_df = pd.read_csv(C.dims_df_path)
+
+	if df is None:
+		index = C.cls_names.index(cls)
+		df = pd.read_excel(C.xls_name, C.sheetnames[index])
+		df = preprocess_df(df, C)
 
 	df_subset = df.loc[df['Patient E Number'].astype(str) == acc_num]
 	img = np.load(C.full_img_dir + "\\" + cls + "\\" + str(acc_num) + ".npy")
@@ -494,7 +513,7 @@ def remove_vois(voi_df_art, voi_df_ven, voi_df_eq, acc_nums, cls):
 		ids_to_delete = list(voi_df_art[(voi_df_art["Filename"] == acc_num+".npy") & (voi_df_art["cls"] == cls)]["id"].values)
 		voi_df_ven = voi_df_ven[~voi_df_ven["id"].isin(ids_to_delete)]
 		voi_df_eq = voi_df_eq[~voi_df_eq["id"].isin(ids_to_delete)]
-		voi_df_art = voi_df_art[voi_df_art["Filename"] != acc_num+".npy"]
+		voi_df_art = voi_df_art[~voi_df_art["id"].isin(ids_to_delete)]
 
 	return voi_df_art, voi_df_ven, voi_df_eq
 
