@@ -280,8 +280,14 @@ def reload_img(acc_num, cls, C, update_intensities=True):
 	index = C.cls_names.index(cls)
 
 	if cls=="hcc":
-		dims_df = load_imgs("Z:\\" + C.img_dirs[index], cls, C.sheetnames[index], dims_df, C, acc_nums=[acc_num])
-		dims_df = load_imgs("Z:\\optn5b", cls, C.sheetnames[index], dims_df, C, acc_nums=[acc_num])
+		try:
+			dims_df = load_imgs("Z:\\" + C.img_dirs[index], cls, C.sheetnames[index], dims_df, C, acc_nums=[acc_num])
+		except:
+			pass
+		try:
+			dims_df = load_imgs("Z:\\optn5b", cls, C.sheetnames[index], dims_df, C, acc_nums=[acc_num])
+		except:
+			pass
 	else:
 		dims_df = load_imgs("Z:\\" + C.img_dirs[index], cls, C.sheetnames[index], dims_df, C, acc_nums=[acc_num])
 	

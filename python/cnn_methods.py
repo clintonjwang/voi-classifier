@@ -78,7 +78,7 @@ def collect_unaug_data(C, voi_df, verbose=False):
 			x.resize((index, C.dims[0], C.dims[1], C.dims[2], C.nb_channels)) #shrink first dimension to fit
 			x2.resize((index, 2)) #shrink first dimension to fit
 			orig_data_dict[cls] = [x,x2,np.array(z)]
-			num_samples[cls] = index
+			num_samples[cls] = index + 1
 		
 	return orig_data_dict, num_samples
 

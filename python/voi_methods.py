@@ -15,6 +15,79 @@ from scipy.misc import imsave
 from skimage.transform import rescale
 
 
+def xref_dirs_with_excel(C, classes=None):
+	"""Make sure the image directories have all the images expected based on the config settings
+	(aug factor and run number) and VOI spreadsheet contents."""
+
+	small_voi_df = pd.read_csv(C.small_voi_path)
+
+	if classes is None:
+		classes = C.classes_to_include
+
+	for cls in classes:
+		print(cls)
+
+		index = C.cls_names.index(cls)
+		acc_num_df = C.sheetnames[index]
+		df = pd.read_excel(C.xls_name, C.sheetnames[index])
+		xls_accnums = list(df[df['Run'] <= C.run_num]['Patient E Number'].astype(str))
+		unique, counts = np.unique(xls_accnums, return_counts=True)
+		xls_set = set(unique)
+		xls_cnts = dict(zip(unique, counts))
+
+		# Check for loaded images
+		for acc_num in xls_set:
+			if not os.path.exists(C.full_img_dir + "\\" + cls + "\\" + acc_num + ".npy"):
+				print(acc_num, "is contained in the spreadsheet but has no loaded image in", C.full_img_dir)
+
+		# Check for small_voi_df
+		acc_nums = list(small_voi_df[small_voi_df["cls"] == cls]["acc_num"])
+		unique, counts = np.unique(acc_nums, return_counts=True)
+		diff = xls_set.difference(unique)
+		if len(diff) > 0:
+			print(diff, "are contained in the spreadsheet but not in small_voi_df.")
+		diff = set(unique).difference(xls_set)
+		if len(diff) > 0:
+			print(diff, "are contained in small_voi_df but not the spreadsheet.")
+
+		overlap = xls_set.intersection(unique)
+		voi_cnts = dict(zip(unique, counts))
+		for acc_num in overlap:
+			if voi_cnts[acc_num] != xls_cnts[acc_num]:
+				print("Mismatch in number of lesions in the spreadsheet vs small_voi_df for", acc_num)
+
+		# Check rough cropped lesions
+		acc_nums = [fn[:fn.find("_")] for fn in os.listdir(C.crops_dir + "\\" + cls)]
+		unique, counts = np.unique(acc_nums, return_counts=True)
+		diff = xls_set.difference(unique)
+		if len(diff) > 0:
+			print(diff, "are contained in the spreadsheet but not in", C.crops_dir)
+		diff = set(unique).difference(xls_set)
+		if len(diff) > 0:
+			print(diff, "are contained in", C.crops_dir, "but not the spreadsheet.")
+
+		overlap = xls_set.intersection(unique)
+		voi_cnts = dict(zip(unique, counts))
+		for acc_num in overlap:
+			if voi_cnts[acc_num] != xls_cnts[acc_num]:
+				print("Mismatch in number of lesions in the spreadsheet vs", C.crops_dir, "for", acc_num)
+
+		# Check cropped lesions
+		acc_nums = [fn[:fn.find("_")] for fn in os.listdir(C.orig_dir + "\\" + cls)]
+		unique, counts = np.unique(acc_nums, return_counts=True)
+		diff = xls_set.difference(unique)
+		if len(diff) > 0:
+			print(diff, "are contained in the spreadsheet but not in", C.orig_dir)
+		diff = set(unique).difference(xls_set)
+		if len(diff) > 0:
+			print(diff, "are contained in", C.orig_dir, "but not the spreadsheet.")
+
+		overlap = xls_set.intersection(unique)
+		voi_cnts = dict(zip(unique, counts))
+		for acc_num in overlap:
+			if voi_cnts[acc_num] != xls_cnts[acc_num]:
+				print("Mismatch in number of lesions in the spreadsheet vs", C.orig_dir, "for", acc_num)
+
 #####################################
 ### METHODS FOR DATA AUGMENTATION
 #####################################
@@ -219,19 +292,21 @@ def extract_vois(small_voi_df, C, voi_df_art, voi_df_ven, voi_df_eq, intensity_d
 	# iterate over image series
 	for cls in classes:
 		if acc_nums is None:
-			acc_nums = os.listdir(C.full_img_dir + "\\" + cls)
+			iter_acc_nums = [x[:-4] for x in os.listdir(C.full_img_dir + "\\" + cls)]
+		else:
+			iter_acc_nums = acc_nums
 
-		for img_num, img_fn in enumerate(acc_nums):
+		for img_num, acc_num in enumerate(iter_acc_nums):
 			try:
-				img = np.load(C.full_img_dir+"\\"+cls+"\\"+img_fn)
+				img = np.load(C.full_img_dir+"\\"+cls+"\\"+acc_num+".npy")
 			except Exception as e:
 				if debug:
 					raise ValueError(e)
 				continue
 
-			art_vois = voi_df_art[(voi_df_art["Filename"] == img_fn) & (voi_df_art["cls"] == cls)]
+			art_vois = voi_df_art[(voi_df_art["Filename"] == acc_num+".npy") & (voi_df_art["cls"] == cls)]
 
-			small_voi_df = _filter_small_vois(small_voi_df, img_fn[:-4], cls)
+			small_voi_df = _filter_small_vois(small_voi_df, acc_num, cls)
 
 			# iterate over each voi in that image
 			for voi in art_vois.iterrows():
@@ -242,10 +317,10 @@ def extract_vois(small_voi_df, C, voi_df_art, voi_df_ven, voi_df_eq, intensity_d
 				cropped_img = scale_intensity(cropped_img, 1, max_int=2, keep_min=True) - 1
 				#cropped_img = rescale_int(cropped_img, intensity_df[intensity_df["acc_num"] == img_fn[:img_fn.find('.')]])
 
-				fn = img_fn[:-4] + "_" + str(voi[1]["lesion_num"])
+				fn = acc_num + "_" + str(voi[1]["lesion_num"])
 				np.save(C.crops_dir + cls + "\\" + fn, cropped_img)
 
-				small_voi_df = _add_small_voi(small_voi_df, img_fn[:-4], cls, small_voi)
+				small_voi_df = _add_small_voi(small_voi_df, acc_num, cls, small_voi)
 
 			if img_num % 20 == 0:
 				print(".", end="")
@@ -257,26 +332,26 @@ def extract_vois(small_voi_df, C, voi_df_art, voi_df_ven, voi_df_eq, intensity_d
 def _add_small_voi(small_voi_df, acc_num, cls, coords):
 	"""Add a row to small_voi_df."""
 
-	if len(voi_df) == 0:
+	if len(small_voi_df) == 0:
 		i = 0
 	else:
-		i = voi_df.index[-1]+1
+		i = small_voi_df.index[-1]+1
 	
 	small_voi_df.loc[i] = [acc_num, cls, coords]
+
+	return small_voi_df
 
 def _filter_small_vois(small_voi_df, acc_num, cls=None):
 	"""Remove any elements in small_voi_df with the given acc_num. Limit to cls if specified."""
 
-	if cls is None:
+	if cls is not None:
 		small_voi_df = small_voi_df[~((small_voi_df["acc_num"] == acc_num) & (small_voi_df["cls"] == cls))]
 	else:
 		small_voi_df = small_voi_df[~(small_voi_df["acc_num"] == acc_num)]
 
 	return small_voi_df
 
-def _extract_vois_orig(small_vois, C, voi_df_art, voi_df_ven, voi_df_eq, intensity_df):
-	"""Retrieve grossly cropped but unscaled versions of the images"""
-	
+"""def _extract_vois_orig(small_vois, C, voi_df_art, voi_df_ven, voi_df_eq, intensity_df):	
 	t = time.time()
 
 	# iterate over image series
@@ -304,6 +379,7 @@ def _extract_vois_orig(small_vois, C, voi_df_art, voi_df_ven, voi_df_eq, intensi
 	print(time.time()-t)
 	
 	return small_vois
+"""
 
 def _extract_voi(img, voi, min_dims, ven_voi=[], eq_voi=[]):
 	"""Input: image, a voi to center on, and the min dims of the unaugmented img.
@@ -398,7 +474,8 @@ def save_lesion_imgs(C, classes=None, acc_num=None):
 
 def reload_accnum(acc_num, cls, C, augment=True, overwrite=True):
 	"""Reloads cropped, scaled and augmented images. Updates voi_dfs and small_vois accordingly.
-	small_vois needs to include class"""
+	small_vois needs to include class.
+	Should be updated to use other methods."""
 
 	# Update VOIs
 	voi_df_art = pd.read_csv(C.art_voi_path)
@@ -418,7 +495,6 @@ def reload_accnum(acc_num, cls, C, augment=True, overwrite=True):
 	voi_df_art.to_csv(C.art_voi_path, index=False)
 	voi_df_ven.to_csv(C.ven_voi_path, index=False)
 	voi_df_eq.to_csv(C.eq_voi_path, index=False)
-
 
 	# Update small_vois / cropped image
 	intensity_df = pd.read_csv(C.int_df_path)
@@ -466,12 +542,9 @@ def reload_accnum(acc_num, cls, C, augment=True, overwrite=True):
 def remove_acc_num(acc_num, cls, C):
 	"""Remove acc_num from processed image folders (still)"""
 
-	with open(C.small_voi_path, 'r') as csv_file:
-		reader = csv.reader(csv_file)
-		small_vois = dict(reader)
-	for key in small_vois:
-		if key[:key.find('_')] != acc_num:
-			small_vois[key] = [int(x) for x in small_vois[key][1:-1].split(', ')]
+	small_voi_df = pd.read_csv(C.small_voi_path)
+
+	small_voi_df = _filter_small_vois(small_voi_df, acc_num, cls)
 
 	with open(C.small_voi_path, 'w', newline='') as csv_file:
 		writer = csv.writer(csv_file)

@@ -33,9 +33,9 @@ class Config:
 		self.patient_info_path = "Z:\\patient_info.csv"
 
 		self.xls_name = 'Z:\\Prototype1e.xlsx'
-		self.cls_names = ['hcc', 'cyst', 'hemangioma', 'fnh', 'cholangio', 'colorectal', 'adenoma']
-		self.sheetnames = ['HCC', 'Cyst', 'Hemangioma', 'FNH', 'Cholangio', 'Colorectal', 'Adenoma']
-		self.img_dirs = ['OPTN5A', 'simple_cysts', 'hemangioma', 'fnh', 'cholangio', 'colorectal', 'adenoma']
+		self.cls_names = ['hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh', 'adenoma']
+		self.sheetnames = ['HCC', 'Cholangio', 'Colorectal', 'Cyst', 'Hemangioma', 'FNH', 'Adenoma']
+		self.img_dirs = ['OPTN5A', 'cholangio', 'colorectal', 'simple_cysts', 'hemangioma', 'fnh', 'adenoma']
 
 		self.full_img_dir = "Z:\\INPUT\\full_imgs_origdims"
 		self.output_img_dir = "Z:\\OUTPUT\\12-18"
