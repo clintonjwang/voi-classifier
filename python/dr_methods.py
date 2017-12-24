@@ -224,7 +224,7 @@ def load_imgs(img_dir, cls, sheetname, dims_df, C, verbose=False, target_dims=No
 
 		# register phases if venous was not specified separately
 		if "Image type2" not in df_subset.columns or df_subset.iloc[0]["Image type2"] != "VP-T1":
-			ven, _ = hf.reg_imgs(moving=ven, fixed=art, params=C.params, rescale_only=False)
+			ven, _ = hf.reg_imgs(moving=ven, fixed=art, params=C.reg_params, rescale_only=False)
 			
 		dims_df = add_to_dims_df(dims_df, acc_num, cur_dims)
 
@@ -235,7 +235,7 @@ def load_imgs(img_dir, cls, sheetname, dims_df, C, verbose=False, target_dims=No
 				print(subdir+"\\T1_EQ missing")
 				continue
 			if "Image type3" not in df_subset.columns or df_subset.iloc[0]["Image type3"] != "EQ-T1":
-				eq, _ = hf.reg_imgs(moving=eq, fixed=art, params=C.params, rescale_only=False)
+				eq, _ = hf.reg_imgs(moving=eq, fixed=art, params=C.reg_params, rescale_only=False)
 			img = np.transpose(np.stack((art, ven, eq)), (1,2,3,0))
 		else:
 			img = np.transpose(np.stack((art, ven)), (1,2,3,0))
@@ -267,23 +267,23 @@ def add_to_dims_df(dims_df, acc_num, cur_dims):
 	
 	return dims_df
 
+def reload_imgs(acc_nums, cls, C, update_intensities=True):
+	"""Save partially cropped (unscaled) images and update dims_df and intensity_df."""
+
+	for acc_num in acc_nums:
+		reload_img(acc_num, cls, C, update_intensities)
+
 def reload_img(acc_num, cls, C, update_intensities=True):
 	"""Save partially cropped (unscaled) images and update dims_df and intensity_df."""
 
 	dims_df = pd.read_csv(C.dims_df_path)
+	index = C.cls_names.index(cls)
 
-	if cls=="5a":
-		index = 0
-		cls = "hcc"
-	elif cls=="5b":
-		index = 1
-		cls = "hcc"
-	elif cls=="hcc":
-		raise ValueError("Specify 5a or 5b")
+	if cls=="hcc":
+		dims_df = load_imgs("Z:\\" + C.img_dirs[index], cls, C.sheetnames[index], dims_df, C, acc_nums=[acc_num])
+		dims_df = load_imgs("Z:\\optn5b", cls, C.sheetnames[index], dims_df, C, acc_nums=[acc_num])
 	else:
-		index = C.cls_names.index(cls)
-
-	dims_df = load_imgs("Z:\\" + C.img_dirs[index], cls, C.sheetnames[index], dims_df, C, acc_nums=[acc_num])
+		dims_df = load_imgs("Z:\\" + C.img_dirs[index], cls, C.sheetnames[index], dims_df, C, acc_nums=[acc_num])
 	
 	if update_intensities:
 		intensity_df = get_intensities(C, acc_num=acc_num, cls=cls)

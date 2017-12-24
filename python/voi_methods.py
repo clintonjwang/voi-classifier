@@ -208,7 +208,73 @@ def align_phases(img, voi, ven_voi, ch):
 	elif ch == 2:
 		return np.stack([img[:,:,:,0], img[:,:,:,1], temp_ven], axis=3)
 
-def extract_vois(small_vois, C, voi_df_art, voi_df_ven, voi_df_eq, intensity_df):
+def extract_vois(small_voi_df, C, voi_df_art, voi_df_ven, voi_df_eq, intensity_df=None, classes=None, acc_nums=None, debug=False):
+	"""Retrieve grossly cropped but unscaled versions of the images."""
+	
+	t = time.time()
+
+	if classes is None:
+		classes = C.classes_to_include
+
+	# iterate over image series
+	for cls in classes:
+		if acc_nums is None:
+			acc_nums = os.listdir(C.full_img_dir + "\\" + cls)
+
+		for img_num, img_fn in enumerate(acc_nums):
+			try:
+				img = np.load(C.full_img_dir+"\\"+cls+"\\"+img_fn)
+			except Exception as e:
+				if debug:
+					raise ValueError(e)
+				continue
+
+			art_vois = voi_df_art[(voi_df_art["Filename"] == img_fn) & (voi_df_art["cls"] == cls)]
+
+			small_voi_df = _filter_small_vois(small_voi_df, img_fn[:-4], cls)
+
+			# iterate over each voi in that image
+			for voi in art_vois.iterrows():
+				ven_voi = voi_df_ven[voi_df_ven["id"] == voi[1]["id"]]
+				eq_voi = voi_df_eq[voi_df_eq["id"] == voi[1]["id"]]
+
+				cropped_img, small_voi = _extract_voi(img, copy.deepcopy(voi[1]), C.dims, ven_voi=ven_voi, eq_voi=eq_voi)
+				cropped_img = scale_intensity(cropped_img, 1, max_int=2, keep_min=True) - 1
+				#cropped_img = rescale_int(cropped_img, intensity_df[intensity_df["acc_num"] == img_fn[:img_fn.find('.')]])
+
+				fn = img_fn[:-4] + "_" + str(voi[1]["lesion_num"])
+				np.save(C.crops_dir + cls + "\\" + fn, cropped_img)
+
+				small_voi_df = _add_small_voi(small_voi_df, img_fn[:-4], cls, small_voi)
+
+			if img_num % 20 == 0:
+				print(".", end="")
+	print("")
+	print(time.time()-t)
+	
+	return small_voi_df
+
+def _add_small_voi(small_voi_df, acc_num, cls, coords):
+	"""Add a row to small_voi_df."""
+
+	if len(voi_df) == 0:
+		i = 0
+	else:
+		i = voi_df.index[-1]+1
+	
+	small_voi_df.loc[i] = [acc_num, cls, coords]
+
+def _filter_small_vois(small_voi_df, acc_num, cls=None):
+	"""Remove any elements in small_voi_df with the given acc_num. Limit to cls if specified."""
+
+	if cls is None:
+		small_voi_df = small_voi_df[~((small_voi_df["acc_num"] == acc_num) & (small_voi_df["cls"] == cls))]
+	else:
+		small_voi_df = small_voi_df[~(small_voi_df["acc_num"] == acc_num)]
+
+	return small_voi_df
+
+def _extract_vois_orig(small_vois, C, voi_df_art, voi_df_ven, voi_df_eq, intensity_df):
 	"""Retrieve grossly cropped but unscaled versions of the images"""
 	
 	t = time.time()
@@ -226,7 +292,7 @@ def extract_vois(small_vois, C, voi_df_art, voi_df_ven, voi_df_eq, intensity_df)
 
 				cropped_img, small_voi = extract_voi(img, copy.deepcopy(voi[1]), C.dims, ven_voi=ven_voi, eq_voi=eq_voi)
 				cropped_img = scale_intensity(cropped_img, 1, max_int=2, keep_min=True) - 1
-				#cropped_img = rescale_int(cropped_img, intensity_df[intensity_df["AccNum"] == img_fn[:img_fn.find('.')]])
+				#cropped_img = rescale_int(cropped_img, intensity_df[intensity_df["acc_num"] == img_fn[:img_fn.find('.')]])
 
 				fn = img_fn[:-4] + "_" + str(voi[1]["lesion_num"])
 				np.save(C.crops_dir + cls + "\\" + fn, cropped_img)
@@ -239,7 +305,7 @@ def extract_vois(small_vois, C, voi_df_art, voi_df_ven, voi_df_eq, intensity_df)
 	
 	return small_vois
 
-def extract_voi(img, voi, min_dims, ven_voi=[], eq_voi=[]):
+def _extract_voi(img, voi, min_dims, ven_voi=[], eq_voi=[]):
 	"""Input: image, a voi to center on, and the min dims of the unaugmented img.
 	Outputs loosely cropped voi-centered image and coords of the voi within this loosely cropped image.
 	"""
@@ -305,13 +371,36 @@ def extract_voi(img, voi, min_dims, ven_voi=[], eq_voi=[]):
 ### SINGLE ACC_NUM METHODS
 #####################################
 
-def reload_accnum(accnum, cls, C, augment=True, overwrite=True):
-	"""Reloads cropped, scaled and augmented images. Updates voi_dfs and small_vois accordingly."""
+def save_lesion_imgs(C, classes=None, acc_num=None):
+	"""Save unaugmented lesion images"""
+
+	small_voi_df = pd.read_csv(C.small_voi_path)
+	if classes is None:
+		classes = C.classes_to_include
+
+	t = time.time()
+	for cls in classes:
+		if acc_num is None:
+			acc_num_subset = os.listdir(C.crops_dir + cls)
+		else:
+			acc_num_subset = [x for x in os.listdir(C.crops_dir + cls) if x.startswith(acc_num)]
+
+		for fn in acc_num_subset:
+			img = np.load(C.crops_dir + cls + "\\" + fn)
+			try:
+				unaug_img = resize_img(img, C, small_voi_df.loc[(small_voi_df["acc_num"] == \
+					fn[:fn.find("_")]) & (small_voi_df["cls"] == cls), "coords"])
+			except Exception as e:
+				print(cls, e)
+				continue
+			np.save(C.orig_dir + cls + "\\" + fn, unaug_img)
+	print(time.time()-t)
+
+def reload_accnum(acc_num, cls, C, augment=True, overwrite=True):
+	"""Reloads cropped, scaled and augmented images. Updates voi_dfs and small_vois accordingly.
+	small_vois needs to include class"""
 
 	# Update VOIs
-	cls_names = ['hcc', 'hcc', 'cyst', 'hemangioma', 'fnh', 'cholangio', 'colorectal', 'adenoma']
-	sheetnames = ['OPTN 5A', 'OPTN 5B', 'Cyst', 'Hemangioma', 'FNH', 'Cholangio', 'Colorectal', 'Adenoma']
-	img_dirs = ['OPTN5A', 'optn5b', 'simple_cysts', 'hemangioma', 'fnh', 'cholangio', 'colorectal', 'adenoma']
 	voi_df_art = pd.read_csv(C.art_voi_path)
 	voi_df_ven = pd.read_csv(C.ven_voi_path)
 	voi_df_eq = pd.read_csv(C.eq_voi_path)
@@ -319,22 +408,10 @@ def reload_accnum(accnum, cls, C, augment=True, overwrite=True):
 	dims_df = pd.read_csv(C.dims_df_path)
 
 	#try:
-	if cls=="5a":
-		cls = "hcc"
-		voi_dfs = drm.load_vois_batch(cls, C.sheetnames[0], voi_dfs, dims_df, C, acc_nums=[accnum], overwrite=overwrite)
-	elif cls=="5b":
-		cls = "hcc"
-		voi_dfs = drm.load_vois_batch(cls, C.sheetnames[1], voi_dfs, dims_df, C, acc_nums=[accnum], overwrite=overwrite)
-	elif cls=="hcc":
-		#raise ValueError("Specify 5a or 5b")
-		print("be sure you mean both 5a and 5b")
-		voi_dfs = drm.load_vois_batch(cls, C.sheetnames[0], voi_dfs, dims_df, C, acc_nums=[accnum], overwrite=overwrite)
-		voi_dfs = drm.load_vois_batch(cls, C.sheetnames[1], voi_dfs, dims_df, C, acc_nums=[accnum], overwrite=overwrite)
-	else:
-		voi_dfs = drm.load_vois_batch(cls, C.sheetnames[C.cls_names.index(cls)], voi_dfs, dims_df, C, acc_nums=[accnum], overwrite=overwrite)
+	voi_dfs = drm.load_vois_batch(cls, C.sheetnames[C.cls_names.index(cls)], voi_dfs, dims_df, C, acc_nums=[acc_num], overwrite=overwrite)
 	#except Exception as e:
-	#	print(accnum, "is not loaded or included.")
-	#	remove_accnum(accnum, cls, C)
+	#	print(acc_num, "is not loaded or included.")
+	#	remove_acc_num(acc_num, cls, C)
 	#	return
 
 	voi_df_art, voi_df_ven, voi_df_eq = voi_dfs
@@ -345,29 +422,25 @@ def reload_accnum(accnum, cls, C, augment=True, overwrite=True):
 
 	# Update small_vois / cropped image
 	intensity_df = pd.read_csv(C.int_df_path)
-	with open(C.small_voi_path, 'r') as csv_file:
-		reader = csv.reader(csv_file)
-		small_vois = dict(reader)
-	for key in small_vois:
-		if overwrite and key[:key.find('_')] != accnum:
-			small_vois[key] = [int(x) for x in small_vois[key][1:-1].split(', ')]
+	small_voi_df = pd.read_csv(C.small_voi_path)
 
-	img_fn = accnum + ".npy"
+	img_fn = acc_num + ".npy"
 	img = np.load(C.full_img_dir+"\\"+cls+"\\"+img_fn)
 	art_vois = voi_df_art[(voi_df_art["Filename"] == img_fn) & (voi_df_art["cls"] == cls)]
 
-
 	if overwrite:
 		for fn in os.listdir(C.crops_dir + cls):
-			if fn.startswith(accnum):
+			if fn.startswith(acc_num):
 				os.remove(C.crops_dir + cls + "\\" + fn)
 		for fn in os.listdir(C.orig_dir + cls):
-			if fn.startswith(accnum):
+			if fn.startswith(acc_num):
 				os.remove(C.orig_dir + cls + "\\" + fn)
 		if augment:
 			for fn in os.listdir(C.aug_dir + cls):
-				if fn.startswith(accnum):
+				if fn.startswith(acc_num):
 					os.remove(C.aug_dir + cls + "\\" + fn)
+
+	small_voi_df = _filter_small_vois(small_voi_df, img_fn[:-4], cls)
 
 	for voi in art_vois.iterrows():
 		ven_voi = voi_df_ven[voi_df_ven["id"] == voi[1]["id"]]
@@ -375,11 +448,12 @@ def reload_accnum(accnum, cls, C, augment=True, overwrite=True):
 
 		cropped_img, small_voi = extract_voi(img, copy.deepcopy(voi[1]), C.dims, ven_voi=ven_voi, eq_voi=eq_voi)
 		cropped_img = scale_intensity(cropped_img, 1, max_int=2, keep_min=True) - 1
-		#cropped_img = rescale_int(cropped_img, intensity_df[intensity_df["AccNum"] == img_fn[:img_fn.find('.')]])
+		#cropped_img = rescale_int(cropped_img, intensity_df[intensity_df["acc_num"] == img_fn[:img_fn.find('.')]])
 
 		fn = img_fn[:-4] + "_" + str(voi[1]["lesion_num"])
 		np.save(C.crops_dir + cls + "\\" + fn, cropped_img)
-		small_vois[fn] = small_voi
+
+		small_voi_df = _add_small_voi(small_voi_df, img_fn[:-4], cls, small_voi)
 
 		# Update scaled and augmented images
 		unaug_img = resize_img(copy.deepcopy(cropped_img), C, small_voi)
@@ -387,19 +461,16 @@ def reload_accnum(accnum, cls, C, augment=True, overwrite=True):
 		if augment:
 			augment_img(cropped_img, C, small_voi, num_samples=C.aug_factor, translate=[2,2,1], save_name=C.aug_dir + cls + "\\" + fn)
 
-	with open(C.small_voi_path, 'w', newline='') as csv_file:
-		writer = csv.writer(csv_file)
-		for key, value in small_vois.items():
-			writer.writerow([key, value])
+	small_voi_df.to_csv(C.small_voi_path, index=False)
 
-def remove_accnum(accnum, cls, C):
-	"""Remove accnum from processed image folders (still)"""
+def remove_acc_num(acc_num, cls, C):
+	"""Remove acc_num from processed image folders (still)"""
 
 	with open(C.small_voi_path, 'r') as csv_file:
 		reader = csv.reader(csv_file)
 		small_vois = dict(reader)
 	for key in small_vois:
-		if key[:key.find('_')] != accnum:
+		if key[:key.find('_')] != acc_num:
 			small_vois[key] = [int(x) for x in small_vois[key][1:-1].split(', ')]
 
 	with open(C.small_voi_path, 'w', newline='') as csv_file:
@@ -408,13 +479,13 @@ def remove_accnum(accnum, cls, C):
 			writer.writerow([key, value])
 
 	for fn in os.listdir(C.crops_dir + cls):
-		if fn.startswith(accnum):
+		if fn.startswith(acc_num):
 			os.remove(C.crops_dir + cls + "\\" + fn)
 	for fn in os.listdir(C.orig_dir + cls):
-		if fn.startswith(accnum):
+		if fn.startswith(acc_num):
 			os.remove(C.orig_dir + cls + "\\" + fn)
 	for fn in os.listdir(C.aug_dir + cls):
-		if fn.startswith(accnum):
+		if fn.startswith(acc_num):
 			os.remove(C.aug_dir + cls + "\\" + fn)
 
 ###########################

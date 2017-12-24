@@ -4,8 +4,6 @@ from keras.layers.normalization import BatchNormalization
 from keras.models import Model
 from keras.regularizers import l1, l2
 from keras.optimizers import Adam
-from keras.constraints import max_norm
-from keras.layers.noise import GaussianNoise
 from keras.callbacks import EarlyStopping
 from keras.utils import np_utils
 from sklearn.metrics import confusion_matrix, f1_score, accuracy_score
