@@ -2,6 +2,7 @@ import copy
 import numpy as np
 import os
 from scipy.misc import imsave
+from skimage.transform import rescale
 
 ###########################
 ### FOR TRAINING
@@ -75,8 +76,8 @@ def collect_unaug_data(C, voi_df, verbose=False):
 				#raise ValueError(img_fn + " is probably missing a voi_df entry.")
 
 		if not skip:
-			x.resize((index, C.dims[0], C.dims[1], C.dims[2], C.nb_channels)) #shrink first dimension to fit
-			x2.resize((index, 2)) #shrink first dimension to fit
+			x.resize((index+1, C.dims[0], C.dims[1], C.dims[2], C.nb_channels)) #shrink first dimension to fit
+			x2.resize((index+1, 2)) #shrink first dimension to fit
 			orig_data_dict[cls] = [x,x2,np.array(z)]
 			num_samples[cls] = index + 1
 		
@@ -87,7 +88,7 @@ def collect_unaug_data(C, voi_df, verbose=False):
 ### FOR OUTPUTTING IMAGES AFTER TRAINING
 ###########################
 
-def save_output(Z, y_pred, y_true, voi_df_art, small_vois, cls_mapping, C, save_dir=None):
+def save_output(Z, y_pred, y_true, voi_df_art, small_voi_df, cls_mapping, C, save_dir=None):
 	"""Parent method; saves all imgs in """
 	if save_dir is None:
 		save_dir = C.output_img_dir
@@ -100,11 +101,11 @@ def save_output(Z, y_pred, y_true, voi_df_art, small_vois, cls_mapping, C, save_
 
 	for i in range(len(Z)):
 		if y_pred[i] != y_true[i]:
-			plot_multich_with_bbox(Z[i], cls_mapping[y_pred[i]], voi_df_art, small_vois, save_dir=save_dir + "\\incorrect\\" + cls_mapping[y_true[i]], C=C)
+			plot_multich_with_bbox(Z[i], cls_mapping[y_pred[i]], voi_df_art, small_voi_df, save_dir=save_dir + "\\incorrect\\" + cls_mapping[y_true[i]], C=C)
 		else:
-			plot_multich_with_bbox(Z[i], cls_mapping[y_pred[i]], voi_df_art, small_vois, save_dir=save_dir + "\\correct\\" + cls_mapping[y_true[i]], C=C)
+			plot_multich_with_bbox(Z[i], cls_mapping[y_pred[i]], voi_df_art, small_voi_df, save_dir=save_dir + "\\correct\\" + cls_mapping[y_true[i]], C=C)
 
-def plot_multich_with_bbox(fn, pred_class, voi_df_art, small_vois, num_ch=3, save_dir=None, C=None):
+def plot_multich_with_bbox(fn, pred_class, voi_df_art, small_voi_df, num_ch=3, save_dir=None, C=None):
 	"""Plot"""
 
 	normalize = True
@@ -126,7 +127,7 @@ def plot_multich_with_bbox(fn, pred_class, voi_df_art, small_vois, num_ch=3, sav
 
 	img_slice = np.stack([img_slice, img_slice, img_slice], axis=2)
 	
-	img_slice = draw_bbox(img_slice, C, small_vois[fn[:-4]])
+	img_slice = draw_bbox(img_slice, C, small_voi_df.loc[small_voi_df["acc_num"] == img_fn[:-4], "coords"])
 		
 	ch1 = np.transpose(img_slice[:,::-1,:,0], (1,0,2))
 	ch2 = np.transpose(img_slice[:,::-1,:,1], (1,0,2))
@@ -148,9 +149,6 @@ def plot_multich_with_bbox(fn, pred_class, voi_df_art, small_vois, num_ch=3, sav
 		raise ValueError("Invalid num channels")
 		
 	imsave("%s\\large-%s (pred %s).png" % (save_dir, fn[:-4], pred_class), ret)
-
-
-	from skimage.transform import rescale
 
 
 	rescale_factor = 3

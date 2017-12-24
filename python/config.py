@@ -42,8 +42,8 @@ class Config:
 		self.vois_dir = "Z:\\OUTPUT\\small-vois\\12-18\\"
 		self.crops_dir = "E:\\imgs\\unscaled_crops_hardscaled\\"
 		self.artif_dir = "E:\\imgs\\artif_imgs_2412\\"
-		self.aug_dir = "E:\\imgs\\aug_imgs_2412_cropint\\"
-		self.orig_dir = "E:\\imgs\\orig_imgs_2412_cropint\\"
+		self.aug_dir = "E:\\imgs\\aug_imgs_2412_1e\\"
+		self.orig_dir = "E:\\imgs\\orig_imgs_2412_1e\\"
 
 		# Artificial sample parameters
 		self.long_size_frac = [0.6, 0.85]

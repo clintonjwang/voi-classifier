@@ -320,7 +320,7 @@ def extract_vois(small_voi_df, C, voi_df_art, voi_df_ven, voi_df_eq, intensity_d
 				fn = acc_num + "_" + str(voi[1]["lesion_num"])
 				np.save(C.crops_dir + cls + "\\" + fn, cropped_img)
 
-				small_voi_df = _add_small_voi(small_voi_df, acc_num, cls, small_voi)
+				small_voi_df = _add_small_voi(small_voi_df, fn, cls, small_voi)
 
 			if img_num % 20 == 0:
 				print(".", end="")
@@ -329,7 +329,7 @@ def extract_vois(small_voi_df, C, voi_df_art, voi_df_ven, voi_df_eq, intensity_d
 	
 	return small_voi_df
 
-def _add_small_voi(small_voi_df, acc_num, cls, coords):
+def _add_small_voi(small_voi_df, lesion_id, cls, coords):
 	"""Add a row to small_voi_df."""
 
 	if len(small_voi_df) == 0:
@@ -337,7 +337,7 @@ def _add_small_voi(small_voi_df, acc_num, cls, coords):
 	else:
 		i = small_voi_df.index[-1]+1
 	
-	small_voi_df.loc[i] = [acc_num, cls, coords]
+	small_voi_df.loc[i] = [lesion_id, lesion_id[:lesion_id.find("_")], cls, coords]
 
 	return small_voi_df
 
@@ -449,6 +449,7 @@ def _extract_voi(img, voi, min_dims, ven_voi=[], eq_voi=[]):
 
 def save_lesion_imgs(C, classes=None, acc_num=None):
 	"""Save unaugmented lesion images"""
+	import ast
 
 	small_voi_df = pd.read_csv(C.small_voi_path)
 	if classes is None:
@@ -463,11 +464,11 @@ def save_lesion_imgs(C, classes=None, acc_num=None):
 
 		for fn in acc_num_subset:
 			img = np.load(C.crops_dir + cls + "\\" + fn)
+			
 			try:
-				unaug_img = resize_img(img, C, small_voi_df.loc[(small_voi_df["acc_num"] == \
-					fn[:fn.find("_")]) & (small_voi_df["cls"] == cls), "coords"])
+				unaug_img = resize_img(img, C, ast.literal_eval(small_voi_df.loc[small_voi_df["id"] == fn[:-4], "coords"].values[0]))
 			except Exception as e:
-				print(cls, e)
+				print(cls, fn)
 				continue
 			np.save(C.orig_dir + cls + "\\" + fn, unaug_img)
 	print(time.time()-t)

@@ -2,7 +2,7 @@ import keras.backend as K
 from keras.layers import Input, Dense, Concatenate, Flatten, Dropout, Conv3D, MaxPooling3D, Conv2D, MaxPooling2D, ZeroPadding3D, Activation, ELU
 from keras.layers.normalization import BatchNormalization
 from keras.models import Model
-from keras.regularizers import l1, l2
+from keras.regularizers import l2
 from keras.optimizers import Adam
 from keras.callbacks import EarlyStopping
 from keras.utils import np_utils
@@ -92,7 +92,8 @@ def overnight_run(C_list, overwrite=False, max_runs=999):
             "dropout", "activation_type", "dilation", "dense_units",
             "acc6cls", "acc3cls", "time_elapsed(s)", "loss_hist",
             'hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh',
-            'confusion_matrix', 'f1', 'timestamp', 'comments', 'run_num'])
+            'confusion_matrix', 'f1', 'timestamp', 'comments', 'run_num',
+            'misclassified_test', 'misclassified_train'])
         index = 0
     else:
         running_stats = pd.read_csv(C_list[0].run_stats_path)
@@ -123,7 +124,9 @@ def overnight_run(C_list, overwrite=False, max_runs=999):
     while index < max_runs:
         C = C_list[C_index % len(C_list)]
 
-        X_test, Y_test, train_generator, num_samples, _ = get_cnn_data(C, n=n[C_index % len(n)], n_art=n_art[C_index % len(n_art)], run_2d=run_2d)
+        X_test, Y_test, train_generator, num_samples, train_orig, Z = get_cnn_data(C, n=n[C_index % len(n)], n_art=n_art[C_index % len(n_art)], run_2d=run_2d)
+        Z_test, Z_train_orig = Z
+        X_train_orig, Y_train_orig = train_orig
 
         for _ in range(cycle_len):
             model = build_cnn(C, 'adam', activation_type=activation_type[index % len(activation_type)],
@@ -139,6 +142,7 @@ def overnight_run(C_list, overwrite=False, max_runs=999):
             Y_pred = model.predict(X_test)
             y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_test])
             y_pred = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_pred])
+            misclassified_test = list(Z_test[~np.equal(y_pred, y_true)])
 
             running_acc_6.append(accuracy_score(y_true, y_pred))
             print("6cls accuracy:", running_acc_6[-1], " - average:", np.mean(running_acc_6))
@@ -147,13 +151,19 @@ def overnight_run(C_list, overwrite=False, max_runs=999):
             running_acc_3.append(accuracy_score(y_true_simp, y_pred_simp))
             #print("3cls accuracy:", running_acc_3[-1], " - average:", np.mean(running_acc_3))
 
+            Y_pred = model.predict(X_train_orig)
+            y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_train_orig])
+            y_pred = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_pred])
+            misclassified_train = list(Z_train_orig[~np.equal(y_pred, y_true)])
+
             running_stats.loc[index] = [n[C_index % len(n)], n_art[C_index % len(n_art)], steps_per_epoch[index % len(steps_per_epoch)], epochs[index % len(epochs)],
                                 C.nb_channels, C.dims, C.train_frac, C.aug_factor, non_imaging_inputs,
                                 kernel_size[index % len(kernel_size)], batch_norm, f[index % len(f)], padding[index % len(padding)],
                                 dropout[index % len(dropout)], activation_type[index % len(activation_type)], dilation_rate[index % len(dilation_rate)], dense_units[index % len(dense_units)],
                                 running_acc_6[-1], running_acc_3[-1], time.time()-t, loss_hist,
                                 num_samples['hcc'], num_samples['cholangio'], num_samples['colorectal'], num_samples['cyst'], num_samples['hemangioma'], num_samples['fnh'],
-                                confusion_matrix(y_true, y_pred), f1_score(y_true, y_pred, average="weighted"), time.time(), str(C.hard_scale), C.run_num]
+                                confusion_matrix(y_true, y_pred), f1_score(y_true, y_pred, average="weighted"), time.time(), str(C.hard_scale), C.run_num,
+                                misclassified_test, misclassified_train]
             running_stats.to_csv(C.run_stats_path, index=False)
             index += 1
 
@@ -480,7 +490,7 @@ def get_cnn_data(C, n=4, n_art=4, run_2d=False, verbose=False):
 
         train_generator = train_generator_func(C, train_ids, voi_df, avg_X2, n=n, n_art=n_art)
 
-    return X_test, Y_test, train_generator, num_samples, [X_train_orig, Y_train_orig, Z_train_orig]
+    return X_test, Y_test, train_generator, num_samples, [X_train_orig, Y_train_orig], [Z_test, Z_train_orig]
 
 def train_generator_func(C, train_ids, voi_df, avg_X2, n=12, n_art=0):
     """n is the number of samples from each class, n_art is the number of artificial samples"""
