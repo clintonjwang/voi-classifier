@@ -16,7 +16,8 @@ class Config:
 		self.reg_params = pyelastix.get_default_params(type="AFFINE")
 		self.classes_to_include = ['hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh']
 		self.aug_factor = 100
-		self.train_frac = .8
+		self.train_frac = None#.9
+		self.test_num = 10
 		self.padding = 0.75
 		self.intensity_scaling = [.05,.05]
 		self.intensity_local_frac = .5
@@ -35,7 +36,7 @@ class Config:
 		self.xls_name = 'Z:\\Prototype1e.xlsx'
 		self.cls_names = ['hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh', 'adenoma']
 		self.sheetnames = ['HCC', 'Cholangio', 'Colorectal', 'Cyst', 'Hemangioma', 'FNH', 'Adenoma']
-		self.img_dirs = ['OPTN5A', 'cholangio', 'colorectal', 'simple_cysts', 'hemangioma', 'fnh', 'adenoma']
+		self.img_dirs = ['optn5a', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh', 'adenoma']
 
 		self.full_img_dir = "Z:\\INPUT\\full_imgs_origdims"
 		self.output_img_dir = "Z:\\OUTPUT\\12-18"
