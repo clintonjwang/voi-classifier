@@ -8,18 +8,23 @@ from skimage.transform import rescale
 ### FOR TRAINING
 ###########################
 
-def separate_phases(X):
+def separate_phases(X, non_imaging_inputs=False):
 	"""Assumes X[0] contains imaging and X[1] contains dimension data.
 	Reformats such that X[0:2] has 3 phases and X[3] contains dimension data.
 	Image data still is 5D (nb_samples, 3D, 1 channel)."""
 	
-	dim_data = copy.deepcopy(X[1])
-	img_data = X[0]
-	X[1] = np.expand_dims(X[0][:,:,:,:,1], axis=4)
-	X += [np.expand_dims(X[0][:,:,:,:,2], axis=4)]
-	X += [dim_data]
-	X[0] = np.expand_dims(X[0][:,:,:,:,0], axis=4)
+	if non_imaging_inputs:
+		dim_data = copy.deepcopy(X[1])
+		img_data = X[0]
+		X[1] = np.expand_dims(X[0][:,:,:,:,1], axis=4)
+		X += [np.expand_dims(X[0][:,:,:,:,2], axis=4)]
+		X += [dim_data]
+		X[0] = np.expand_dims(X[0][:,:,:,:,0], axis=4)
 	
+	else:
+		X = np.array(X)
+		X = [np.expand_dims(X[:,:,:,:,0], axis=4), np.expand_dims(X[:,:,:,:,1], axis=4), np.expand_dims(X[:,:,:,:,2], axis=4)]
+
 	return X
 
 def separate_phases_2d(X):
@@ -27,15 +32,20 @@ def separate_phases_2d(X):
 	Reformats such that X[0:2] has 3 phases and X[3] contains dimension data.
 	Image data still is 5D (nb_samples, 3D, 1 channel)."""
 	
-	dim_data = copy.deepcopy(X[1])
-	img_data = X[0]
-	if len(X[0].shape)==5:
-		X[0] = X[0][:,:,:,X[0].shape[3]//2,:]
+	if non_imaging_inputs:
+		dim_data = copy.deepcopy(X[1])
+		img_data = X[0]
+		if len(X[0].shape)==5:
+			X[0] = X[0][:,:,:,X[0].shape[3]//2,:]
 
-	X[1] = np.expand_dims(X[0][:,:,:,1], axis=3)
-	X += [np.expand_dims(X[0][:,:,:,2], axis=3)]
-	X += [dim_data]
-	X[0] = np.expand_dims(X[0][:,:,:,0], axis=3)
+		X[1] = np.expand_dims(X[0][:,:,:,1], axis=3)
+		X += [np.expand_dims(X[0][:,:,:,2], axis=3)]
+		X += [dim_data]
+		X[0] = np.expand_dims(X[0][:,:,:,0], axis=3)
+
+	else:
+		X = np.array(X)
+		X = [np.expand_dims(X[:,:,:,0], axis=4), np.expand_dims(X[:,:,:,1], axis=4), np.expand_dims(X[:,:,:,2], axis=4)]
 	
 	return X
 

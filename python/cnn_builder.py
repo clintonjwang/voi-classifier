@@ -92,14 +92,19 @@ def overnight_run(C_list, overwrite=False, max_runs=999):
 			"dropout", "activation_type", "dilation", "dense_units",
 			"acc6cls", "acc3cls", "time_elapsed(s)", "loss_hist",
 			'hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh',
-			'confusion_matrix', 'f1', 'timestamp', 'comments', 'run_num',
-			'misclassified_test', 'misclassified_train',
-			'conf_hcc', 'conf_cholangio', 'conf_colorectal', 'conf_cyst', 'conf_hemangioma', 'conf_fnh'])
+			'confusion_matrix', 'f1', 'timestamp', 'hard_scale', 'run_num',
+			'misclassified_test', 'misclassified_train', 'model_num',
+			'y_true', 'y_pred_raw', 'z_test'])
 		index = 0
 	else:
 		running_stats = pd.read_csv(C_list[0].run_stats_path)
 		index = len(running_stats)
 
+	model_names = os.listdir("E:\\models\\")
+	if len(model_names) > 0:	
+		model_num = max([int(x[x.find('_')+1:x.find('.')]) for x in model_names]) + 1
+	else:
+		model_num = 0
 
 	running_acc_6 = []
 	running_acc_3 = []
@@ -109,7 +114,6 @@ def overnight_run(C_list, overwrite=False, max_runs=999):
 	epochs = [30]
 	run_2d = False
 	batch_norm = True
-	non_imaging_inputs = False
 	f = [[64,128,128]]
 	padding = [['same','valid']]
 	dropout = [[0.1,0.1]]
@@ -134,17 +138,23 @@ def overnight_run(C_list, overwrite=False, max_runs=999):
 					dilation_rate=dilation_rate[index % len(dilation_rate)], f=f[index % len(f)],
 					padding=padding[index % len(padding)], dropout=dropout[index % len(dropout)],
 					dense_units=dense_units[index % len(dense_units)], kernel_size=kernel_size[index % len(kernel_size)],
-					merge_layer=merge_layer[index % len(merge_layer)], non_imaging_inputs=non_imaging_inputs)
+					merge_layer=merge_layer[index % len(merge_layer)], non_imaging_inputs=C.non_imaging_inputs)
 
 			t = time.time()
 			hist = model.fit_generator(train_generator, steps_per_epoch=steps_per_epoch[index % len(steps_per_epoch)], epochs=epochs[index % len(epochs)], callbacks=[early_stopping], verbose=False)
 			loss_hist = hist.history['loss']
+
+			Y_pred = model.predict(X_train_orig)
+			y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_train_orig])
+			y_pred = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_pred])
+			misclassified_train = list(Z_train_orig[~np.equal(y_pred, y_true)])
 
 			Y_pred = model.predict(X_test)
 			y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_test])
 			y_pred = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_pred])
 			misclassified_test = list(Z_test[~np.equal(y_pred, y_true)])
 			cm = confusion_matrix(y_true, y_pred)
+			f1 = f1_score(y_true, y_pred, average="weighted")
 
 			running_acc_6.append(accuracy_score(y_true, y_pred))
 			print("6cls accuracy:", running_acc_6[-1], " - average:", np.mean(running_acc_6))
@@ -153,20 +163,19 @@ def overnight_run(C_list, overwrite=False, max_runs=999):
 			running_acc_3.append(accuracy_score(y_true_simp, y_pred_simp))
 			#print("3cls accuracy:", running_acc_3[-1], " - average:", np.mean(running_acc_3))
 
-			Y_pred = model.predict(X_train_orig)
-			y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_train_orig])
-			y_pred = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_pred])
-			misclassified_train = list(Z_train_orig[~np.equal(y_pred, y_true)])
-
 			running_stats.loc[index] = [n[C_index % len(n)], n_art[C_index % len(n_art)], steps_per_epoch[index % len(steps_per_epoch)], epochs[index % len(epochs)],
-								C.nb_channels, C.dims, C.train_frac, C.test_num, C.aug_factor, non_imaging_inputs,
-								kernel_size[index % len(kernel_size)], batch_norm, f[index % len(f)], padding[index % len(padding)],
+								C.dims, C.train_frac, C.test_num, C.aug_factor, C.non_imaging_inputs,
+								kernel_size[index % len(kernel_size)], f[index % len(f)], padding[index % len(padding)],
 								dropout[index % len(dropout)], activation_type[index % len(activation_type)], dilation_rate[index % len(dilation_rate)], dense_units[index % len(dense_units)],
 								running_acc_6[-1], running_acc_3[-1], time.time()-t, loss_hist,
 								num_samples['hcc'], num_samples['cholangio'], num_samples['colorectal'], num_samples['cyst'], num_samples['hemangioma'], num_samples['fnh'],
-								cm, f1_score(y_true, y_pred, average="weighted"), time.time(), str(C.hard_scale), C.run_num,
-								misclassified_test, misclassified_train]
+								cm, time.time(), #str(C.hard_scale), C.run_num,
+								misclassified_test, misclassified_train, model_num, y_true, str(Y_pred), list(Z_test)]
 			running_stats.to_csv(C.run_stats_path, index=False)
+
+			model.save('E:\\models\\models_%d.hdf5' % model_num)
+			model_num += 1
+
 			index += 1
 
 		C_index += 1
@@ -223,19 +232,9 @@ def build_cnn(C, optimizer='adam', batch_norm=True, dilation_rate=(1, 1, 1), pad
 		x = MaxPooling3D((2, 2, 2))(x)
 		x = Flatten()(x)
 
-		img_traits = Input(shape=(2,)) #bounding volume and aspect ratio of lesion
-
 		if non_imaging_inputs:
+			img_traits = Input(shape=(2,)) #bounding volume and aspect ratio of lesion
 			x = Concatenate(axis=1)([x, img_traits])
-		x = Dense(dense_units)(x)#, kernel_initializer='normal', kernel_regularizer=l2(.01), kernel_constraint=max_norm(3.))(x)
-		x = BatchNormalization()(x)
-		x = Dropout(dropout[1])(x)
-		x = ActivationLayer(activation_args)(x)
-		x = Dense(nb_classes)(x)
-		x = BatchNormalization()(x)
-		pred_class = Activation('softmax')(x)
-
-		model = Model([art_img, ven_img, eq_img, img_traits], pred_class)
 
 	elif merge_layer == 0:
 		art_img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 1))
@@ -258,18 +257,22 @@ def build_cnn(C, optimizer='adam', batch_norm=True, dilation_rate=(1, 1, 1), pad
 		x = MaxPooling3D((2, 2, 1))(x)
 		x = Flatten()(x)
 
+	if non_imaging_inputs:
 		img_traits = Input(shape=(2,)) #bounding volume and aspect ratio of lesion
+		x = Concatenate(axis=1)([x, img_traits])
 
-		intermed = Concatenate(axis=1)([x, img_traits])
-		x = Dense(dense_units)(intermed)#, kernel_initializer='normal', kernel_regularizer=l2(.01), kernel_constraint=max_norm(3.))(x)
-		x = BatchNormalization()(x)
-		x = Dropout(dropout[1])(x)
-		x = ActivationLayer(activation_args)(x)
-		x = Dense(nb_classes)(x)
-		x = BatchNormalization()(x)
-		pred_class = Activation('softmax')(x)
+	x = Dense(dense_units)(x)#, kernel_initializer='normal', kernel_regularizer=l2(.01), kernel_constraint=max_norm(3.))(x)
+	x = BatchNormalization()(x)
+	x = Dropout(dropout[1])(x)
+	x = ActivationLayer(activation_args)(x)
+	x = Dense(nb_classes)(x)
+	x = BatchNormalization()(x)
+	pred_class = Activation('softmax')(x)
 
+	if non_imaging_inputs:
 		model = Model([art_img, ven_img, eq_img, img_traits], pred_class)
+	else:
+		model = Model([art_img, ven_img, eq_img], pred_class)
 	
 	#optim = Adam(lr=0.01)#5, decay=0.001)
 	model.compile(optimizer=optimizer, loss='categorical_crossentropy', metrics=['accuracy'])
@@ -475,8 +478,9 @@ def get_cnn_data(C, n=4, n_art=4, run_2d=False, verbose=False):
 		
 	#Y_test = np_utils.to_categorical(Y_test, nb_classes)
 	#Y_train_orig = np_utils.to_categorical(Y_train_orig, nb_classes)
-	X_test = [np.array(X_test), np.array(X2_test)]
-	X_train_orig = [np.array(X_train_orig), np.array(X2_train_orig)]
+	if C.non_imaging_inputs:
+		X_test = [np.array(X_test), np.array(X2_test)]
+		X_train_orig = [np.array(X_train_orig), np.array(X2_train_orig)]
 
 	Y_test = np.array(Y_test)
 	Y_train_orig = np.array(Y_train_orig)
@@ -485,13 +489,13 @@ def get_cnn_data(C, n=4, n_art=4, run_2d=False, verbose=False):
 	Z_train_orig = np.array(Z_train_orig)
 
 	if run_2d:
-		X_test = cfunc.separate_phases_2d(X_test)
-		X_train_orig = cfunc.separate_phases_2d(X_train_orig)
+		X_test = cfunc.separate_phases_2d(X_test, C.non_imaging_inputs)
+		X_train_orig = cfunc.separate_phases_2d(X_train_orig, C.non_imaging_inputs)
 
 		train_generator = train_generator_func_2d(C, train_ids, voi_df, avg_X2, n=n, n_art=n_art)
 	else:
-		X_test = cfunc.separate_phases(X_test)
-		X_train_orig = cfunc.separate_phases(X_train_orig)
+		X_test = cfunc.separate_phases(X_test, C.non_imaging_inputs)
+		X_train_orig = cfunc.separate_phases(X_train_orig, C.non_imaging_inputs)
 
 		train_generator = train_generator_func(C, train_ids, voi_df, avg_X2, n=n, n_art=n_art)
 
@@ -539,8 +543,11 @@ def train_generator_func(C, train_ids, voi_df, avg_X2, n=12, n_art=0):
 					train_cnt += 1
 					if train_cnt % (n+n_art) == 0:
 						break
-			
-		yield cfunc.separate_phases([np.array(x1), np.array(x2)]), np.array(y) #[np.array(x1), np.array(x2)], np.array(y) #
+
+		if C.non_imaging_inputs:
+			yield cfunc.separate_phases([np.array(x1), np.array(x2)]), np.array(y) #[np.array(x1), np.array(x2)], np.array(y) #
+		else:
+			yield cfunc.separate_phases(x1), np.array(y) #[np.array(x1), np.array(x2)], np.array(y) #
 
 def train_generator_func_2d(C, train_ids, voi_df, avg_X2, n=12, n_art=0):
 	"""n is the number of samples from each class, n_art is the number of artificial samples"""
