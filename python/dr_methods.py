@@ -126,7 +126,7 @@ def load_vois(cls, acc_num, df=None, dims_df=None, voi_df_art=None, voi_df_ven=N
 			
 		if target_dims is not None:
 			vox_scale = [float(cur_dims[i]/target_dims[i]) for i in range(3)]
-			x,y,z = scale_vois(x, y, z, vox_scale)
+			x,y,z = _scale_vois(x, y, z, vox_scale)
 		
 		y = (img.shape[1]-y[1], img.shape[1]-y[0]) # flip y
 		if row['Flipped'] != "Yes":
@@ -141,7 +141,7 @@ def load_vois(cls, acc_num, df=None, dims_df=None, voi_df_art=None, voi_df_ven=N
 			z = (int(row['z3']), int(row['z4']))
 			
 			if target_dims is not None:
-				x,y,z = scale_vois(x, y, z, vox_scale)
+				x,y,z = _scale_vois(x, y, z, vox_scale)
 			
 			y = (img.shape[1]-y[1], img.shape[1]-y[0]) # flip y
 			if row['Flipped'] != "Yes":
@@ -155,7 +155,7 @@ def load_vois(cls, acc_num, df=None, dims_df=None, voi_df_art=None, voi_df_ven=N
 			z = (int(row['z5']), int(row['z6']))
 			
 			if target_dims is not None:
-				x,y,z = scale_vois(x, y, z, vox_scale)
+				x,y,z = _scale_vois(x, y, z, vox_scale)
 			
 			y = (img.shape[1]-y[1], img.shape[1]-y[0]) # flip y
 			if row['Flipped'] != "Yes":
@@ -517,7 +517,7 @@ def remove_vois(voi_df_art, voi_df_ven, voi_df_eq, acc_nums, cls):
 
 	return voi_df_art, voi_df_ven, voi_df_eq
 
-def scale_vois(x, y, z, pre_reg_scale, field=None, post_reg_scale=None):
+def _scale_vois(x, y, z, pre_reg_scale, field=None, post_reg_scale=None):
 	"""Scale vois. Unused"""
 	
 	scale = pre_reg_scale

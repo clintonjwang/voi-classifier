@@ -19,7 +19,7 @@ class Config:
 		self.train_frac = None#.9
 		self.test_num = 10
 		self.non_imaging_inputs = False
-		self.padding = 0.75
+		self.lesion_ratio = 0.75
 		self.intensity_scaling = [.05,.05]
 		self.intensity_local_frac = .5
 		self.hard_scale = False
