@@ -1,5 +1,5 @@
 import keras.backend as K
-from keras.layers import Input, Dense, Concatenate, Flatten, Dropout, Conv3D, MaxPooling3D, Conv2D, MaxPooling2D, ZeroPadding3D, Activation, ELU, TimeDistributed, Permute, Reshape
+from keras.layers import Input, Dense, Concatenate, Flatten, Dropout, Conv3D, MaxPooling3D, LSTM, SimpleRNN, Conv2D, MaxPooling2D, ZeroPadding3D, Activation, ELU, TimeDistributed, Permute, Reshape
 from keras.layers.normalization import BatchNormalization
 from keras.models import Model
 from keras.regularizers import l2
@@ -10,6 +10,7 @@ from keras.callbacks import EarlyStopping
 import copy
 import config
 import helper_fxns as hf
+import math
 import numpy as np
 import operator
 import os
@@ -118,7 +119,7 @@ def overnight_run(C_list=None, overwrite=False, max_runs=999):
 	dilation_rate = [(1, 1, 1)]
 	kernel_size = [(3,3,2)]
 	activation_type = ['relu']
-	merge_layer = [1]
+	merge_layer = [-1]
 	cycle_len = 2
 	early_stopping = EarlyStopping(monitor='loss', min_delta=0.002, patience=3)
 	time_dist = True
@@ -200,7 +201,10 @@ def build_cnn(C=None, optimizer='adam', dilation_rate=(1,1,1), padding=['same', 
 
 	nb_classes = len(C.classes_to_include)
 
-	if not run_2d:
+	if time_dist:
+		img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 3))
+		pool_sizes = [(2,2,1), (2,2,2)]
+	elif not run_2d:
 		art_img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 1))
 		ven_img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 1))
 		eq_img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 1))
@@ -250,15 +254,16 @@ def build_cnn(C=None, optimizer='adam', dilation_rate=(1,1,1), padding=['same', 
 				x = Dropout(dropout[0])(x)
 
 	elif merge_layer == 0:
-		x = Concatenate(axis=4)([art_img, ven_img, eq_img])
+		x = img
+
 		for layer_num in range(len(f)):
-			x = Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[0])(x)
+			x = Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1])(x)
 			x = BatchNormalization()(x)
 			x = ActivationLayer(activation_args)(x)
 			x = Dropout(dropout[0])(x)
 
 	elif merge_layer == -1:
-		x = Concatenate(axis=4)([art_img, ven_img, eq_img])
+		x = img
 		
 		if time_dist:
 			x = Reshape((C.dims[0], C.dims[1], C.dims[2], 3, 1))(x)
@@ -266,32 +271,54 @@ def build_cnn(C=None, optimizer='adam', dilation_rate=(1,1,1), padding=['same', 
 
 			for layer_num in range(len(f)):
 				x = TimeDistributed(Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1]))(x)
-				x = TimeDistributed(BatchNormalization())(x)
+				#x = BatchNormalization()(x)
 				x = TimeDistributed(ActivationLayer(activation_args))(x)
 				x = Dropout(dropout[0])(x)
+				if layer_num == 0:
+					x = TimeDistributed(MaxPooling3D(pool_sizes[0]))(x)
 			
-			x = Permute((2,3,4,1,5))(x)
-			x = Reshape((18, 18, 9, -1))(x)
+			#x = Permute((2,3,4,1,5))(x)
+
+			#if padding[1] == "valid":
+			#	dims = [(C.dims[i]-len(f)*math.ceil(kernel_size[i]/2))//2 for i in range(3)]
+			#else:
+			#	dims = C.dims
+			#x = Reshape((dims[0], dims[1], dims[2], -1))(x)
 		else:
 			raise ValueError("help")
 
+	if time_dist:
+		x = TimeDistributed(MaxPooling3D(pool_sizes[1]))(x)
+		x = TimeDistributed(Flatten())(x)
 
-	x = MaxPooling3D(pool_sizes[1])(x)
-	x = Flatten()(x)
+		x = TimeDistributed(Dense(dense_units))(x)
+		#x = BatchNormalization()(x)
+		#x = TimeDistributed(Dropout(dropout[1]))(x)
+		x = TimeDistributed(ActivationLayer(activation_args))(x)
 
-	if non_imaging_inputs:
-		img_traits = Input(shape=(2,)) #bounding volume and aspect ratio of lesion
-		x = Concatenate(axis=1)([x, img_traits])
+		x = LSTM(dense_units, return_sequences=True)(x)
+		x = LSTM(dense_units)(x)
 
-	x = Dense(dense_units)(x)#, kernel_initializer='normal', kernel_regularizer=l2(.01), kernel_constraint=max_norm(3.))(x)
-	x = BatchNormalization()(x)
-	x = Dropout(dropout[1])(x)
-	x = ActivationLayer(activation_args)(x)
+	if not time_dist:
+		x = MaxPooling3D(pool_sizes[1])(x)
+		x = Flatten()(x)
+
+		if non_imaging_inputs:
+			img_traits = Input(shape=(2,)) #bounding volume and aspect ratio of lesion
+			x = Concatenate(axis=1)([x, img_traits])
+
+		x = Dense(dense_units)(x)#, kernel_initializer='normal', kernel_regularizer=l2(.01), kernel_constraint=max_norm(3.))(x)
+		#x = BatchNormalization()(x)
+		#x = Dropout(dropout[1])(x)
+		x = ActivationLayer(activation_args)(x)
+
 	x = Dense(nb_classes)(x)
 	x = BatchNormalization()(x)
 	pred_class = Activation('softmax')(x)
 
-	if non_imaging_inputs:
+	if time_dist:
+		model = Model(img, pred_class)
+	elif non_imaging_inputs:
 		model = Model([art_img, ven_img, eq_img, img_traits], pred_class)
 	else:
 		model = Model([art_img, ven_img, eq_img], pred_class)
@@ -402,8 +429,8 @@ def get_cnn_data(n=4, n_art=4, run_2d=False, verbose=False, C=None):
 	Z_test = np.array(Z_test)
 	Z_train_orig = np.array(Z_train_orig)
 
-	X_test = _separate_phases(X_test, C.non_imaging_inputs)
-	X_train_orig = _separate_phases(X_train_orig, C.non_imaging_inputs)
+	X_test = np.array(X_test)#_separate_phases(X_test, C.non_imaging_inputs)
+	X_train_orig = np.array(X_train_orig)#_separate_phases(X_train_orig, C.non_imaging_inputs)
 
 	if run_2d:
 		train_generator = _train_generator_func_2d(train_ids, avg_X2, n=n, n_art=n_art)
@@ -507,7 +534,7 @@ def _train_generator_func(train_ids, avg_X2, voi_df=None, n=12, n_art=0, C=None)
 		if C.non_imaging_inputs:
 			yield _separate_phases([np.array(x1), np.array(x2)]), np.array(y) #[np.array(x1), np.array(x2)], np.array(y) #
 		else:
-			yield _separate_phases(x1), np.array(y) #[np.array(x1), np.array(x2)], np.array(y) #
+			yield np.array(x1), np.array(y) #[np.array(x1), np.array(x2)], np.array(y) #
 
 def _train_generator_func_2d(train_ids, voi_df, avg_X2, n=12, n_art=0, C=None):
 	"""n is the number of samples from each class, n_art is the number of artificial samples"""
