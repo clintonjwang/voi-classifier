@@ -1,11 +1,11 @@
 import keras.backend as K
-from keras.layers import Input, Dense, Concatenate, Flatten, Dropout, Conv3D, MaxPooling3D, Conv2D, MaxPooling2D, ZeroPadding3D, Activation, ELU
+from keras.layers import Input, Dense, Concatenate, Flatten, Dropout, Conv3D, MaxPooling3D, Conv2D, MaxPooling2D, ZeroPadding3D, Activation, ELU, TimeDistributed, Permute, Reshape
 from keras.layers.normalization import BatchNormalization
 from keras.models import Model
 from keras.regularizers import l2
 from keras.optimizers import Adam
 from keras.callbacks import EarlyStopping
-from keras.utils import np_utils
+#from keras.utils import np_utils
 
 import copy
 import config
@@ -86,10 +86,10 @@ def overnight_run(C_list=None, overwrite=False, max_runs=999):
 		running_stats = pd.DataFrame(columns = ["n", "n_art", "steps_per_epoch", "epochs",
 			"num_phases", "input_res", "training_fraction", "test_num", "augment_factor", "non_imaging_inputs",
 			"kernel_size", "batchnorm", "conv_filters", "conv_padding",
-			"dropout", "activation_type", "dilation", "dense_units",
+			"dropout", "time_dist", "dilation", "dense_units",
 			"acc6cls", "acc3cls", "time_elapsed(s)", "loss_hist",
 			'hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh',
-			'confusion_matrix', 'f1', 'timestamp', 'hard_scale', 'run_num',
+			'confusion_matrix', 'f1', 'timestamp', 'run_num',
 			'misclassified_test', 'misclassified_train', 'model_num',
 			'y_true', 'y_pred_raw', 'z_test'])
 		index = 0
@@ -107,8 +107,8 @@ def overnight_run(C_list=None, overwrite=False, max_runs=999):
 	running_acc_3 = []
 	n = [4]
 	n_art = [0]
-	steps_per_epoch = [750, 1000]
-	epochs = [30]
+	steps_per_epoch = [1]
+	epochs = [1]
 	run_2d = False
 	batch_norm = True
 	f = [[64,128,128]]
@@ -121,6 +121,7 @@ def overnight_run(C_list=None, overwrite=False, max_runs=999):
 	merge_layer = [1]
 	cycle_len = 2
 	early_stopping = EarlyStopping(monitor='loss', min_delta=0.002, patience=3)
+	time_dist = True
 
 	C_index = 0
 	while index < max_runs:
@@ -136,7 +137,7 @@ def overnight_run(C_list=None, overwrite=False, max_runs=999):
 					dilation_rate=dilation_rate[index % len(dilation_rate)], f=f[index % len(f)],
 					padding=padding[index % len(padding)], dropout=dropout[index % len(dropout)],
 					dense_units=dense_units[index % len(dense_units)], kernel_size=kernel_size[index % len(kernel_size)],
-					merge_layer=merge_layer[index % len(merge_layer)], non_imaging_inputs=C.non_imaging_inputs)
+					merge_layer=merge_layer[index % len(merge_layer)], non_imaging_inputs=C.non_imaging_inputs, time_dist=time_dist)
 
 			t = time.time()
 			hist = model.fit_generator(train_generator, steps_per_epoch=steps_per_epoch[index % len(steps_per_epoch)],
@@ -165,14 +166,14 @@ def overnight_run(C_list=None, overwrite=False, max_runs=999):
 			running_stats.loc[index] = [n[C_index % len(n)], n_art[C_index % len(n_art)], steps_per_epoch[index % len(steps_per_epoch)], epochs[index % len(epochs)],
 								C.dims, C.train_frac, C.test_num, C.aug_factor, C.non_imaging_inputs,
 								kernel_size[index % len(kernel_size)], f[index % len(f)], padding[index % len(padding)],
-								dropout[index % len(dropout)], activation_type[index % len(activation_type)], dilation_rate[index % len(dilation_rate)], dense_units[index % len(dense_units)],
+								dropout[index % len(dropout)], time_dist, dilation_rate[index % len(dilation_rate)], dense_units[index % len(dense_units)],
 								running_acc_6[-1], running_acc_3[-1], time.time()-t, loss_hist,
 								num_samples['hcc'], num_samples['cholangio'], num_samples['colorectal'], num_samples['cyst'], num_samples['hemangioma'], num_samples['fnh'],
-								cm, time.time(), #str(C.hard_scale), C.run_num,
+								cm, time.time(), #C.run_num,
 								misclassified_test, misclassified_train, model_num, y_true, str(Y_pred), list(Z_test)]
 			running_stats.to_csv(C.run_stats_path, index=False)
 
-			model.save('E:\\models\\models_%d.hdf5' % model_num)
+			model.save(C.model_save_dir+'models_%d.hdf5' % model_num)
 			model_num += 1
 
 			index += 1
@@ -185,7 +186,7 @@ def overnight_run(C_list=None, overwrite=False, max_runs=999):
 
 def build_cnn(C=None, optimizer='adam', dilation_rate=(1,1,1), padding=['same', 'valid'],
 	dropout=[0.1,0.1], activation_type='relu', f=[64,128,128], dense_units=100, kernel_size=(3,3,2), merge_layer=1,
-	non_imaging_inputs=False, run_2d=False):
+	non_imaging_inputs=False, run_2d=False, time_dist=True):
 	"""Main class for setting up a CNN. Returns the compiled model."""
 
 	if C is None:
@@ -230,20 +231,50 @@ def build_cnn(C=None, optimizer='adam', dilation_rate=(1,1,1), padding=['same', 
 		x = MaxPooling3D(pool_sizes[0])(x)
 		x = Dropout(dropout[0])(x)
 
-		for layer_num in range(1,len(f)):
-			x = Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1])(x)
-			x = BatchNormalization()(x)
-			x = ActivationLayer(activation_args)(x)
-			x = Dropout(dropout[0])(x)
+		if time_dist:
+			x = Reshape()
+			x = Permute((4,1,2,3))(x)
+
+			for layer_num in range(1,len(f)):
+				x = TimeDistributed(Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1]))(x)
+				x = TimeDistributed(BatchNormalization())(x)
+				x = TimeDistributed(ActivationLayer(activation_args))(x)
+				x = Dropout(dropout[0])(x)
+			
+			x = Permute((2,3,4,1))(x)
+		else:
+			for layer_num in range(1,len(f)):
+				x = Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1])(x)
+				x = BatchNormalization()(x)
+				x = ActivationLayer(activation_args)(x)
+				x = Dropout(dropout[0])(x)
 
 	elif merge_layer == 0:
 		x = Concatenate(axis=4)([art_img, ven_img, eq_img])
-
 		for layer_num in range(len(f)):
 			x = Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[0])(x)
 			x = BatchNormalization()(x)
 			x = ActivationLayer(activation_args)(x)
 			x = Dropout(dropout[0])(x)
+
+	elif merge_layer == -1:
+		x = Concatenate(axis=4)([art_img, ven_img, eq_img])
+		
+		if time_dist:
+			x = Reshape((C.dims[0], C.dims[1], C.dims[2], 3, 1))(x)
+			x = Permute((4,1,2,3,5))(x)
+
+			for layer_num in range(len(f)):
+				x = TimeDistributed(Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1]))(x)
+				x = TimeDistributed(BatchNormalization())(x)
+				x = TimeDistributed(ActivationLayer(activation_args))(x)
+				x = Dropout(dropout[0])(x)
+			
+			x = Permute((2,3,4,1,5))(x)
+			x = Reshape((18, 18, 9, -1))(x)
+		else:
+			raise ValueError("help")
+
 
 	x = MaxPooling3D(pool_sizes[1])(x)
 	x = Flatten()(x)
@@ -415,10 +446,10 @@ def save_output(Z, y_pred, y_true, C=None, save_dir=None):
 
 def condense_cm(y_true, y_pred, cls_mapping):
 	"""From lists y_true and y_pred with class numbers, """
-
-	simplify_map = {'hcc': 0, 'cyst': 1, 'hemangioma': 1, 'fnh': 1, 'cholangio': 2, 'colorectal': 2}
-	y_true_simp = np.array([simplify_map[cls_mapping[y]] for y in y_true])
-	y_pred_simp = np.array([simplify_map[cls_mapping[y]] for y in y_pred])
+	C = config.Config()
+	
+	y_true_simp = np.array([C.simplify_map[cls_mapping[y]] for y in y_true])
+	y_pred_simp = np.array([C.simplify_map[cls_mapping[y]] for y in y_pred])
 	
 	return y_true_simp, y_pred_simp, ['hcc', 'benign', 'malignant non-hcc']
 
@@ -510,7 +541,7 @@ def _train_generator_func_2d(train_ids, voi_df, avg_X2, n=12, n_art=0, C=None):
 				if img_fn[:img_fn.rfind('_')] + ".npy" in train_ids[cls]:
 					temp = np.load(C.aug_dir+cls+"\\"+img_fn)
 					x1[train_cnt] = temp[:,:,temp.shape[2]//2,:]
-					
+
 					row = voi_df[(voi_df["Filename"] == img_fn[:img_fn.find('_')] + ".npy") &
 								 (voi_df["lesion_num"] == int(img_fn[img_fn.find('_')+1:img_fn.rfind('_')]))]
 					x2[train_cnt] = [(float(row["real_dx"]) * float(row["real_dy"]) * float(row["real_dz"])) ** (1/3) / 50,

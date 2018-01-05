@@ -1,10 +1,10 @@
+import config
 import datetime
 import helper_fxns as hf
 import numpy as np
 import os
 import pandas as pd
 import random
-import config
 import time
 
 ###########################
@@ -34,10 +34,13 @@ def plot_check(cls, num, C, accnum=None):
 ### METHODS FOR EXTRACTING VOIS FROM THE SPREADSHEET
 ###########################
 
-def load_vois_all(C, classes=None):
+def load_vois_all(C=None, classes=None):
 	"""Load all the vois for all classes and save them into the csvs specified by config.
 	If classes is specified, can limit the classes to do this for"""
 
+	if C is None:
+		C = config.Config()
+		
 	base_dir = "Z:"
 
 	for cls in C.classes_to_include:
@@ -54,9 +57,9 @@ def load_vois_all(C, classes=None):
 	for i in range(7):
 		if classes is not None and cls_names[i] not in classes:
 			continue
-		voi_dfs = load_vois_batch(C.cls_names[i], C.sheetnames[i], voi_dfs, dims_df, C)
+		voi_dfs = load_vois_batch(C.cls_names[i], voi_dfs, dims_df)
 
-def load_vois_batch(cls, sheetname, voi_dfs, dims_df=None, C=None, verbose=False, acc_nums=None, overwrite=True):
+def load_vois_batch(cls, voi_dfs=None, dims_df=None, C=None, verbose=False, acc_nums=None, overwrite=True):
 	"""Load all vois belonging to a class based on the contents of the spreadsheet."""
 	
 	s = time.time()
@@ -64,8 +67,16 @@ def load_vois_batch(cls, sheetname, voi_dfs, dims_df=None, C=None, verbose=False
 		C = config.Config()
 	if dims_df is None:
 		dims_df = pd.read_csv(C.dims_df_path)
-	
-	voi_df_art, voi_df_ven, voi_df_eq = voi_dfs
+
+	sheetname = C.sheetnames[C.cls_names.index(cls)]
+
+	if voi_dfs is None:
+		voi_df_art = pd.read_csv(C.art_voi_path)
+		voi_df_ven = pd.read_csv(C.ven_voi_path)
+		voi_df_eq = pd.read_csv(C.eq_voi_path)
+	else:
+		voi_df_art, voi_df_ven, voi_df_eq = voi_dfs
+
 	src_data_df = pd.read_excel(C.xls_name, sheetname)
 	src_data_df = preprocess_df(src_data_df, C)
 	
@@ -132,7 +143,7 @@ def load_vois(cls, acc_num, df=None, dims_df=None, voi_df_art=None, voi_df_ven=N
 		if row['Flipped'] != "Yes":
 			z = (img.shape[2]-z[1], img.shape[2]-z[0]) # flip z
 		
-		voi_df_art, art_id = add_voi_row(voi_df_art, acc_num, x,y,z, vox_dims=cur_dims,
+		voi_df_art, art_id = _add_voi_row(voi_df_art, acc_num, x,y,z, vox_dims=cur_dims,
 									 cls=cls, flipz=(row['Flipped'] == "Yes"), return_id = True)
 
 		if "Image type2" in row.keys() and row['Image type2'] == "VP-T1":
@@ -147,7 +158,7 @@ def load_vois(cls, acc_num, df=None, dims_df=None, voi_df_art=None, voi_df_ven=N
 			if row['Flipped'] != "Yes":
 				z = (img.shape[2]-z[1], img.shape[2]-z[0]) # flip z
 				
-			voi_df_ven = add_voi_row(voi_df_ven, art_id, x,y,z)
+			voi_df_ven = _add_voi_row(voi_df_ven, art_id, x,y,z)
 			
 		if "Image type3" in row.keys() and row['Image type3'] in ["EQ-T1", "DP-T1"]:
 			x = (int(row['x5']), int(row['x6']))
@@ -161,11 +172,11 @@ def load_vois(cls, acc_num, df=None, dims_df=None, voi_df_art=None, voi_df_ven=N
 			if row['Flipped'] != "Yes":
 				z = (img.shape[2]-z[1], img.shape[2]-z[0]) # flip z
 				
-			voi_df_eq = add_voi_row(voi_df_eq, art_id, x,y,z)
+			voi_df_eq = _add_voi_row(voi_df_eq, art_id, x,y,z)
 
 	return voi_df_art, voi_df_ven, voi_df_eq
 
-def add_voi_row(voi_df, acc_num, x, y, z, vox_dims=None, cls=None, flipz=None, return_id=False):
+def _add_voi_row(voi_df, acc_num, x, y, z, vox_dims=None, cls=None, flipz=None, return_id=False):
 	"""Append voi info to the dataframe voi_df. Overwrite any previous entries."""
 	
 	if return_id:
@@ -201,12 +212,14 @@ def add_voi_row(voi_df, acc_num, x, y, z, vox_dims=None, cls=None, flipz=None, r
 ### METHODS FOR LOADING DICOMS
 ###########################
 
-def load_imgs(img_dir, cls, sheetname, dims_df, C, verbose=False, target_dims=None, num_ch=3, acc_nums=None):
+def load_imgs(img_dir, cls, sheetname, dims_df, C=None, verbose=False, target_dims=None, num_ch=3, acc_nums=None):
 	"""Load images stored in folder cls and excel spreadsheet specified by C with name sheetname.
 	Saves images to C.full_img_dir and saves vois to the global vois variable.
 	Scales images and VOIs so that each voxel is 1.5 x 1.5 x 4 cm
 	"""
 	
+	if C is None:
+		C = config.Config()
 	s = time.time()
 	df = pd.read_excel(C.xls_name, sheetname)
 	df = preprocess_df(df, C)
@@ -286,33 +299,30 @@ def add_to_dims_df(dims_df, acc_num, cur_dims):
 	
 	return dims_df
 
-def reload_imgs(acc_nums, cls, C, update_intensities=True):
+def reload_imgs(acc_nums, cls, C=None, update_intensities=True):
 	"""Save partially cropped (unscaled) images and update dims_df and intensity_df."""
 
-	for acc_num in acc_nums:
-		reload_img(acc_num, cls, C, update_intensities)
-
-def reload_img(acc_num, cls, C, update_intensities=True):
-	"""Save partially cropped (unscaled) images and update dims_df and intensity_df."""
-
+	if C is None:
+		C = config.Config()
 	dims_df = pd.read_csv(C.dims_df_path)
 	index = C.cls_names.index(cls)
 
 	if cls=="hcc":
 		try:
-			dims_df = load_imgs("Z:\\" + C.img_dirs[index], cls, C.sheetnames[index], dims_df, C, acc_nums=[acc_num])
+			dims_df = load_imgs("Z:\\" + C.img_dirs[index], cls, C.sheetnames[index], dims_df, C, acc_nums=acc_nums)
 		except:
 			pass
 		try:
-			dims_df = load_imgs("Z:\\optn5b", cls, C.sheetnames[index], dims_df, C, acc_nums=[acc_num])
+			dims_df = load_imgs("Z:\\optn5b", cls, C.sheetnames[index], dims_df, C, acc_nums=acc_nums)
 		except:
 			pass
 	else:
-		dims_df = load_imgs("Z:\\" + C.img_dirs[index], cls, C.sheetnames[index], dims_df, C, acc_nums=[acc_num])
+		dims_df = load_imgs("Z:\\" + C.img_dirs[index], cls, C.sheetnames[index], dims_df, C, acc_nums=acc_nums)
 	
 	if update_intensities:
-		intensity_df = get_intensities(C, acc_num=acc_num, cls=cls)
-		intensity_df.to_csv(C.int_df_path, index=False)
+		for acc_num in acc_nums:
+			intensity_df = _get_intensities(acc_num=acc_num, cls=cls)
+			intensity_df.to_csv(C.int_df_path, index=False)
 
 	dims_df.to_csv(C.dims_df_path, index=False)
 
@@ -320,10 +330,12 @@ def reload_img(acc_num, cls, C, update_intensities=True):
 ### INTENSITY SCALING METHODS
 ###########################
 
-def get_intensities(C, acc_num=None, cls=None):
+def _get_intensities(C=None, acc_num=None, cls=None):
 	"""Return a dataframe with the normalizing intensities of each image's channels.
 	Can be done across all classes, across specific classes or for a specific acc_num."""
 
+	if C is None:
+		C = config.Config()
 	if acc_num is not None:
 		intensity_df = pd.read_csv(C.int_df_path)
 		img = np.load(C.full_img_dir + "\\" + cls + "\\" + acc_num + ".npy")
