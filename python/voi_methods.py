@@ -111,7 +111,7 @@ def xref_dirs_with_excel(C=None, classes=None, fix_inplace=True):
 				bad_acc_nums.append(acc_num)
 
 		if fix_inplace:
-			print("Reloading")
+			print("Reloading", set(bad_acc_nums))
 			for acc_num in set(bad_acc_nums):
 				reload_accnum(acc_num, cls)
 
@@ -130,7 +130,7 @@ def reload_accnum(acc_num, cls, C=None, augment=True, overwrite=True):
 	dims_df = pd.read_csv(C.dims_df_path)
 
 	#try:
-	voi_dfs = drm.load_vois_batch(cls, C.sheetnames[C.cls_names.index(cls)], voi_dfs, dims_df, C, acc_nums=[acc_num], overwrite=overwrite)
+	voi_dfs = drm.load_vois_batch(cls, voi_dfs, dims_df, C, acc_nums=[acc_num], overwrite=overwrite)
 	#except Exception as e:
 	#	print(acc_num, "is not loaded or included.")
 	#	remove_acc_num(acc_num, cls, C)
@@ -510,7 +510,7 @@ def _resize_img(img, voi, C=None):
 
 	img = tr.scale3d(img, scale_ratios)
 
-	crop = [img.shape[i] - final_dims[i] for i in range(3)]
+	crop = [img.shape[i] - C.dims[i] for i in range(3)]
 
 	for i in range(3):
 		assert crop[i]>=0

@@ -1,5 +1,6 @@
 import keras.backend as K
-from keras.layers import Input, Dense, Concatenate, Flatten, Dropout, Conv3D, MaxPooling3D, LSTM, SimpleRNN, Conv2D, MaxPooling2D, ZeroPadding3D, Activation, ELU, TimeDistributed, Permute, Reshape
+from keras.layers import Input, Dense, Concatenate, Flatten, Dropout, Lambda, Conv3D, MaxPooling3D, LSTM
+from keras.layers import SimpleRNN, Conv2D, MaxPooling2D, ZeroPadding3D, Activation, ELU, TimeDistributed, Permute, Reshape
 from keras.layers.normalization import BatchNormalization
 from keras.models import Model
 from keras.regularizers import l2
@@ -11,6 +12,7 @@ import copy
 import config
 import helper_fxns as hf
 import math
+from math import log, ceil
 import numpy as np
 import operator
 import os
@@ -77,16 +79,40 @@ def run_all():
 	for cls in C.classes_to_include:
 		vm.save_vois_as_imgs(cls, C)
 		
-	overnight_run(C)
+	run_fixed_hyperparams(C)
 
-def overnight_run(C_list=None, overwrite=False, max_runs=999):
+def hyperband():
+	# https://arxiv.org/abs/1603.06560
+	max_iter = 30  # maximum iterations/epochs per configuration
+	eta = 3 # defines downsampling rate (default=3)
+	logeta = lambda x: log(x)/log(eta)
+	s_max = int(logeta(max_iter))  # number of unique executions of Successive Halving (minus one)
+	B = (s_max+1)*max_iter  # total number of iterations (without reuse) per execution of Succesive Halving (n,r)
+
+	#### Begin Finite Horizon Hyperband outlerloop. Repeat indefinetely.
+	for s in reversed(range(s_max+1)):
+		n = int(ceil(B/max_iter/(s+1)*eta**s)) # initial number of configurations
+		r = max_iter*eta**(-s) # initial number of iterations to run configurations for
+
+		#### Begin Finite Horizon Successive Halving with (n,r)
+		T = [ get_random_hyperparameter_configuration() for i in range(n) ]
+		for i in range(s+1):
+			# Run each of the n_i configs for r_i iterations and keep best n_i/eta
+			n_i = n*eta**(-i)
+			r_i = r*eta**(i)
+			val_losses = [ run_then_return_val_loss(num_iters=r_i, hyperparameters=t) for t in T ]
+			T = [ T[i] for i in argsort(val_losses)[0:int( n_i/eta )] ]
+		#### End Finite Horizon Successive Halving with (n,r)
+	return val_losses, T
+
+def run_fixed_hyperparams(C_list=None, overwrite=False, max_runs=999):
 	"""Runs the CNN indefinitely, saving performance metrics."""
 	if C_list is None:
 		C_list = [config.Config()]
 	if overwrite:
 		running_stats = pd.DataFrame(columns = ["n", "n_art", "steps_per_epoch", "epochs",
 			"num_phases", "input_res", "training_fraction", "test_num", "augment_factor", "non_imaging_inputs",
-			"kernel_size", "batchnorm", "conv_filters", "conv_padding",
+			"kernel_size", "conv_filters", "conv_padding",
 			"dropout", "time_dist", "dilation", "dense_units",
 			"acc6cls", "acc3cls", "time_elapsed(s)", "loss_hist",
 			'hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh',
@@ -108,19 +134,19 @@ def overnight_run(C_list=None, overwrite=False, max_runs=999):
 	running_acc_3 = []
 	n = [4]
 	n_art = [0]
-	steps_per_epoch = [1]
-	epochs = [1]
+	steps_per_epoch = [750]
+	epochs = [25]
 	run_2d = False
-	batch_norm = True
 	f = [[64,128,128]]
-	padding = [['same','valid']]
+	padding = [['valid','valid']]
 	dropout = [[0.1,0.1]]
-	dense_units = [100]
-	dilation_rate = [(1, 1, 1)]
+	dense_units = [128]
+	dilation_rate = [(2,2,1)]
 	kernel_size = [(3,3,2)]
+	pool_sizes = [(2,2,2),(2,2,1)]
 	activation_type = ['relu']
-	merge_layer = [-1]
-	cycle_len = 2
+	merge_layer = [0]
+	cycle_len = 1
 	early_stopping = EarlyStopping(monitor='loss', min_delta=0.002, patience=3)
 	time_dist = True
 
@@ -135,7 +161,7 @@ def overnight_run(C_list=None, overwrite=False, max_runs=999):
 
 		for _ in range(cycle_len):
 			model = build_cnn(C, 'adam', activation_type=activation_type[index % len(activation_type)],
-					dilation_rate=dilation_rate[index % len(dilation_rate)], f=f[index % len(f)],
+					dilation_rate=dilation_rate[index % len(dilation_rate)], f=f[index % len(f)], pool_sizes=pool_sizes,
 					padding=padding[index % len(padding)], dropout=dropout[index % len(dropout)],
 					dense_units=dense_units[index % len(dense_units)], kernel_size=kernel_size[index % len(kernel_size)],
 					merge_layer=merge_layer[index % len(merge_layer)], non_imaging_inputs=C.non_imaging_inputs, time_dist=time_dist)
@@ -185,7 +211,31 @@ def overnight_run(C_list=None, overwrite=False, max_runs=999):
 ### BUILD CNNS
 ####################################
 
-def build_cnn(C=None, optimizer='adam', dilation_rate=(1,1,1), padding=['same', 'valid'],
+def run_then_return_val_loss(num_iters=1, hyperparameters=1):
+	pass
+
+def get_random_hyperparameter_configuration():
+	n = [4]
+	n_art = [0]
+	steps_per_epoch = [750]
+	epochs = [30]
+	run_2d = False
+	f = [[64,128,128]]
+	padding = [['same','valid']]
+	dropout = [[0.1,0.1]]
+	dense_units = [100]
+	dilation_rate = [(2, 2, 2)]
+	kernel_size = [(3,3,2)]
+	activation_type = ['relu']
+	merge_layer = [-1]
+	cycle_len = 1
+	early_stopping = EarlyStopping(monitor='loss', min_delta=0.002, patience=3)
+	time_dist = True
+	T = []
+
+	return T
+
+def build_cnn(C=None, optimizer='adam', dilation_rate=(1,1,1), padding=['same', 'valid'], pool_sizes = [(2,2,2), (2,2,2)],
 	dropout=[0.1,0.1], activation_type='relu', f=[64,128,128], dense_units=100, kernel_size=(3,3,2), merge_layer=1,
 	non_imaging_inputs=False, run_2d=False, time_dist=True):
 	"""Main class for setting up a CNN. Returns the compiled model."""
@@ -201,32 +251,24 @@ def build_cnn(C=None, optimizer='adam', dilation_rate=(1,1,1), padding=['same', 
 
 	nb_classes = len(C.classes_to_include)
 
-	if time_dist:
+	if not run_2d:
 		img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 3))
-		pool_sizes = [(2,2,1), (2,2,2)]
-	elif not run_2d:
-		art_img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 1))
-		ven_img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 1))
-		eq_img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 1))
-		pool_sizes = [(2,2,1), (2,2,2)]
 	else:
-		art_img = Input(shape=(C.dims[0], C.dims[1], 1))
-		ven_img = Input(shape=(C.dims[0], C.dims[1], 1))
-		eq_img = Input(shape=(C.dims[0], C.dims[1], 1))
+		img = Input(shape=(C.dims[0], C.dims[1], 3))
 		pool_sizes = [(2,2), (2,2)]
 
 	if merge_layer == 1:
-		art_x = art_img
+		art_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,0], axis=4))(img)
 		art_x = Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0])(art_x)
 		art_x = BatchNormalization()(art_x)
 		art_x = ActivationLayer(activation_args)(art_x)
 
-		ven_x = ven_img
+		ven_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,1], axis=4))(img)
 		ven_x = Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0])(ven_x)
 		ven_x = BatchNormalization()(ven_x)
 		ven_x = ActivationLayer(activation_args)(ven_x)
 
-		eq_x = eq_img
+		eq_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,2], axis=4))(img)
 		eq_x = Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0])(eq_x)
 		eq_x = BatchNormalization()(eq_x)
 		eq_x = ActivationLayer(activation_args)(eq_x)
@@ -256,24 +298,20 @@ def build_cnn(C=None, optimizer='adam', dilation_rate=(1,1,1), padding=['same', 
 	elif merge_layer == 0:
 		x = img
 
-		for layer_num in range(len(f)):
-			x = Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1])(x)
-			x = BatchNormalization()(x)
-			x = ActivationLayer(activation_args)(x)
-			x = Dropout(dropout[0])(x)
-
-	elif merge_layer == -1:
-		x = img
-		
 		if time_dist:
 			x = Reshape((C.dims[0], C.dims[1], C.dims[2], 3, 1))(x)
 			x = Permute((4,1,2,3,5))(x)
 
 			for layer_num in range(len(f)):
-				x = TimeDistributed(Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1]))(x)
+				if layer_num == 1:
+					x = TimeDistributed(Conv3D(filters=f[layer_num], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[1]))(x) #, kernel_regularizer=l2(.01)
+				#elif layer_num == 0:
+				#	x = TimeDistributed(Conv3D(filters=f[layer_num], kernel_size=kernel_size, strides=(2,2,1), padding=padding[1]))(x) #, kernel_regularizer=l2(.01)
+				else:
+					x = TimeDistributed(Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1]))(x) #, kernel_regularizer=l2(.01)
 				#x = BatchNormalization()(x)
-				x = TimeDistributed(ActivationLayer(activation_args))(x)
-				x = Dropout(dropout[0])(x)
+				x = TimeDistributed(Dropout(dropout[0]))(x)
+				x = ActivationLayer(activation_args)(x)
 				if layer_num == 0:
 					x = TimeDistributed(MaxPooling3D(pool_sizes[0]))(x)
 			
@@ -285,19 +323,26 @@ def build_cnn(C=None, optimizer='adam', dilation_rate=(1,1,1), padding=['same', 
 			#	dims = C.dims
 			#x = Reshape((dims[0], dims[1], dims[2], -1))(x)
 		else:
-			raise ValueError("help")
+			for layer_num in range(len(f)):
+				x = Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1])(x)
+				x = BatchNormalization()(x)
+				x = ActivationLayer(activation_args)(x)
+				x = Dropout(dropout[0])(x)
+	else:
+		raise ValueError("invalid settings")
 
 	if time_dist:
 		x = TimeDistributed(MaxPooling3D(pool_sizes[1]))(x)
 		x = TimeDistributed(Flatten())(x)
 
-		x = TimeDistributed(Dense(dense_units))(x)
+		#x = TimeDistributed(Dense(dense_units))(x) #, kernel_regularizer=l2(.01)
 		#x = BatchNormalization()(x)
 		#x = TimeDistributed(Dropout(dropout[1]))(x)
-		x = TimeDistributed(ActivationLayer(activation_args))(x)
+		#x = ActivationLayer(activation_args)(x)
 
-		x = LSTM(dense_units, return_sequences=True)(x)
-		x = LSTM(dense_units)(x)
+		#x = SimpleRNN(128, return_sequences=True)(x)
+		x = SimpleRNN(dense_units)(x)
+		x = Dropout(dropout[1])(x)
 
 	if not time_dist:
 		x = MaxPooling3D(pool_sizes[1])(x)
@@ -308,20 +353,18 @@ def build_cnn(C=None, optimizer='adam', dilation_rate=(1,1,1), padding=['same', 
 			x = Concatenate(axis=1)([x, img_traits])
 
 		x = Dense(dense_units)(x)#, kernel_initializer='normal', kernel_regularizer=l2(.01), kernel_constraint=max_norm(3.))(x)
-		#x = BatchNormalization()(x)
-		#x = Dropout(dropout[1])(x)
+		x = BatchNormalization()(x)
+		x = Dropout(dropout[1])(x)
 		x = ActivationLayer(activation_args)(x)
 
 	x = Dense(nb_classes)(x)
 	x = BatchNormalization()(x)
 	pred_class = Activation('softmax')(x)
 
-	if time_dist:
+	if not non_imaging_inputs:
 		model = Model(img, pred_class)
-	elif non_imaging_inputs:
-		model = Model([art_img, ven_img, eq_img, img_traits], pred_class)
 	else:
-		model = Model([art_img, ven_img, eq_img], pred_class)
+		model = Model([img, img_traits], pred_class)
 	
 	#optim = Adam(lr=0.01)#5, decay=0.001)
 	model.compile(optimizer=optimizer, loss='categorical_crossentropy', metrics=['accuracy'])
@@ -374,7 +417,7 @@ def get_cnn_data(n=4, n_art=4, run_2d=False, verbose=False, C=None):
 	intensity_df = pd.read_csv(C.int_df_path)
 	orig_data_dict, num_samples = _collect_unaug_data(C)
 
-	avg_X2 = {}
+	#avg_X2 = {}
 	train_ids = {} #filenames of training set originals
 	test_ids = {} #filenames of test set
 	X_test = []
@@ -390,7 +433,7 @@ def get_cnn_data(n=4, n_art=4, run_2d=False, verbose=False, C=None):
 
 	for cls in orig_data_dict:
 		cls_num = C.classes_to_include.index(cls)
-		avg_X2[cls] = np.mean(orig_data_dict[cls][1], axis=0)
+		#avg_X2[cls] = np.mean(orig_data_dict[cls][1], axis=0)
 
 		if C.train_frac is None:
 			train_samples[cls] = num_samples[cls] - C.test_num
@@ -398,17 +441,17 @@ def get_cnn_data(n=4, n_art=4, run_2d=False, verbose=False, C=None):
 			train_samples[cls] = round(num_samples[cls]*C.train_frac)
 		
 		order = np.random.permutation(list(range(num_samples[cls])))
-		train_ids[cls] = list(orig_data_dict[cls][2][order[:train_samples[cls]]])
-		test_ids[cls] = list(orig_data_dict[cls][2][order[train_samples[cls]:]])
+		train_ids[cls] = list(orig_data_dict[cls][1][order[:train_samples[cls]]])
+		test_ids[cls] = list(orig_data_dict[cls][1][order[train_samples[cls]:]])
 		
 		X_test = X_test + list(orig_data_dict[cls][0][order[train_samples[cls]:]])
-		X2_test = X2_test + list(orig_data_dict[cls][1][order[train_samples[cls]:]])
+		#X2_test = X2_test + list(orig_data_dict[cls][1][order[train_samples[cls]:]])
 		Y_test = Y_test + [[0] * cls_num + [1] + [0] * (nb_classes - cls_num - 1)] * \
 							(num_samples[cls] - train_samples[cls])
 		Z_test = Z_test + test_ids[cls]
 		
 		X_train_orig = X_train_orig + list(orig_data_dict[cls][0][order[:train_samples[cls]]])
-		X2_train_orig = X2_train_orig + list(orig_data_dict[cls][1][order[:train_samples[cls]]])
+		#X2_train_orig = X2_train_orig + list(orig_data_dict[cls][1][order[:train_samples[cls]]])
 		Y_train_orig = Y_train_orig + [[0] * cls_num + [1] + [0] * (nb_classes - cls_num - 1)] * \
 							(train_samples[cls])
 		Z_train_orig = Z_train_orig + train_ids[cls]
@@ -433,9 +476,9 @@ def get_cnn_data(n=4, n_art=4, run_2d=False, verbose=False, C=None):
 	X_train_orig = np.array(X_train_orig)#_separate_phases(X_train_orig, C.non_imaging_inputs)
 
 	if run_2d:
-		train_generator = _train_generator_func_2d(train_ids, avg_X2, n=n, n_art=n_art)
+		train_generator = _train_generator_func_2d(train_ids, n=n, n_art=n_art)
 	else:
-		train_generator = _train_generator_func(train_ids, avg_X2, n=n, n_art=n_art)
+		train_generator = _train_generator_func(train_ids, n=n, n_art=n_art)
 
 	return X_test, Y_test, train_generator, num_samples, [X_train_orig, Y_train_orig], [Z_test, Z_train_orig]
 
@@ -484,7 +527,7 @@ def condense_cm(y_true, y_pred, cls_mapping):
 ### Training Submodules
 ####################################
 
-def _train_generator_func(train_ids, avg_X2, voi_df=None, n=12, n_art=0, C=None):
+def _train_generator_func(train_ids, voi_df=None, n=12, n_art=0, C=None):
 	"""n is the number of samples from each class, n_art is the number of artificial samples"""
 
 	import voi_methods as vm
@@ -497,7 +540,7 @@ def _train_generator_func(train_ids, avg_X2, voi_df=None, n=12, n_art=0, C=None)
 	num_classes = len(classes_to_include)
 	while True:
 		x1 = np.empty(((n+n_art)*num_classes, C.dims[0], C.dims[1], C.dims[2], C.nb_channels))
-		x2 = np.empty(((n+n_art)*num_classes, 2))
+		#x2 = np.empty(((n+n_art)*num_classes, 2))
 		y = np.zeros(((n+n_art)*num_classes, num_classes))
 
 		train_cnt = 0
@@ -507,7 +550,7 @@ def _train_generator_func(train_ids, avg_X2, voi_df=None, n=12, n_art=0, C=None)
 				for _ in range(n_art):
 					img_fn = random.choice(img_fns)
 					x1[train_cnt] = np.load(C.artif_dir + cls + "\\" + img_fn)
-					x2[train_cnt] = avg_X2[cls]
+					#x2[train_cnt] = avg_X2[cls]
 					y[train_cnt][C.classes_to_include.index(cls)] = 1
 
 					train_cnt += 1
@@ -522,8 +565,8 @@ def _train_generator_func(train_ids, avg_X2, voi_df=None, n=12, n_art=0, C=None)
 
 					row = voi_df[(voi_df["Filename"] == img_fn[:img_fn.find('_')] + ".npy") &
 								 (voi_df["lesion_num"] == int(img_fn[img_fn.find('_')+1:img_fn.rfind('_')]))]
-					x2[train_cnt] = [(float(row["real_dx"]) * float(row["real_dy"]) * float(row["real_dz"])) ** (1/3) / 50,
-										max(float(row["real_dx"]), float(row["real_dy"])) / float(row["real_dz"])]
+					#x2[train_cnt] = [(float(row["real_dx"]) * float(row["real_dy"]) * float(row["real_dz"])) ** (1/3) / 50,
+					#					max(float(row["real_dx"]), float(row["real_dy"])) / float(row["real_dz"])]
 					
 					y[train_cnt][C.classes_to_include.index(cls)] = 1
 					
@@ -626,7 +669,7 @@ def _collect_unaug_data(C, verbose=False):
 			print("\n"+cls)
 
 		x = np.empty((10000, C.dims[0], C.dims[1], C.dims[2], C.nb_channels))
-		x2 = np.empty((10000, 2))
+		#x2 = np.empty((10000, 2))
 		z = []
 
 		for index, img_fn in enumerate(os.listdir(C.orig_dir+cls)):
@@ -643,8 +686,8 @@ def _collect_unaug_data(C, verbose=False):
 			
 			try:
 				skip=False
-				x2[index] = [(float(row["real_dx"]) * float(row["real_dy"]) * float(row["real_dz"])) ** (1/3) / 50,
-							max(float(row["real_dx"]), float(row["real_dy"])) / float(row["real_dz"])]
+				#x2[index] = [(float(row["real_dx"]) * float(row["real_dy"]) * float(row["real_dz"])) ** (1/3) / 50,
+				#			max(float(row["real_dx"]), float(row["real_dy"])) / float(row["real_dz"])]
 			except TypeError:
 				print(img_fn[:img_fn.find('_')], end=",")
 				skip=True
@@ -653,8 +696,8 @@ def _collect_unaug_data(C, verbose=False):
 
 		if not skip:
 			x.resize((index+1, C.dims[0], C.dims[1], C.dims[2], C.nb_channels)) #shrink first dimension to fit
-			x2.resize((index+1, 2)) #shrink first dimension to fit
-			orig_data_dict[cls] = [x,x2,np.array(z)]
+			#x2.resize((index+1, 2)) #shrink first dimension to fit
+			orig_data_dict[cls] = [x,np.array(z)]
 			num_samples[cls] = index + 1
 		
 	return orig_data_dict, num_samples
@@ -764,6 +807,6 @@ def _draw_bbox(img_slice, voi, C=None):
 	return img_slice
 
 if __name__ == '__main__':
-	overnight_run()
+	run_fixed_hyperparams()
 	#import doctest
 	#doctest.testmod()
