@@ -9,8 +9,9 @@ import nibabel as nib
 import numpy as np
 import os
 import pyelastix
-import requests
 import random
+import re
+import requests
 import shutil
 import SimpleITK as sitk
 import subprocess
@@ -627,12 +628,13 @@ def add_to_filename(fn, addition):
 	return fn[:x] + addition + fn[x:]
 
 def str_to_lists(raw, dtype=float):
-    bigstr = str(raw)
-    bigstr = re.sub(r'(\d)\s+(\d)', r'\1,\2', bigstr)
-    bigstr = re.sub(r'\]\s*\[', r';', bigstr)
-    bigstr = bigstr.replace('[', '')
-    bigstr = bigstr.replace(']', '')
-    bigstr = bigstr.replace(' ', '')
-    ret = [[dtype(x) for x in sublist.split(',')] for sublist in bigstr.split(';')]
+	bigstr = str(raw)
+	bigstr = re.sub(r'(\d)\s+(\d)', r'\1,\2', bigstr)
+	bigstr = re.sub(r'(\d)\s+(\d)', r'\1,\2', bigstr)
+	bigstr = re.sub(r'\]\s*\[', r';', bigstr)
+	bigstr = bigstr.replace('[', '')
+	bigstr = bigstr.replace(']', '')
+	bigstr = bigstr.replace(' ', '')
+	ret = [[dtype(x) for x in sublist.split(',')] for sublist in bigstr.split(';')]
 
-    return ret
+	return ret

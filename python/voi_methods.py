@@ -494,10 +494,10 @@ def _scale_intensity_df(img, intensity_row, min_int=1):
 	return img
 
 def _get_coords(small_voi_df_row):
-	try:
-		return ast.literal_eval(small_voi_df_row["coords"].values[0])
-	except:
-		return small_voi_df_row["coords"].values[0]
+	#try:
+	#	return ast.literal_eval(small_voi_df_row["coords"].values[0])
+	#except:
+	return small_voi_df_row["coords"].values[0]
 
 def _resize_img(img, voi, C=None):
 	"""For rescaling an img to final_dims while scaling to make sure the image contains the voi.

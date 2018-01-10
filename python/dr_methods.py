@@ -104,9 +104,9 @@ def load_vois_batch(cls, voi_dfs=None, dims_df=None, C=None, verbose=False, acc_
 
 	return voi_df_art, voi_df_ven, voi_df_eq
 
-def load_vois(cls, acc_num, df=None, dims_df=None, voi_df_art=None, voi_df_ven=None, voi_df_eq=None, C=None, target_dims=None):
+def load_vois(cls, acc_num, df=None, dims_df=None, voi_df_art=None, voi_df_ven=None, voi_df_eq=None, C=None):
 	"""Load all vois belonging to an acc_num.
-	If target_dims is None, do not rescale images."""
+	"""
 	if C is None:
 		C = config.Config()
 
@@ -134,10 +134,6 @@ def load_vois(cls, acc_num, df=None, dims_df=None, voi_df_art=None, voi_df_ven=N
 			cur_dims = dims_df[dims_df["AccNum"] == acc_num].iloc[0].values[1:]
 		except NameError:
 			raise ValueError("dims_df not yet loaded for", acc_num)
-			
-		if target_dims is not None:
-			vox_scale = [float(cur_dims[i]/target_dims[i]) for i in range(3)]
-			x,y,z = _scale_vois(x, y, z, vox_scale)
 		
 		y = (img.shape[1]-y[1], img.shape[1]-y[0]) # flip y
 		if row['Flipped'] != "Yes":
@@ -151,9 +147,6 @@ def load_vois(cls, acc_num, df=None, dims_df=None, voi_df_art=None, voi_df_ven=N
 			y = (int(row['y3']), int(row['y4']))
 			z = (int(row['z3']), int(row['z4']))
 			
-			if target_dims is not None:
-				x,y,z = _scale_vois(x, y, z, vox_scale)
-			
 			y = (img.shape[1]-y[1], img.shape[1]-y[0]) # flip y
 			if row['Flipped'] != "Yes":
 				z = (img.shape[2]-z[1], img.shape[2]-z[0]) # flip z
@@ -164,9 +157,6 @@ def load_vois(cls, acc_num, df=None, dims_df=None, voi_df_art=None, voi_df_ven=N
 			x = (int(row['x5']), int(row['x6']))
 			y = (int(row['y5']), int(row['y6']))
 			z = (int(row['z5']), int(row['z6']))
-			
-			if target_dims is not None:
-				x,y,z = _scale_vois(x, y, z, vox_scale)
 			
 			y = (img.shape[1]-y[1], img.shape[1]-y[0]) # flip y
 			if row['Flipped'] != "Yes":
@@ -212,7 +202,7 @@ def _add_voi_row(voi_df, acc_num, x, y, z, vox_dims=None, cls=None, flipz=None, 
 ### METHODS FOR LOADING DICOMS
 ###########################
 
-def load_imgs(img_dir, cls, sheetname, dims_df, C=None, verbose=False, target_dims=None, num_ch=3, acc_nums=None):
+def load_imgs(img_dir, cls, sheetname, dims_df, C=None, verbose=False, acc_nums=None):
 	"""Load images stored in folder cls and excel spreadsheet specified by C with name sheetname.
 	Saves images to C.full_img_dir and saves vois to the global vois variable.
 	Scales images and VOIs so that each voxel is 1.5 x 1.5 x 4 cm
@@ -243,16 +233,8 @@ def load_imgs(img_dir, cls, sheetname, dims_df, C=None, verbose=False, target_di
 			continue
 
 		subdir = img_dir+"\\"+acc_num
-		#try:
 		art, cur_dims = hf.dcm_load(subdir+"\\T1_AP")
-		#except:
-		#    print(subdir+"\\T1_AP error")
-		#    continue
-		try:
-			ven, _ = hf.dcm_load(subdir+"\\T1_VP")
-		except:
-			print(subdir+"\\T1_VP missing")
-			continue
+		ven, _ = hf.dcm_load(subdir+"\\T1_VP")
 
 		# register phases if venous was not specified separately
 		if "Image type2" not in df_subset.columns or df_subset.iloc[0]["Image type2"] != "VP-T1":
@@ -260,20 +242,14 @@ def load_imgs(img_dir, cls, sheetname, dims_df, C=None, verbose=False, target_di
 			
 		dims_df = add_to_dims_df(dims_df, acc_num, cur_dims)
 
-		if num_ch == 3:
-			try:
-				eq, _ = hf.dcm_load(subdir+"\\T1_EQ")
-			except:
-				print(subdir+"\\T1_EQ missing")
-				continue
+		if C.nb_channels == 3:
+			eq, _ = hf.dcm_load(subdir+"\\T1_EQ")
+
 			if "Image type3" not in df_subset.columns or df_subset.iloc[0]["Image type3"] != "EQ-T1":
 				eq, _ = hf.reg_imgs(moving=eq, fixed=art, params=C.reg_params, rescale_only=False)
 			img = np.transpose(np.stack((art, ven, eq)), (1,2,3,0))
 		else:
 			img = np.transpose(np.stack((art, ven)), (1,2,3,0))
-			
-		if target_dims is not None:
-			img, vox_scale = hf.rescale(img, target_dims, cur_dims)
 			
 		np.save(C.full_img_dir + "\\" + cls + "\\" + str(acc_num), img)
 
@@ -283,6 +259,7 @@ def load_imgs(img_dir, cls, sheetname, dims_df, C=None, verbose=False, target_di
 			print(".", end="")
 			
 	print("Overall time: %s" % str(time.time() - s))
+	
 	return dims_df
 
 def add_to_dims_df(dims_df, acc_num, cur_dims):
@@ -368,13 +345,13 @@ def add_intensity_df(intensity_df, img, acc_num):
 	else:
 		i = intensity_df.index[-1] + 1
 		
-	intensity_df.loc[i] = [acc_num, get_scaling_intensity(img[:,:,:,0]),
-						   get_scaling_intensity(img[:,:,:,1]),
-						   get_scaling_intensity(img[:,:,:,2])]
+	intensity_df.loc[i] = [acc_num, _get_scaling_intensity(img[:,:,:,0]),
+						   _get_scaling_intensity(img[:,:,:,1]),
+						   _get_scaling_intensity(img[:,:,:,2])]
 	
 	return intensity_df
 
-def get_scaling_intensity(img):
+def _get_scaling_intensity(img):
 	"""Return intensity value to normalize img and all its transforms to. img should be 3D with no channels."""
 
 	"""temp_img = img[img.shape[0]//5:img.shape[0]*3//5,
@@ -396,7 +373,7 @@ def get_scaling_intensity(img):
 ### PATIENT INFO
 ###########################
 
-def load_patient_info(img_dir, cls, sheetname, patient_info_df, C, verbose=False, target_dims=None, num_ch=3, acc_nums=None):
+def load_patient_info(img_dir, cls, sheetname, patient_info_df, C, verbose=False, acc_nums=None):
 	"""TBD
 	"""
 	

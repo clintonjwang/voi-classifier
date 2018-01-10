@@ -4,8 +4,8 @@ from keras.layers import SimpleRNN, Conv2D, MaxPooling2D, ZeroPadding3D, Activat
 from keras.layers.normalization import BatchNormalization
 from keras.models import Model
 from keras.regularizers import l2
-from keras.optimizers import Adam
 from keras.callbacks import EarlyStopping
+from keras.optimizers import Adam
 #from keras.utils import np_utils
 
 import copy
@@ -100,12 +100,12 @@ def hyperband():
 			# Run each of the n_i configs for r_i iterations and keep best n_i/eta
 			n_i = n*eta**(-i)
 			r_i = r*eta**(i)
-			val_losses = [ run_then_return_val_loss(num_iters=r_i, hyperparameters=t) for t in T ]
+			val_losses = [ run_then_return_val_loss(num_iters=r_i, hyperparams=t) for t in T ]
 			T = [ T[i] for i in argsort(val_losses)[0:int( n_i/eta )] ]
 		#### End Finite Horizon Successive Halving with (n,r)
 	return val_losses, T
 
-def run_fixed_hyperparams(C_list=None, overwrite=False, max_runs=999):
+def run_fixed_hyperparams(C_list=None, overwrite=False, max_runs=999, hyperparams=None):
 	"""Runs the CNN indefinitely, saving performance metrics."""
 	if C_list is None:
 		C_list = [config.Config()]
@@ -135,24 +135,25 @@ def run_fixed_hyperparams(C_list=None, overwrite=False, max_runs=999):
 	n = [4]
 	n_art = [0]
 	steps_per_epoch = [750]
-	epochs = [25]
+	epochs = [30]
 	run_2d = False
 	f = [[64,128,128]]
-	padding = [['valid','valid']]
+	padding = [['same','valid']]
 	dropout = [[0.1,0.1]]
-	dense_units = [128]
-	dilation_rate = [(2,2,1)]
+	dense_units = [100]
+	dilation_rate = [(1,1,1)]
 	kernel_size = [(3,3,2)]
-	pool_sizes = [(2,2,2),(2,2,1)]
+	pool_sizes = [(2,2,1),(2,2,2)]
 	activation_type = ['relu']
-	merge_layer = [0]
+	merge_layer = [1]
 	cycle_len = 1
 	early_stopping = EarlyStopping(monitor='loss', min_delta=0.002, patience=3)
-	time_dist = True
+	time_dist = False
 
 	C_index = 0
 	while index < max_runs:
 		C = C_list[C_index % len(C_list)]
+		#C.hard_scale = False
 
 		X_test, Y_test, train_generator, num_samples, train_orig, Z = get_cnn_data(n=n[C_index % len(n)],
 					n_art=n_art[C_index % len(n_art)], run_2d=run_2d, C=C)
@@ -165,7 +166,7 @@ def run_fixed_hyperparams(C_list=None, overwrite=False, max_runs=999):
 					padding=padding[index % len(padding)], dropout=dropout[index % len(dropout)],
 					dense_units=dense_units[index % len(dense_units)], kernel_size=kernel_size[index % len(kernel_size)],
 					merge_layer=merge_layer[index % len(merge_layer)], non_imaging_inputs=C.non_imaging_inputs, time_dist=time_dist)
-
+			
 			t = time.time()
 			hist = model.fit_generator(train_generator, steps_per_epoch=steps_per_epoch[index % len(steps_per_epoch)],
 					epochs=epochs[index % len(epochs)], callbacks=[early_stopping], verbose=False)
@@ -211,8 +212,77 @@ def run_fixed_hyperparams(C_list=None, overwrite=False, max_runs=999):
 ### BUILD CNNS
 ####################################
 
-def run_then_return_val_loss(num_iters=1, hyperparameters=1):
-	pass
+def run_then_return_val_loss(num_iters=1, hyperparams=None):
+	"""Runs the CNN indefinitely, saving performance metrics."""
+	C = config.Config()
+	if overwrite:
+		running_stats = pd.DataFrame(columns = ["n", "n_art", "steps_per_epoch", "epochs",
+			"num_phases", "input_res", "training_fraction", "test_num", "augment_factor", "non_imaging_inputs",
+			"kernel_size", "conv_filters", "conv_padding",
+			"dropout", "time_dist", "dilation", "dense_units",
+			"acc6cls", "acc3cls", "time_elapsed(s)", "loss_hist",
+			'hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh',
+			'confusion_matrix', 'f1', 'timestamp', 'run_num',
+			'misclassified_test', 'misclassified_train', 'model_num',
+			'y_true', 'y_pred_raw', 'z_test'])
+		index = 0
+	else:
+		running_stats = pd.read_csv(C.run_stats_path)
+		index = len(running_stats)
+
+	model_names = os.listdir("E:\\models\\")
+	if len(model_names) > 0:	
+		model_num = max([int(x[x.find('_')+1:x.find('.')]) for x in model_names]) + 1
+	else:
+		model_num = 0
+
+	X_test, Y_test, train_generator, num_samples, train_orig, Z = get_cnn_data(n=T.n,
+				n_art=T.n_art, run_2d=T.run_2d, C=C)
+	Z_test, Z_train_orig = Z
+	X_train_orig, Y_train_orig = train_orig
+
+	T = hyperparams
+	model = build_cnn(T)
+
+	t = time.time()
+	hist = model.fit_generator(train_generator, steps_per_epoch=T.steps_per_epoch,
+			epochs=num_iters, callbacks=[T.early_stopping], verbose=False)
+	loss_hist = hist.history['loss']
+
+	Y_pred = model.predict(X_train_orig)
+	y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_train_orig])
+	y_pred = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_pred])
+	misclassified_train = list(Z_train_orig[~np.equal(y_pred, y_true)])
+
+	Y_pred = model.predict(X_test)
+	y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_test])
+	y_pred = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_pred])
+	misclassified_test = list(Z_test[~np.equal(y_pred, y_true)])
+	cm = confusion_matrix(y_true, y_pred)
+	f1 = f1_score(y_true, y_pred, average="weighted")
+	acc_6cl = accuracy_score(y_true, y_pred)
+
+	y_true_simp, y_pred_simp, _ = condense_cm(y_true, y_pred, C.classes_to_include)
+	acc_3cl = accuracy_score(y_true_simp, y_pred_simp)
+
+	running_stats.loc[index] = _get_hyperparams_as_list(C, T) + \
+			[acc_6cl, acc_3cl, time.time()-t, loss_hist,
+			num_samples['hcc'], num_samples['cholangio'], num_samples['colorectal'], num_samples['cyst'], num_samples['hemangioma'], num_samples['fnh'],
+			cm, time.time(), misclassified_test, misclassified_train, model_num, y_true, str(Y_pred), list(Z_test)]
+	running_stats.to_csv(C.run_stats_path, index=False)
+
+	model.save(C.model_save_dir+'models_%d.hdf5' % model_num)
+
+def _get_hyperparams_as_list(C=None, T=None):
+	if T is None:
+		T = config.Hyperparams()
+	if C is None:
+		C = config.Config()
+	
+	return [T.n, T.n_art, T.steps_per_epoch, T.epochs,
+			C.dims, C.train_frac, C.test_num, C.aug_factor, C.non_imaging_inputs,
+			T.kernel_size, T.f, T.padding,
+			T.dropout, T.time_dist, T.dilation_rate, T.dense_units]
 
 def get_random_hyperparameter_configuration():
 	n = [4]
@@ -235,6 +305,14 @@ def get_random_hyperparameter_configuration():
 
 	return T
 
+def build_cnn_hyperparams(hyperparams):
+	C = config.Config()
+	return build_cnn(optimizer=hyperparams.optimizer, dilation_rate=hyperparams.dilation_rate,
+		padding=hyperparams.padding, pool_sizes=hyperparams.pool_sizes, dropout=hyperparams.dropout,
+		activation_type=hyperparams.activation_type, f=hyperparams.f, dense_units=hyperparams.dense_units,
+		kernel_size=hyperparams.kernel_size, merge_layer=hyperparams.merge_layer,
+		non_imaging_inputs=C.non_imaging_inputs, run_2d=hyperparams.run_2d, time_dist=hyperparams.time_dist)
+
 def build_cnn(C=None, optimizer='adam', dilation_rate=(1,1,1), padding=['same', 'valid'], pool_sizes = [(2,2,2), (2,2,2)],
 	dropout=[0.1,0.1], activation_type='relu', f=[64,128,128], dense_units=100, kernel_size=(3,3,2), merge_layer=1,
 	non_imaging_inputs=False, run_2d=False, time_dist=True):
@@ -255,7 +333,6 @@ def build_cnn(C=None, optimizer='adam', dilation_rate=(1,1,1), padding=['same', 
 		img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 3))
 	else:
 		img = Input(shape=(C.dims[0], C.dims[1], 3))
-		pool_sizes = [(2,2), (2,2)]
 
 	if merge_layer == 1:
 		art_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,0], axis=4))(img)
@@ -275,7 +352,7 @@ def build_cnn(C=None, optimizer='adam', dilation_rate=(1,1,1), padding=['same', 
 
 		x = Concatenate(axis=4)([art_x, ven_x, eq_x])
 		x = MaxPooling3D(pool_sizes[0])(x)
-		x = Dropout(dropout[0])(x)
+		#x = Dropout(dropout[0])(x)
 
 		if time_dist:
 			x = Reshape()
@@ -343,8 +420,7 @@ def build_cnn(C=None, optimizer='adam', dilation_rate=(1,1,1), padding=['same', 
 		#x = SimpleRNN(128, return_sequences=True)(x)
 		x = SimpleRNN(dense_units)(x)
 		x = Dropout(dropout[1])(x)
-
-	if not time_dist:
+	else:
 		x = MaxPooling3D(pool_sizes[1])(x)
 		x = Flatten()(x)
 

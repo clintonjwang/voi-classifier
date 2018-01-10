@@ -1,4 +1,5 @@
 import pyelastix
+from keras.callbacks import EarlyStopping
 
 #Run Numbers:
 # 1 - classic
@@ -56,3 +57,27 @@ class Config:
 		self.max_side_ratio = 1.6
 		self.noise_std = 0.05
 		self.shade_std = 0.05
+
+class Hyperparams:
+	def __init__(self):
+		self.n = 4
+		self.n_art = 0
+		self.steps_per_epoch = 750
+		self.epochs = 15
+		self.run_2d = False
+		self.f = [64,128,128]
+		self.padding = ['valid','valid']
+		self.dropout = [0.1,0.1]
+		self.dense_units = 128
+		self.dilation_rate = (2,2,1)
+		self.kernel_size = (3,3,2)
+		self.pool_sizes = [(2,2,2),(1,1,1)]
+		self.activation_type = 'relu'
+		self.merge_layer = 0
+		self.early_stopping = EarlyStopping(monitor='loss', min_delta=0.002, patience=3)
+		#self.non_imaging_inputs = C.non_imaging_inputs
+		self.time_dist = True
+		self.optimizer = 'adam'
+
+	def get_random_hyperparams(self):
+		pass
