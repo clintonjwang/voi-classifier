@@ -191,41 +191,44 @@ def remove_acc_num(acc_num, cls, C=None):
 		if fn.startswith(acc_num):
 			os.remove(C.aug_dir + cls + "\\" + fn)
 
-def save_vois_as_imgs(cls, C=None, num_ch=3, normalize=True, rescale_factor=3, acc_nums=None):
+def save_vois_as_imgs(cls, C=None, normalize=True, rescale_factor=3, lesion_nums=None, save_dir=None):
 	"""Save all voi images as jpg."""
 	if C is None:
 		C = config.Config()
 
-	os.listdir(C.crops_dir + cls)
-	if acc_nums is not None:
-		fns = [acc_num+".npy" for acc_num in acc_nums]
+	if lesion_nums is not None:
+		fns = [acc_num+".npy" for acc_num in lesion_nums]
 	else:
 		fns = os.listdir(C.orig_dir + cls)
-	save_dir = C.vois_dir + cls
+
+	if save_dir is None:
+		save_dir = C.vois_dir + cls
 	if not os.path.exists(save_dir):
 		os.makedirs(save_dir)
 
 	for fn in fns:
+		#save_small_voi_as_img(cls, fn, save_dir, rescale_factor, normalize)
+
 		img = np.load(C.orig_dir + cls + "\\" + fn)
 
 		img_slice = img[:,:, img.shape[2]//2, :].astype(float)
 
 		if normalize:
-			img_slice[0,0,:]=-.7
-			img_slice[0,-1,:]=.7
+			img_slice[0,0,:]=-1
+			img_slice[0,-1,:]=1
 			
 		ch1 = np.transpose(img_slice[:,::-1,0], (1,0))
 		ch2 = np.transpose(img_slice[:,::-1,1], (1,0))
 		
-		if num_ch == 2:
-			ret = np.empty([ch1.shape[0]*2, ch1.shape[1]])
+		if C.nb_channels == 2:
+			ret = np.empty([ch1.shape[0]*C.nb_channels, ch1.shape[1]])
 			ret[:ch1.shape[0],:] = ch1
 			ret[ch1.shape[0]:,:] = ch2
 			
-		elif num_ch == 3:
+		elif C.nb_channels == 3:
 			ch3 = np.transpose(img_slice[:,::-1,2], (1,0))
 
-			ret = np.empty([ch1.shape[0]*3, ch1.shape[1]])
+			ret = np.empty([ch1.shape[0]*C.nb_channels, ch1.shape[1]])
 			ret[:ch1.shape[0],:] = ch1
 			ret[ch1.shape[0]:ch1.shape[0]*2,:] = ch2
 			ret[ch1.shape[0]*2:,:] = ch3
@@ -494,10 +497,10 @@ def _scale_intensity_df(img, intensity_row, min_int=1):
 	return img
 
 def _get_coords(small_voi_df_row):
-	#try:
-	#	return ast.literal_eval(small_voi_df_row["coords"].values[0])
-	#except:
-	return small_voi_df_row["coords"].values[0]
+	try:
+		return ast.literal_eval(small_voi_df_row["coords"].values[0])
+	except:
+		return small_voi_df_row["coords"].values[0]
 
 def _resize_img(img, voi, C=None):
 	"""For rescaling an img to final_dims while scaling to make sure the image contains the voi.

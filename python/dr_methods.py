@@ -138,6 +138,8 @@ def load_vois(cls, acc_num, df=None, dims_df=None, voi_df_art=None, voi_df_ven=N
 		y = (img.shape[1]-y[1], img.shape[1]-y[0]) # flip y
 		if row['Flipped'] != "Yes":
 			z = (img.shape[2]-z[1], img.shape[2]-z[0]) # flip z
+		if row['Flipped'] == "Xflip":
+			x = (img.shape[0]-x[1], img.shape[0]-x[0]) # flip y
 		
 		voi_df_art, art_id = _add_voi_row(voi_df_art, acc_num, x,y,z, vox_dims=cur_dims,
 									 cls=cls, flipz=(row['Flipped'] == "Yes"), return_id = True)
@@ -202,7 +204,7 @@ def _add_voi_row(voi_df, acc_num, x, y, z, vox_dims=None, cls=None, flipz=None, 
 ### METHODS FOR LOADING DICOMS
 ###########################
 
-def load_imgs(img_dir, cls, sheetname, dims_df, C=None, verbose=False, acc_nums=None):
+def _load_imgs(img_dir, cls, sheetname, dims_df, C=None, verbose=False, acc_nums=None):
 	"""Load images stored in folder cls and excel spreadsheet specified by C with name sheetname.
 	Saves images to C.full_img_dir and saves vois to the global vois variable.
 	Scales images and VOIs so that each voxel is 1.5 x 1.5 x 4 cm
@@ -233,8 +235,8 @@ def load_imgs(img_dir, cls, sheetname, dims_df, C=None, verbose=False, acc_nums=
 			continue
 
 		subdir = img_dir+"\\"+acc_num
-		art, cur_dims = hf.dcm_load(subdir+"\\T1_AP")
-		ven, _ = hf.dcm_load(subdir+"\\T1_VP")
+		art, cur_dims = hf.dcm_load(subdir+"\\T1_AP", flip_x=True)
+		ven, _ = hf.dcm_load(subdir+"\\T1_VP", flip_x=True)
 
 		# register phases if venous was not specified separately
 		if "Image type2" not in df_subset.columns or df_subset.iloc[0]["Image type2"] != "VP-T1":
@@ -243,7 +245,7 @@ def load_imgs(img_dir, cls, sheetname, dims_df, C=None, verbose=False, acc_nums=
 		dims_df = add_to_dims_df(dims_df, acc_num, cur_dims)
 
 		if C.nb_channels == 3:
-			eq, _ = hf.dcm_load(subdir+"\\T1_EQ")
+			eq, _ = hf.dcm_load(subdir+"\\T1_EQ", flip_x=True)
 
 			if "Image type3" not in df_subset.columns or df_subset.iloc[0]["Image type3"] != "EQ-T1":
 				eq, _ = hf.reg_imgs(moving=eq, fixed=art, params=C.reg_params, rescale_only=False)
@@ -276,7 +278,7 @@ def add_to_dims_df(dims_df, acc_num, cur_dims):
 	
 	return dims_df
 
-def reload_imgs(acc_nums, cls, C=None, update_intensities=True):
+def reload_imgs(acc_nums, cls, C=None, update_intensities=False):
 	"""Save partially cropped (unscaled) images and update dims_df and intensity_df."""
 
 	if C is None:
@@ -286,15 +288,15 @@ def reload_imgs(acc_nums, cls, C=None, update_intensities=True):
 
 	if cls=="hcc":
 		try:
-			dims_df = load_imgs("Z:\\" + C.img_dirs[index], cls, C.sheetnames[index], dims_df, C, acc_nums=acc_nums)
+			dims_df = _load_imgs("Z:\\" + C.img_dirs[index], cls, C.sheetnames[index], dims_df, C, acc_nums=acc_nums)
 		except:
 			pass
 		try:
-			dims_df = load_imgs("Z:\\optn5b", cls, C.sheetnames[index], dims_df, C, acc_nums=acc_nums)
+			dims_df = _load_imgs("Z:\\optn5b", cls, C.sheetnames[index], dims_df, C, acc_nums=acc_nums)
 		except:
 			pass
 	else:
-		dims_df = load_imgs("Z:\\" + C.img_dirs[index], cls, C.sheetnames[index], dims_df, C, acc_nums=acc_nums)
+		dims_df = _load_imgs("Z:\\" + C.img_dirs[index], cls, C.sheetnames[index], dims_df, C, acc_nums=acc_nums)
 	
 	if update_intensities:
 		for acc_num in acc_nums:

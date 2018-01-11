@@ -1,5 +1,5 @@
-from custom_mods.convert_dicom import dicom_series_to_nifti
-from custom_mods.convert_siemens import dicom_to_nifti
+from dicom2nifti.convert_dicom import dicom_series_to_nifti
+from dicom2nifti.convert_siemens import dicom_to_nifti
 import copy
 import dicom
 import math
@@ -31,9 +31,8 @@ def dcm_load(path2series, flip_x=False, flip_y=False):
 	"""
 
 	try:
-		tmp_fn = "tmp.nii"
+		tmp_fn = "tmp.nii.gz"
 		dicom_series_to_nifti(path2series, tmp_fn)
-		#dicom_to_nifti(path2series, tmp_fn)
 
 		ret = ni_load(tmp_fn, flip_x, flip_y)
 
@@ -85,6 +84,7 @@ def get_spect_series(path, just_header=False):
 	import shutil
 	import dicom2nifti.settings as settings
 	import dicom2nifti.common as common
+	import dicom2nifti.compressed_dicom as compressed_dicom
 	temp_directory = tempfile.mkdtemp()
 	dicom_directory = os.path.join(temp_directory, 'dicom')
 	shutil.copytree(path, dicom_directory)
@@ -96,7 +96,7 @@ def get_spect_series(path, just_header=False):
 		convert_dicom.logger.info('Decompressing dicom files in %s' % dicom_directory)
 		for root, _, files in os.walk(dicom_directory):
 			for dicom_file in files:
-				if common.is_dicom_file(os.path.join(root, dicom_file)):
+				if compressed_dicom.is_dicom_file(os.path.join(root, dicom_file)):
 					convert_dicom.decompress_dicom(os.path.join(root, dicom_file))
 
 	dicom_input = common.read_dicom_directory(dicom_directory)

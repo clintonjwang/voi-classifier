@@ -135,20 +135,20 @@ def run_fixed_hyperparams(C_list=None, overwrite=False, max_runs=999, hyperparam
 	n = [4]
 	n_art = [0]
 	steps_per_epoch = [750]
-	epochs = [30]
+	epochs = [25]
 	run_2d = False
 	f = [[64,128,128]]
-	padding = [['same','valid']]
+	padding = [['valid','valid']]
 	dropout = [[0.1,0.1]]
-	dense_units = [100]
+	dense_units = [128]
 	dilation_rate = [(1,1,1)]
 	kernel_size = [(3,3,2)]
-	pool_sizes = [(2,2,1),(2,2,2)]
-	activation_type = ['relu']
-	merge_layer = [1]
+	pool_sizes = [(2,2,1),(1,1,2)]
+	activation_type = ['elu']
+	merge_layer = [0]
 	cycle_len = 1
 	early_stopping = EarlyStopping(monitor='loss', min_delta=0.002, patience=3)
-	time_dist = False
+	time_dist = True
 
 	C_index = 0
 	while index < max_runs:
@@ -167,6 +167,8 @@ def run_fixed_hyperparams(C_list=None, overwrite=False, max_runs=999, hyperparam
 					dense_units=dense_units[index % len(dense_units)], kernel_size=kernel_size[index % len(kernel_size)],
 					merge_layer=merge_layer[index % len(merge_layer)], non_imaging_inputs=C.non_imaging_inputs, time_dist=time_dist)
 			
+			#print(model.summary())
+			#return
 			t = time.time()
 			hist = model.fit_generator(train_generator, steps_per_epoch=steps_per_epoch[index % len(steps_per_epoch)],
 					epochs=epochs[index % len(epochs)], callbacks=[early_stopping], verbose=False)
@@ -192,7 +194,7 @@ def run_fixed_hyperparams(C_list=None, overwrite=False, max_runs=999, hyperparam
 			#print("3cls accuracy:", running_acc_3[-1], " - average:", np.mean(running_acc_3))
 
 			running_stats.loc[index] = [n[C_index % len(n)], n_art[C_index % len(n_art)], steps_per_epoch[index % len(steps_per_epoch)], epochs[index % len(epochs)],
-								C.dims, C.train_frac, C.test_num, C.aug_factor, C.non_imaging_inputs,
+								C.train_frac, C.test_num, C.aug_factor, C.non_imaging_inputs,
 								kernel_size[index % len(kernel_size)], f[index % len(f)], padding[index % len(padding)],
 								dropout[index % len(dropout)], time_dist, dilation_rate[index % len(dilation_rate)], dense_units[index % len(dense_units)],
 								running_acc_6[-1], running_acc_3[-1], time.time()-t, loss_hist,
@@ -280,7 +282,7 @@ def _get_hyperparams_as_list(C=None, T=None):
 		C = config.Config()
 	
 	return [T.n, T.n_art, T.steps_per_epoch, T.epochs,
-			C.dims, C.train_frac, C.test_num, C.aug_factor, C.non_imaging_inputs,
+			C.train_frac, C.test_num, C.aug_factor, C.non_imaging_inputs,
 			T.kernel_size, T.f, T.padding,
 			T.dropout, T.time_dist, T.dilation_rate, T.dense_units]
 
@@ -782,16 +784,21 @@ def _collect_unaug_data(C, verbose=False):
 ### Output Submodules
 ###########################
 
-def _plot_multich_with_bbox(fn, pred_class, small_voi_df, num_ch=3, save_dir=None, normalize=False, C=None):
-	if C is None:
-		C = config.Config()
+def _plot_multich_with_bbox(fn, pred_class=None, small_voi_df=None, save_dir=None, normalize=False):
+	import importlib
+	importlib.reload(vm)
+
+	C = config.Config()
+
+	if small_voi_df is None:
+		small_voi_df = pd.read_csv(C.small_voi_path)
 
 	if not os.path.exists(save_dir):
 		os.makedirs(save_dir)
 		
 	img_fn = fn[:fn.find('_')] + ".npy"
-	cls = small_voi_df.loc[small_voi_df["id"] == fn[:-4], "cls"]
-	
+	cls = small_voi_df.loc[small_voi_df["id"] == fn[:-4], "cls"].values[0]
+
 	img = np.load(C.crops_dir + cls + "\\" + fn)
 	img_slice = img[:,:, img.shape[2]//2, :].astype(float)
 	#for ch in range(img_slice.shape[-1]):
@@ -802,17 +809,17 @@ def _plot_multich_with_bbox(fn, pred_class, small_voi_df, num_ch=3, save_dir=Non
 
 	img_slice = np.stack([img_slice, img_slice, img_slice], axis=2)
 	
-	img_slice = _draw_bbox(img_slice, small_voi_df.loc[small_voi_df["id"] == fn[:-4], "coords"])
+	img_slice = _draw_bbox(img_slice, vm._get_coords(small_voi_df[small_voi_df["id"] == fn[:-4]]))
 		
 	ch1 = np.transpose(img_slice[:,::-1,:,0], (1,0,2))
 	ch2 = np.transpose(img_slice[:,::-1,:,1], (1,0,2))
 	
-	if num_ch == 2:
+	if C.nb_channels == 2:
 		ret = np.empty([ch1.shape[0]*2, ch1.shape[1], 3])
 		ret[:ch1.shape[0],:,:] = ch1
 		ret[ch1.shape[0]:,:,:] = ch2
 		
-	elif num_ch == 3:
+	elif C.nb_channels == 3:
 		ch3 = np.transpose(img_slice[:,::-1,:,2], (1,0,2))
 
 		ret = np.empty([ch1.shape[0]*3, ch1.shape[1], 3])
@@ -822,36 +829,40 @@ def _plot_multich_with_bbox(fn, pred_class, small_voi_df, num_ch=3, save_dir=Non
 		
 	else:
 		raise ValueError("Invalid num channels")
-		
-	imsave("%s\\large-%s (pred %s).png" % (save_dir, fn[:-4], pred_class), ret)
-
-
-	rescale_factor = 3
-	img = np.load(C.orig_dir + cls + "\\" + fn)
-
-	img_slice = img[:,:, img.shape[2]//2, :].astype(float)
-
-	if normalize:
-		img_slice[0,0,:]=-1
-		img_slice[0,-1,:]=.8
-		
-	ch1 = np.transpose(img_slice[:,::-1,0], (1,0))
-	ch2 = np.transpose(img_slice[:,::-1,1], (1,0))
 	
-	if num_ch == 2:
-		ret = np.empty([ch1.shape[0]*2, ch1.shape[1]])
-		ret[:ch1.shape[0],:] = ch1
-		ret[ch1.shape[0]:,:] = ch2
+	if pred_class is None:
+		from skimage.transform import resize
+		#print(ret.shape)
+		imsave("%s\\%s (%s).png" % (save_dir, fn[:-4], cls), resize(ret, [300,100]))
+	else:
+		imsave("%s\\large-%s (pred %s).png" % (save_dir, fn[:-4], pred_class), ret)
+
+		rescale_factor = 3
+		img = np.load(C.orig_dir + cls + "\\" + fn)
+
+		img_slice = img[:,:, img.shape[2]//2, :].astype(float)
+
+		if normalize:
+			img_slice[0,0,:]=-1
+			img_slice[0,-1,:]=.8
+			
+		ch1 = np.transpose(img_slice[:,::-1,0], (1,0))
+		ch2 = np.transpose(img_slice[:,::-1,1], (1,0))
 		
-	elif num_ch == 3:
-		ch3 = np.transpose(img_slice[:,::-1,2], (1,0))
+		if C.nb_channels == 2:
+			ret = np.empty([ch1.shape[0]*2, ch1.shape[1]])
+			ret[:ch1.shape[0],:] = ch1
+			ret[ch1.shape[0]:,:] = ch2
+			
+		elif C.nb_channels == 3:
+			ch3 = np.transpose(img_slice[:,::-1,2], (1,0))
 
-		ret = np.empty([ch1.shape[0]*3, ch1.shape[1]])
-		ret[:ch1.shape[0],:] = ch1
-		ret[ch1.shape[0]:ch1.shape[0]*2,:] = ch2
-		ret[ch1.shape[0]*2:,:] = ch3
+			ret = np.empty([ch1.shape[0]*3, ch1.shape[1]])
+			ret[:ch1.shape[0],:] = ch1
+			ret[ch1.shape[0]:ch1.shape[0]*2,:] = ch2
+			ret[ch1.shape[0]*2:,:] = ch3
 
-	imsave("%s\\small-%s (pred %s).png" % (save_dir, fn[:fn.find('.')], pred_class), rescale(ret, rescale_factor, mode='constant'))
+		imsave("%s\\small-%s (pred %s).png" % (save_dir, fn[:fn.find('.')], pred_class), rescale(ret, rescale_factor, mode='constant'))
 
 def _draw_bbox(img_slice, voi, C=None):
 	"""Draw a colored box around the voi of an image slice showing how it would be cropped."""
