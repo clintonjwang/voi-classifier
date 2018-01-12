@@ -1,7 +1,6 @@
 import ast
 import config
 import copy
-import csv
 import dr_methods as drm
 import helper_fxns as hf
 import math
@@ -115,7 +114,7 @@ def xref_dirs_with_excel(C=None, classes=None, fix_inplace=True):
 			for acc_num in set(bad_acc_nums):
 				reload_accnum(acc_num, cls)
 
-def reload_accnum(acc_num, cls, C=None, augment=True, overwrite=True):
+def reload_accnum(acc_num, cls, augment=True, overwrite=True, C=None):
 	"""Reloads cropped, scaled and augmented images. Updates voi_dfs and small_vois accordingly.
 	small_vois needs to include class."""
 
@@ -127,10 +126,9 @@ def reload_accnum(acc_num, cls, C=None, augment=True, overwrite=True):
 	voi_df_ven = pd.read_csv(C.ven_voi_path)
 	voi_df_eq = pd.read_csv(C.eq_voi_path)
 	voi_dfs = [voi_df_art, voi_df_ven, voi_df_eq]
-	dims_df = pd.read_csv(C.dims_df_path)
 
 	#try:
-	voi_dfs = drm.load_vois_batch(cls, voi_dfs, dims_df, C, acc_nums=[acc_num], overwrite=overwrite)
+	voi_dfs = drm.load_vois_batch(cls, voi_dfs, acc_nums=[acc_num], overwrite=overwrite)
 	#except Exception as e:
 	#	print(acc_num, "is not loaded or included.")
 	#	remove_acc_num(acc_num, cls, C)
@@ -160,41 +158,20 @@ def reload_accnum(acc_num, cls, C=None, augment=True, overwrite=True):
 				if fn.startswith(acc_num):
 					os.remove(C.aug_dir + cls + "\\" + fn)
 
-	small_voi_df = extract_vois(C, voi_df_art, voi_df_ven, voi_df_eq, classes=[cls], acc_nums=[acc_num])
+	small_voi_df = extract_vois(classes=[cls], acc_nums=[acc_num])
 	small_voi_df.to_csv(C.small_voi_path, index=False)
 
-	save_unaugment_set(C, classes=[cls], acc_num=acc_num, small_voi_df=small_voi_df)
+	save_unaugment_set(cls, acc_num, small_voi_df)
 	parallel_augment(small_voi_df=small_voi_df, classes=[cls], acc_num=acc_num)
 
-def remove_acc_num(acc_num, cls, C=None):
-	"""Remove acc_num from processed image folders (still)"""
-
-	if C is None:
-		C = config.Config()
-
-	small_voi_df = pd.read_csv(C.small_voi_path)
-
-	small_voi_df = _filter_small_vois(small_voi_df, acc_num, cls)
-
-	with open(C.small_voi_path, 'w', newline='') as csv_file:
-		writer = csv.writer(csv_file)
-		for key, value in small_vois.items():
-			writer.writerow([key, value])
-
-	for fn in os.listdir(C.crops_dir + cls):
-		if fn.startswith(acc_num):
-			os.remove(C.crops_dir + cls + "\\" + fn)
-	for fn in os.listdir(C.orig_dir + cls):
-		if fn.startswith(acc_num):
-			os.remove(C.orig_dir + cls + "\\" + fn)
-	for fn in os.listdir(C.aug_dir + cls):
-		if fn.startswith(acc_num):
-			os.remove(C.aug_dir + cls + "\\" + fn)
-
-def save_vois_as_imgs(cls, C=None, normalize=True, rescale_factor=3, lesion_nums=None, save_dir=None):
+def save_vois_as_imgs(cls=None, C=None, normalize=[-1,1], rescale_factor=3, lesion_nums=None, save_dir=None):
 	"""Save all voi images as jpg."""
 	if C is None:
 		C = config.Config()
+
+	if cls is None:
+		for cls in C.classes_to_include:
+			save_vois_as_imgs(cls, C, normalize, rescale_factor, lesion_nums, save_dir)
 
 	if lesion_nums is not None:
 		fns = [acc_num+".npy" for acc_num in lesion_nums]
@@ -213,9 +190,9 @@ def save_vois_as_imgs(cls, C=None, normalize=True, rescale_factor=3, lesion_nums
 
 		img_slice = img[:,:, img.shape[2]//2, :].astype(float)
 
-		if normalize:
-			img_slice[0,0,:]=-1
-			img_slice[0,-1,:]=1
+		if normalize is not None:
+			img_slice[0,0,:]=normalize[0]
+			img_slice[0,-1,:]=normalize[1]
 			
 		ch1 = np.transpose(img_slice[:,::-1,0], (1,0))
 		ch2 = np.transpose(img_slice[:,::-1,1], (1,0))
@@ -235,20 +212,113 @@ def save_vois_as_imgs(cls, C=None, normalize=True, rescale_factor=3, lesion_nums
 
 		imsave("%s\\%s (%s).png" % (save_dir, fn[:fn.find('.')], cls), rescale(ret, rescale_factor, mode='constant'))
 
+def save_img_with_bbox(fn, pred_class=None, small_voi_df=None, save_dir=None, normalize=None):
+	import importlib
+	importlib.reload(vm)
+
+	C = config.Config()
+
+	if small_voi_df is None:
+		small_voi_df = pd.read_csv(C.small_voi_path)
+
+	if not os.path.exists(save_dir):
+		os.makedirs(save_dir)
+		
+	img_fn = fn[:fn.find('_')] + ".npy"
+	cls = small_voi_df.loc[small_voi_df["id"] == fn[:-4], "cls"].values[0]
+
+	img = np.load(C.crops_dir + cls + "\\" + fn)
+	img_slice = img[:,:, img.shape[2]//2, :].astype(float)
+	#for ch in range(img_slice.shape[-1]):
+	#	img_slice[:, :, ch] *= 255/np.amax(img_slice[:, :, ch])
+	if normalize is not None:
+		img_slice[0,0,:]=normalize[0]
+		img_slice[0,-1,:]=normalize[1]
+
+	img_slice = np.stack([img_slice, img_slice, img_slice], axis=2)
+	
+	img_slice = _draw_bbox(img_slice, vm._get_coords(small_voi_df[small_voi_df["id"] == fn[:-4]]))
+		
+	ch1 = np.transpose(img_slice[:,::-1,:,0], (1,0,2))
+	ch2 = np.transpose(img_slice[:,::-1,:,1], (1,0,2))
+	
+	if C.nb_channels == 2:
+		ret = np.empty([ch1.shape[0]*2, ch1.shape[1], 3])
+		ret[:ch1.shape[0],:,:] = ch1
+		ret[ch1.shape[0]:,:,:] = ch2
+		
+	elif C.nb_channels == 3:
+		ch3 = np.transpose(img_slice[:,::-1,:,2], (1,0,2))
+
+		ret = np.empty([ch1.shape[0]*3, ch1.shape[1], 3])
+		ret[:ch1.shape[0],:,:] = ch1
+		ret[ch1.shape[0]:ch1.shape[0]*2,:,:] = ch2
+		ret[ch1.shape[0]*2:,:,:] = ch3
+		
+	else:
+		raise ValueError("Invalid num channels")
+	
+	if pred_class is None:
+		from skimage.transform import resize
+		#print(ret.shape)
+		imsave("%s\\%s (%s).png" % (save_dir, fn[:-4], cls), resize(ret, [300,100]))
+	else:
+		imsave("%s\\large-%s (pred %s).png" % (save_dir, fn[:-4], pred_class), ret)
+
+		rescale_factor = 3
+		img = np.load(C.orig_dir + cls + "\\" + fn)
+
+		img_slice = img[:,:, img.shape[2]//2, :].astype(float)
+
+		if normalize is not None:
+			img_slice[0,0,:]=normalize[0]
+			img_slice[0,-1,:]=normalize[1]
+			
+		ch1 = np.transpose(img_slice[:,::-1,0], (1,0))
+		ch2 = np.transpose(img_slice[:,::-1,1], (1,0))
+		
+		if C.nb_channels == 2:
+			ret = np.empty([ch1.shape[0]*2, ch1.shape[1]])
+			ret[:ch1.shape[0],:] = ch1
+			ret[ch1.shape[0]:,:] = ch2
+			
+		elif C.nb_channels == 3:
+			ch3 = np.transpose(img_slice[:,::-1,2], (1,0))
+
+			ret = np.empty([ch1.shape[0]*3, ch1.shape[1]])
+			ret[:ch1.shape[0],:] = ch1
+			ret[ch1.shape[0]:ch1.shape[0]*2,:] = ch2
+			ret[ch1.shape[0]*2:,:] = ch3
+
+		imsave("%s\\small-%s (pred %s).png" % (save_dir, fn[:fn.find('.')], pred_class), rescale(ret, rescale_factor, mode='constant'))
+
 #####################################
 ### Data Creation
 #####################################
 
-def extract_vois(C, voi_df_art, voi_df_ven, voi_df_eq, intensity_df=None, classes=None, acc_nums=None, debug=False, small_voi_df=None):
+def extract_vois(classes=None, acc_nums=None, debug=False, overwrite_df=False):
 	"""Retrieve grossly cropped but unscaled versions of the images."""
-	
+	C = config.Config()
+	voi_df_art = pd.read_csv(C.art_voi_path)
+	voi_df_ven = pd.read_csv(C.ven_voi_path)
+	voi_df_eq = pd.read_csv(C.eq_voi_path)
+
+	intensity_df = pd.read_csv(C.int_df_path)
+
 	t = time.time()
 	if small_voi_df is None:
-		small_voi_df = pd.read_csv(C.small_voi_path)
+		if overwrite_df:
+			small_voi_df = pd.DataFrame(columns=["id", "acc_num", "cls", "coords"])
+		else:
+			try:
+				small_voi_df = pd.read_csv(C.small_voi_path)
+			except:
+				small_voi_df = pd.DataFrame(columns=["id", "acc_num", "cls", "coords"])
+
+
 	if classes is None:
 		classes = C.classes_to_include
 
-	# iterate over image series
 	for cls in classes:
 		if acc_nums is None:
 			iter_acc_nums = [x[:-4] for x in os.listdir(C.full_img_dir + "\\" + cls)]
@@ -292,38 +362,34 @@ def extract_vois(C, voi_df_art, voi_df_ven, voi_df_eq, intensity_df=None, classe
 				print(".", end="")
 	print("")
 	print(time.time()-t)
-	
-	return small_voi_df
 
-def save_unaugment_set(C=None, classes=None, acc_num=None, small_voi_df=None):
+def save_unaugment_set(cls=None, acc_num=None, small_voi_df=None):
 	"""Save unaugmented lesion images"""
-	if C is None:
-		C = config.Config()
+	C = config.Config()
+
+	if cls is None:
+		for cls in C.classes_to_include:
+			save_unaugment_set(cls, acc_num, small_voi_df)
+
 	if small_voi_df is None:
 		small_voi_df = pd.read_csv(C.small_voi_path)
 
-	if classes is None:
-		classes = C.classes_to_include
+	if acc_num is None:
+		acc_num_subset = os.listdir(C.crops_dir + cls)
+	else:
+		acc_num_subset = [x for x in os.listdir(C.crops_dir + cls) if x.startswith(acc_num)]
 
-	t = time.time()
-	for cls in classes:
-		if acc_num is None:
-			acc_num_subset = os.listdir(C.crops_dir + cls)
-		else:
-			acc_num_subset = [x for x in os.listdir(C.crops_dir + cls) if x.startswith(acc_num)]
+	for fn in acc_num_subset:
+		img = np.load(C.crops_dir + cls + "\\" + fn)
 
-		for fn in acc_num_subset:
-			img = np.load(C.crops_dir + cls + "\\" + fn)
-
-			try:
-				unaug_img = _resize_img(img, _get_coords(small_voi_df[small_voi_df["id"] == fn[:-4]]))
-			except Exception as e:
-				if len(classes) == 1:
-					raise ValueError(e)
-				print(cls, fn)
-				continue
-			np.save(C.orig_dir + cls + "\\" + fn, unaug_img)
-	print(time.time()-t)
+		try:
+			unaug_img = _resize_img(img, _get_coords(small_voi_df[small_voi_df["id"] == fn[:-4]]))
+		except Exception as e:
+			if len(classes) == 1:
+				raise ValueError(e)
+			print(cls, fn)
+			continue
+		np.save(C.orig_dir + cls + "\\" + fn, unaug_img)
 
 def parallel_augment(small_voi_df=None, classes=None, acc_num=None, num_cores=None, overwrite=True):
 	"""Augment all images in cls using CPU parallelization"""
@@ -477,6 +543,7 @@ def _augment_img(img, voi, num_samples, translate=[2,2,1], add_reflections=False
 	return aug_imgs
 
 def _save_augmented_img(fn, cls, voi_coords, C, overwrite=True):
+	"""Written in a way to allow partial overwriting"""
 	if not overwrite and os.path.exists(C.aug_dir + cls + "\\" + fn[:-4] + "_0.npy"):
 		return
 

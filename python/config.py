@@ -50,7 +50,7 @@ class Config:
 		self.artif_dir = "E:\\imgs\\artif_imgs_2412\\"
 		self.aug_dir = "E:\\imgs\\aug_imgs_2412_1e\\"
 		self.orig_dir = "E:\\imgs\\orig_imgs_2412_1e\\"
-		self.model_save_dir = "E:\\models\\"
+		self.model_dir = "E:\\models\\"
 
 		# Artificial sample parameters
 		self.long_size_frac = [0.6, 0.85]
@@ -60,24 +60,38 @@ class Config:
 
 class Hyperparams:
 	def __init__(self):
-		self.n = 4
+		self.n = 1
 		self.n_art = 0
-		self.steps_per_epoch = 750
+		self.steps_per_epoch = 1500
 		self.epochs = 15
 		self.run_2d = False
-		self.f = [64,128,128]
+		self.f = [64,64,128,128]
 		self.padding = ['valid','valid']
 		self.dropout = [0.1,0.1]
 		self.dense_units = 128
-		self.dilation_rate = (2,2,1)
+		self.dilation_rate = (1,1,1)
+		self.stride = (2,2,2)
 		self.kernel_size = (3,3,2)
 		self.pool_sizes = [(2,2,2),(1,1,1)]
 		self.activation_type = 'relu'
 		self.merge_layer = 0
-		self.early_stopping = EarlyStopping(monitor='loss', min_delta=0.002, patience=3)
-		#self.non_imaging_inputs = C.non_imaging_inputs
 		self.time_dist = True
 		self.optimizer = 'adam'
+		self.early_stopping = EarlyStopping(monitor='loss', min_delta=0.002, patience=3)
+		#self.non_imaging_inputs = C.non_imaging_inputs
 
-	def get_random_hyperparams(self):
-		pass
+	def get_best_hyperparams(self):
+		self.n = 4
+		self.n_art = 0
+		self.steps_per_epoch = 750
+		self.epochs = 30
+		self.f = [64,128,128]
+		self.padding = ['same','valid']
+		self.dropout = [0.1,0.1]
+		self.dense_units = 100
+		self.dilation_rate = (1,1,1)
+		self.kernel_size = (3,3,2)
+		self.pool_sizes = [(2,2,1),(1,1,1)]
+		self.activation_type = 'relu'
+		self.merge_layer = 1
+		self.time_dist = False

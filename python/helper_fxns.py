@@ -1,5 +1,5 @@
-from dicom2nifti.convert_dicom import dicom_series_to_nifti
-from dicom2nifti.convert_siemens import dicom_to_nifti
+from custom_mods.convert_dicom import dicom_series_to_nifti
+from custom_mods.convert_siemens import dicom_to_nifti
 import copy
 import dicom
 import math
@@ -21,7 +21,7 @@ import transforms as tr
 ### IMAGE LOADING
 ###########################
 
-def dcm_load(path2series, flip_x=False, flip_y=False):
+def dcm_load(path2series, flip_x=False, flip_y=False, flip_z=False):
 	"""
 	Load a dcm series as a 3D array along with its dimensions.
 	
@@ -30,15 +30,10 @@ def dcm_load(path2series, flip_x=False, flip_y=False):
 	- the spacing between pixels in cm
 	"""
 
-	try:
-		tmp_fn = "tmp.nii.gz"
-		dicom_series_to_nifti(path2series, tmp_fn)
+	tmp_fn = "tmp.nii.gz"
+	dicom_series_to_nifti(path2series, tmp_fn)
 
-		ret = ni_load(tmp_fn, flip_x, flip_y)
-
-	except Exception as e:
-		print(path2series, e)
-		return None
+	ret = ni_load(tmp_fn, flip_x, flip_y, flip_z)
 
 	try:
 		os.remove(tmp_fn)
@@ -47,9 +42,9 @@ def dcm_load(path2series, flip_x=False, flip_y=False):
 
 	return ret
 
-def ni_load(filename, flip_x=False, flip_y=False, normalize=False, binary=False):
+def ni_load(filename, flip_x=False, flip_y=False, flip_z=False, normalize=False, binary=False):
 	"""
-	Load a nifti image as a 3D array along with its dimensions.
+	Load a nifti image as a 3D array (with optional channels) along with its dimensions.
 	
 	returns as a tuple:
 	- the normalized (0-255) image
@@ -72,9 +67,9 @@ def ni_load(filename, flip_x=False, flip_y=False, normalize=False, binary=False)
 	if dim_units == 2: #or np.sum(img) * dims[0] * dims[1] * dims[2] > 10000:
 		dims = [d/10 for d in dims]
 	if len(img.shape) == 4:
-		img = img[::(-1)**flip_x,::(-1)**flip_y,:,:]
+		img = img[::(-1)**flip_x,::(-1)**flip_y,::(-1)**flip_z,:]
 	else:
-		img = img[::(-1)**flip_x,::(-1)**flip_y,:]
+		img = img[::(-1)**flip_x,::(-1)**flip_y,::(-1)**flip_z]
 
 	return img, dims
 
@@ -519,7 +514,7 @@ def _plot_without_axes(img, cmap):
 	fig.axes.get_xaxis().set_visible(False)
 	fig.axes.get_yaxis().set_visible(False)
 
-def plot_section_auto(orig_img, normalize=False, frac=None):
+def plot_section_auto(orig_img, normalize=None, frac=None):
 	"""Only accepts 3D images or 4D images with at least 3 channels.
 	If 3D, outputs slices at 1/4, 1/2 and 3/4.
 	If 4D, outputs middle slice for the first 3 channels.
@@ -527,9 +522,9 @@ def plot_section_auto(orig_img, normalize=False, frac=None):
 
 	if len(orig_img.shape) == 4:
 		img = copy.deepcopy(orig_img)
-		if normalize:
-			img[0,0,:,:]=-.7
-			img[0,-1,:,:]=.7
+		if normalize is not None:
+			img[0,0,:,:]=normalize[0]
+			img[0,-1,:,:]=normalize[1]
 
 		if frac is None:
 			plt.subplot(131)
@@ -555,9 +550,9 @@ def plot_section_auto(orig_img, normalize=False, frac=None):
 
 	else:
 		img = copy.deepcopy(orig_img)
-		if normalize:
-			img[0,0,:]=-1
-			img[0,-1,:]=.8
+		if normalize is not None:
+			img[0,0,:]=normalize[0]
+			img[0,-1,:]=normalize[1]
 		if frac is not None:
 			print("frac does nothing for 3D images.")
 

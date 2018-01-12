@@ -124,7 +124,7 @@ def run_fixed_hyperparams(C_list=None, overwrite=False, max_runs=999, hyperparam
 		running_stats = pd.read_csv(C_list[0].run_stats_path)
 		index = len(running_stats)
 
-	model_names = os.listdir("E:\\models\\")
+	model_names = os.listdir(C_list[0].model_dir)
 	if len(model_names) > 0:	
 		model_num = max([int(x[x.find('_')+1:x.find('.')]) for x in model_names]) + 1
 	else:
@@ -132,21 +132,21 @@ def run_fixed_hyperparams(C_list=None, overwrite=False, max_runs=999, hyperparam
 
 	running_acc_6 = []
 	running_acc_3 = []
-	n = [4]
-	n_art = [0]
-	steps_per_epoch = [750]
-	epochs = [25]
-	run_2d = False
-	f = [[64,128,128]]
-	padding = [['valid','valid']]
-	dropout = [[0.1,0.1]]
-	dense_units = [128]
-	dilation_rate = [(1,1,1)]
-	kernel_size = [(3,3,2)]
-	pool_sizes = [(2,2,1),(1,1,2)]
-	activation_type = ['elu']
-	merge_layer = [0]
-	cycle_len = 1
+	"""n = [4]
+				n_art = [0]
+				steps_per_epoch = [750]
+				epochs = [25]
+				run_2d = False
+				f = [[64,128,128]]
+				padding = [['valid','valid']]
+				dropout = [[0.1,0.1]]
+				dense_units = [128]
+				dilation_rate = [(1,1,1)]
+				kernel_size = [(3,3,2)]
+				pool_sizes = [(2,2,1),(1,1,2)]
+				activation_type = ['elu']
+				merge_layer = [0]
+				cycle_len = 1"""
 	early_stopping = EarlyStopping(monitor='loss', min_delta=0.002, patience=3)
 	time_dist = True
 
@@ -155,44 +155,66 @@ def run_fixed_hyperparams(C_list=None, overwrite=False, max_runs=999, hyperparam
 		C = C_list[C_index % len(C_list)]
 		#C.hard_scale = False
 
-		X_test, Y_test, train_generator, num_samples, train_orig, Z = get_cnn_data(n=n[C_index % len(n)],
-					n_art=n_art[C_index % len(n_art)], run_2d=run_2d, C=C)
-		Z_test, Z_train_orig = Z
-		X_train_orig, Y_train_orig = train_orig
+		#run_then_return_val_loss(num_iters=1, hyperparams=None)
 
-		for _ in range(cycle_len):
+		if hyperparams is not None:
+			T = hyperparams
+
+			X_test, Y_test, train_generator, num_samples, train_orig, Z = get_cnn_data(n=T.n,
+						n_art=T.n_art, run_2d=T.run_2d, C=C)
+			Z_test, Z_train_orig = Z
+			X_train_orig, Y_train_orig = train_orig
+			model = build_cnn_hyperparams(T)
+			#print(model.summary())
+			#return
+			t = time.time()
+			hist = model.fit_generator(train_generator, steps_per_epoch=T.steps_per_epoch,
+					epochs=T.epochs, callbacks=[T.early_stopping], verbose=False)
+			loss_hist = hist.history['loss']
+
+		else:
+			X_test, Y_test, train_generator, num_samples, train_orig, Z = get_cnn_data(n=n[C_index % len(n)],
+						n_art=n_art[C_index % len(n_art)], run_2d=run_2d, C=C)
+			Z_test, Z_train_orig = Z
+			X_train_orig, Y_train_orig = train_orig
+		#for _ in range(cycle_len):
 			model = build_cnn(C, 'adam', activation_type=activation_type[index % len(activation_type)],
 					dilation_rate=dilation_rate[index % len(dilation_rate)], f=f[index % len(f)], pool_sizes=pool_sizes,
 					padding=padding[index % len(padding)], dropout=dropout[index % len(dropout)],
 					dense_units=dense_units[index % len(dense_units)], kernel_size=kernel_size[index % len(kernel_size)],
 					merge_layer=merge_layer[index % len(merge_layer)], non_imaging_inputs=C.non_imaging_inputs, time_dist=time_dist)
-			
-			#print(model.summary())
-			#return
+		
 			t = time.time()
 			hist = model.fit_generator(train_generator, steps_per_epoch=steps_per_epoch[index % len(steps_per_epoch)],
 					epochs=epochs[index % len(epochs)], callbacks=[early_stopping], verbose=False)
 			loss_hist = hist.history['loss']
 
-			Y_pred = model.predict(X_train_orig)
-			y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_train_orig])
-			y_pred = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_pred])
-			misclassified_train = list(Z_train_orig[~np.equal(y_pred, y_true)])
+		Y_pred = model.predict(X_train_orig)
+		y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_train_orig])
+		y_pred = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_pred])
+		misclassified_train = list(Z_train_orig[~np.equal(y_pred, y_true)])
 
-			Y_pred = model.predict(X_test)
-			y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_test])
-			y_pred = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_pred])
-			misclassified_test = list(Z_test[~np.equal(y_pred, y_true)])
-			cm = confusion_matrix(y_true, y_pred)
-			f1 = f1_score(y_true, y_pred, average="weighted")
+		Y_pred = model.predict(X_test)
+		y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_test])
+		y_pred = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_pred])
+		misclassified_test = list(Z_test[~np.equal(y_pred, y_true)])
+		cm = confusion_matrix(y_true, y_pred)
+		f1 = f1_score(y_true, y_pred, average="weighted")
 
-			running_acc_6.append(accuracy_score(y_true, y_pred))
-			print("6cls accuracy:", running_acc_6[-1], " - average:", np.mean(running_acc_6))
+		running_acc_6.append(accuracy_score(y_true, y_pred))
+		print("6cls accuracy:", running_acc_6[-1], " - average:", np.mean(running_acc_6))
 
-			y_true_simp, y_pred_simp, _ = condense_cm(y_true, y_pred, C.classes_to_include)
-			running_acc_3.append(accuracy_score(y_true_simp, y_pred_simp))
-			#print("3cls accuracy:", running_acc_3[-1], " - average:", np.mean(running_acc_3))
+		y_true_simp, y_pred_simp, _ = condense_cm(y_true, y_pred, C.classes_to_include)
+		running_acc_3.append(accuracy_score(y_true_simp, y_pred_simp))
+		#print("3cls accuracy:", running_acc_3[-1], " - average:", np.mean(running_acc_3))
 
+		if hyperparams is not None:
+			running_stats.loc[index] = _get_hyperparams_as_list(C, T) + [running_acc_6[-1], running_acc_3[-1], time.time()-t, loss_hist,
+								num_samples['hcc'], num_samples['cholangio'], num_samples['colorectal'], num_samples['cyst'], num_samples['hemangioma'], num_samples['fnh'],
+								cm, time.time(), #C.run_num,
+								misclassified_test, misclassified_train, model_num, y_true, str(Y_pred), list(Z_test)]
+
+		else:
 			running_stats.loc[index] = [n[C_index % len(n)], n_art[C_index % len(n_art)], steps_per_epoch[index % len(steps_per_epoch)], epochs[index % len(epochs)],
 								C.train_frac, C.test_num, C.aug_factor, C.non_imaging_inputs,
 								kernel_size[index % len(kernel_size)], f[index % len(f)], padding[index % len(padding)],
@@ -201,14 +223,14 @@ def run_fixed_hyperparams(C_list=None, overwrite=False, max_runs=999, hyperparam
 								num_samples['hcc'], num_samples['cholangio'], num_samples['colorectal'], num_samples['cyst'], num_samples['hemangioma'], num_samples['fnh'],
 								cm, time.time(), #C.run_num,
 								misclassified_test, misclassified_train, model_num, y_true, str(Y_pred), list(Z_test)]
-			running_stats.to_csv(C.run_stats_path, index=False)
+		running_stats.to_csv(C.run_stats_path, index=False)
 
-			model.save(C.model_save_dir+'models_%d.hdf5' % model_num)
-			model_num += 1
-
-			index += 1
-
+		model.save(C.model_dir+'models_%d.hdf5' % model_num)
+		model_num += 1
+		index += 1
+		#end cycle_len
 		C_index += 1
+
 
 ####################################
 ### BUILD CNNS
@@ -217,41 +239,23 @@ def run_fixed_hyperparams(C_list=None, overwrite=False, max_runs=999, hyperparam
 def run_then_return_val_loss(num_iters=1, hyperparams=None):
 	"""Runs the CNN indefinitely, saving performance metrics."""
 	C = config.Config()
-	if overwrite:
-		running_stats = pd.DataFrame(columns = ["n", "n_art", "steps_per_epoch", "epochs",
-			"num_phases", "input_res", "training_fraction", "test_num", "augment_factor", "non_imaging_inputs",
-			"kernel_size", "conv_filters", "conv_padding",
-			"dropout", "time_dist", "dilation", "dense_units",
-			"acc6cls", "acc3cls", "time_elapsed(s)", "loss_hist",
-			'hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh',
-			'confusion_matrix', 'f1', 'timestamp', 'run_num',
-			'misclassified_test', 'misclassified_train', 'model_num',
-			'y_true', 'y_pred_raw', 'z_test'])
-		index = 0
-	else:
-		running_stats = pd.read_csv(C.run_stats_path)
-		index = len(running_stats)
-
-	model_names = os.listdir("E:\\models\\")
-	if len(model_names) > 0:	
-		model_num = max([int(x[x.find('_')+1:x.find('.')]) for x in model_names]) + 1
-	else:
-		model_num = 0
+	running_stats = pd.read_csv(C.run_stats_path)
+	index = len(running_stats)
 
 	X_test, Y_test, train_generator, num_samples, train_orig, Z = get_cnn_data(n=T.n,
 				n_art=T.n_art, run_2d=T.run_2d, C=C)
-	Z_test, Z_train_orig = Z
-	X_train_orig, Y_train_orig = train_orig
+	#Z_test, Z_train_orig = Z
+	#X_train_orig, Y_train_orig = train_orig
 
 	T = hyperparams
-	model = build_cnn(T)
+	model = build_cnn_hyperparams(T)
 
 	t = time.time()
 	hist = model.fit_generator(train_generator, steps_per_epoch=T.steps_per_epoch,
-			epochs=num_iters, callbacks=[T.early_stopping], verbose=False)
-	loss_hist = hist.history['loss']
+			epochs=num_iters, callbacks=[T.early_stopping], verbose=False, validation=[X_test, Y_test])
+	loss_hist = hist.history['val_loss']
 
-	Y_pred = model.predict(X_train_orig)
+	"""	Y_pred = model.predict(X_train_orig)
 	y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_train_orig])
 	y_pred = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_pred])
 	misclassified_train = list(Z_train_orig[~np.equal(y_pred, y_true)])
@@ -271,9 +275,9 @@ def run_then_return_val_loss(num_iters=1, hyperparams=None):
 			[acc_6cl, acc_3cl, time.time()-t, loss_hist,
 			num_samples['hcc'], num_samples['cholangio'], num_samples['colorectal'], num_samples['cyst'], num_samples['hemangioma'], num_samples['fnh'],
 			cm, time.time(), misclassified_test, misclassified_train, model_num, y_true, str(Y_pred), list(Z_test)]
-	running_stats.to_csv(C.run_stats_path, index=False)
+	running_stats.to_csv(C.run_stats_path, index=False)"""
 
-	model.save(C.model_save_dir+'models_%d.hdf5' % model_num)
+	return loss_hist
 
 def _get_hyperparams_as_list(C=None, T=None):
 	if T is None:
@@ -317,7 +321,7 @@ def build_cnn_hyperparams(hyperparams):
 
 def build_cnn(C=None, optimizer='adam', dilation_rate=(1,1,1), padding=['same', 'valid'], pool_sizes = [(2,2,2), (2,2,2)],
 	dropout=[0.1,0.1], activation_type='relu', f=[64,128,128], dense_units=100, kernel_size=(3,3,2), merge_layer=1,
-	non_imaging_inputs=False, run_2d=False, time_dist=True):
+	non_imaging_inputs=False, run_2d=False, time_dist=True, stride=(1,1,1)):
 	"""Main class for setting up a CNN. Returns the compiled model."""
 
 	if C is None:
@@ -382,16 +386,16 @@ def build_cnn(C=None, optimizer='adam', dilation_rate=(1,1,1), padding=['same', 
 			x = Permute((4,1,2,3,5))(x)
 
 			for layer_num in range(len(f)):
-				if layer_num == 1:
+				if layer_num == 2:
 					x = TimeDistributed(Conv3D(filters=f[layer_num], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[1]))(x) #, kernel_regularizer=l2(.01)
-				#elif layer_num == 0:
-				#	x = TimeDistributed(Conv3D(filters=f[layer_num], kernel_size=kernel_size, strides=(2,2,1), padding=padding[1]))(x) #, kernel_regularizer=l2(.01)
+				elif layer_num == 0:
+					x = TimeDistributed(Conv3D(filters=f[layer_num], kernel_size=kernel_size, strides=stride, padding=padding[1]))(x) #, kernel_regularizer=l2(.01)
 				else:
-					x = TimeDistributed(Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1]))(x) #, kernel_regularizer=l2(.01)
+					x = TimeDistributed(Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1 * (layer_num > 1)]))(x) #, kernel_regularizer=l2(.01)
 				#x = BatchNormalization()(x)
 				x = TimeDistributed(Dropout(dropout[0]))(x)
 				x = ActivationLayer(activation_args)(x)
-				if layer_num == 0:
+				if layer_num == 1:
 					x = TimeDistributed(MaxPooling3D(pool_sizes[0]))(x)
 			
 			#x = Permute((2,3,4,1,5))(x)
@@ -560,6 +564,7 @@ def get_cnn_data(n=4, n_art=4, run_2d=False, verbose=False, C=None):
 
 	return X_test, Y_test, train_generator, num_samples, [X_train_orig, Y_train_orig], [Z_test, Z_train_orig]
 
+
 ###########################
 ### FOR OUTPUTTING IMAGES AFTER TRAINING
 ###########################
@@ -586,10 +591,10 @@ def save_output(Z, y_pred, y_true, C=None, save_dir=None):
 
 	for i in range(len(Z)):
 		if y_pred[i] != y_true[i]:
-			_plot_multich_with_bbox(Z[i], cls_mapping[y_pred[i]], small_voi_df,
+			vm.save_img_with_bbox(Z[i], cls_mapping[y_pred[i]], small_voi_df,
 					save_dir=save_dir + "\\incorrect\\" + cls_mapping[y_true[i]])
 		else:
-			_plot_multich_with_bbox(Z[i], cls_mapping[y_pred[i]], small_voi_df,
+			vm.save_img_with_bbox(Z[i], cls_mapping[y_pred[i]], small_voi_df,
 					save_dir=save_dir + "\\correct\\" + cls_mapping[y_true[i]])
 
 def condense_cm(y_true, y_pred, cls_mapping):
@@ -600,6 +605,7 @@ def condense_cm(y_true, y_pred, cls_mapping):
 	y_pred_simp = np.array([C.simplify_map[cls_mapping[y]] for y in y_pred])
 	
 	return y_true_simp, y_pred_simp, ['hcc', 'benign', 'malignant non-hcc']
+
 
 ####################################
 ### Training Submodules
@@ -639,7 +645,7 @@ def _train_generator_func(train_ids, voi_df=None, n=12, n_art=0, C=None):
 				if img_fn[:img_fn.rfind('_')] + ".npy" in train_ids[cls]:
 					x1[train_cnt] = np.load(C.aug_dir+cls+"\\"+img_fn)
 					if C.hard_scale:
-						x1[train_cnt] = vm.scale_intensity(x1[train_cnt], 1, max_int=2)#, keep_min=True)
+						x1[train_cnt] = vm.scale_intensity(x1[train_cnt], 1, max_int=2, keep_min=False)
 
 					row = voi_df[(voi_df["Filename"] == img_fn[:img_fn.find('_')] + ".npy") &
 								 (voi_df["lesion_num"] == int(img_fn[img_fn.find('_')+1:img_fn.rfind('_')]))]
@@ -780,89 +786,10 @@ def _collect_unaug_data(C, verbose=False):
 		
 	return orig_data_dict, num_samples
 
+
 ###########################
 ### Output Submodules
 ###########################
-
-def _plot_multich_with_bbox(fn, pred_class=None, small_voi_df=None, save_dir=None, normalize=False):
-	import importlib
-	importlib.reload(vm)
-
-	C = config.Config()
-
-	if small_voi_df is None:
-		small_voi_df = pd.read_csv(C.small_voi_path)
-
-	if not os.path.exists(save_dir):
-		os.makedirs(save_dir)
-		
-	img_fn = fn[:fn.find('_')] + ".npy"
-	cls = small_voi_df.loc[small_voi_df["id"] == fn[:-4], "cls"].values[0]
-
-	img = np.load(C.crops_dir + cls + "\\" + fn)
-	img_slice = img[:,:, img.shape[2]//2, :].astype(float)
-	#for ch in range(img_slice.shape[-1]):
-	#	img_slice[:, :, ch] *= 255/np.amax(img_slice[:, :, ch])
-	if normalize:
-		img_slice[0,0,:]=-1
-		img_slice[0,-1,:]=.8
-
-	img_slice = np.stack([img_slice, img_slice, img_slice], axis=2)
-	
-	img_slice = _draw_bbox(img_slice, vm._get_coords(small_voi_df[small_voi_df["id"] == fn[:-4]]))
-		
-	ch1 = np.transpose(img_slice[:,::-1,:,0], (1,0,2))
-	ch2 = np.transpose(img_slice[:,::-1,:,1], (1,0,2))
-	
-	if C.nb_channels == 2:
-		ret = np.empty([ch1.shape[0]*2, ch1.shape[1], 3])
-		ret[:ch1.shape[0],:,:] = ch1
-		ret[ch1.shape[0]:,:,:] = ch2
-		
-	elif C.nb_channels == 3:
-		ch3 = np.transpose(img_slice[:,::-1,:,2], (1,0,2))
-
-		ret = np.empty([ch1.shape[0]*3, ch1.shape[1], 3])
-		ret[:ch1.shape[0],:,:] = ch1
-		ret[ch1.shape[0]:ch1.shape[0]*2,:,:] = ch2
-		ret[ch1.shape[0]*2:,:,:] = ch3
-		
-	else:
-		raise ValueError("Invalid num channels")
-	
-	if pred_class is None:
-		from skimage.transform import resize
-		#print(ret.shape)
-		imsave("%s\\%s (%s).png" % (save_dir, fn[:-4], cls), resize(ret, [300,100]))
-	else:
-		imsave("%s\\large-%s (pred %s).png" % (save_dir, fn[:-4], pred_class), ret)
-
-		rescale_factor = 3
-		img = np.load(C.orig_dir + cls + "\\" + fn)
-
-		img_slice = img[:,:, img.shape[2]//2, :].astype(float)
-
-		if normalize:
-			img_slice[0,0,:]=-1
-			img_slice[0,-1,:]=.8
-			
-		ch1 = np.transpose(img_slice[:,::-1,0], (1,0))
-		ch2 = np.transpose(img_slice[:,::-1,1], (1,0))
-		
-		if C.nb_channels == 2:
-			ret = np.empty([ch1.shape[0]*2, ch1.shape[1]])
-			ret[:ch1.shape[0],:] = ch1
-			ret[ch1.shape[0]:,:] = ch2
-			
-		elif C.nb_channels == 3:
-			ch3 = np.transpose(img_slice[:,::-1,2], (1,0))
-
-			ret = np.empty([ch1.shape[0]*3, ch1.shape[1]])
-			ret[:ch1.shape[0],:] = ch1
-			ret[ch1.shape[0]:ch1.shape[0]*2,:] = ch2
-			ret[ch1.shape[0]*2:,:] = ch3
-
-		imsave("%s\\small-%s (pred %s).png" % (save_dir, fn[:fn.find('.')], pred_class), rescale(ret, rescale_factor, mode='constant'))
 
 def _draw_bbox(img_slice, voi, C=None):
 	"""Draw a colored box around the voi of an image slice showing how it would be cropped."""
