@@ -1,3 +1,14 @@
+"""
+Converts a nifti file to a numpy array.
+Accepts either a single nifti file or a folder of niftis as the input argument.
+
+Usage:
+	python cnn_builder.py
+
+Author: Clinton Wang, E-mail: `clintonjwang@gmail.com`, Github: `https://github.com/clintonjwang/voi-classifier`
+"""
+
+
 import keras.backend as K
 from keras.layers import Input, Dense, Concatenate, Flatten, Dropout, Lambda, Conv3D, MaxPooling3D, LSTM
 from keras.layers import SimpleRNN, Conv2D, MaxPooling2D, ZeroPadding3D, Activation, ELU, TimeDistributed, Permute, Reshape
@@ -496,10 +507,8 @@ def get_cnn_data(n=4, n_art=4, run_2d=False, verbose=False, C=None):
 		C = config.Config()
 
 	nb_classes = len(C.classes_to_include)
-	intensity_df = pd.read_csv(C.int_df_path)
 	orig_data_dict, num_samples = _collect_unaug_data(C)
 
-	#avg_X2 = {}
 	train_ids = {} #filenames of training set originals
 	test_ids = {} #filenames of test set
 	X_test = []
@@ -515,7 +524,6 @@ def get_cnn_data(n=4, n_art=4, run_2d=False, verbose=False, C=None):
 
 	for cls in orig_data_dict:
 		cls_num = C.classes_to_include.index(cls)
-		#avg_X2[cls] = np.mean(orig_data_dict[cls][1], axis=0)
 
 		if C.train_frac is None:
 			train_samples[cls] = num_samples[cls] - C.test_num
@@ -523,17 +531,17 @@ def get_cnn_data(n=4, n_art=4, run_2d=False, verbose=False, C=None):
 			train_samples[cls] = round(num_samples[cls]*C.train_frac)
 		
 		order = np.random.permutation(list(range(num_samples[cls])))
-		train_ids[cls] = list(orig_data_dict[cls][1][order[:train_samples[cls]]])
-		test_ids[cls] = list(orig_data_dict[cls][1][order[train_samples[cls]:]])
+		train_ids[cls] = list(orig_data_dict[cls][-1][order[:train_samples[cls]]])
+		test_ids[cls] = list(orig_data_dict[cls][-1][order[train_samples[cls]:]])
 		
 		X_test = X_test + list(orig_data_dict[cls][0][order[train_samples[cls]:]])
-		#X2_test = X2_test + list(orig_data_dict[cls][1][order[train_samples[cls]:]])
+		X2_test = X2_test + list(orig_data_dict[cls][1][order[train_samples[cls]:]])
 		Y_test = Y_test + [[0] * cls_num + [1] + [0] * (nb_classes - cls_num - 1)] * \
 							(num_samples[cls] - train_samples[cls])
 		Z_test = Z_test + test_ids[cls]
 		
 		X_train_orig = X_train_orig + list(orig_data_dict[cls][0][order[:train_samples[cls]]])
-		#X2_train_orig = X2_train_orig + list(orig_data_dict[cls][1][order[:train_samples[cls]]])
+		X2_train_orig = X2_train_orig + list(orig_data_dict[cls][1][order[:train_samples[cls]]])
 		Y_train_orig = Y_train_orig + [[0] * cls_num + [1] + [0] * (nb_classes - cls_num - 1)] * \
 							(train_samples[cls])
 		Z_train_orig = Z_train_orig + train_ids[cls]
@@ -578,8 +586,6 @@ def save_output(Z, y_pred, y_true, C=None, save_dir=None):
 		C = config.Config()
 	if save_dir is None:
 		save_dir = C.output_img_dir
-	
-	small_voi_df = pd.read_csv(C.small_voi_path)
 
 	cls_mapping = C.classes_to_include
 
@@ -591,11 +597,13 @@ def save_output(Z, y_pred, y_true, C=None, save_dir=None):
 
 	for i in range(len(Z)):
 		if y_pred[i] != y_true[i]:
-			vm.save_img_with_bbox(Z[i], cls_mapping[y_pred[i]], small_voi_df,
-					save_dir=save_dir + "\\incorrect\\" + cls_mapping[y_true[i]])
+			vm.save_img_with_bbox(cls=y_true[i], lesion_nums=[Z[i]],
+				fn_suffix = " (bad_pred %s).png" % cls_mapping[y_pred[i]],
+				save_dir=save_dir + "\\incorrect\\" + cls_mapping[y_true[i]])
 		else:
-			vm.save_img_with_bbox(Z[i], cls_mapping[y_pred[i]], small_voi_df,
-					save_dir=save_dir + "\\correct\\" + cls_mapping[y_true[i]])
+			vm.save_img_with_bbox(cls=y_true[i], lesion_nums=[Z[i]],
+				fn_suffix = " (good_pred %s).png" % cls_mapping[y_pred[i]],
+				save_dir=save_dir + "\\correct\\" + cls_mapping[y_true[i]])
 
 def condense_cm(y_true, y_pred, cls_mapping):
 	"""From lists y_true and y_pred with class numbers, """
@@ -611,24 +619,27 @@ def condense_cm(y_true, y_pred, cls_mapping):
 ### Training Submodules
 ####################################
 
-def _train_generator_func(train_ids, voi_df=None, n=12, n_art=0, C=None):
+def _train_generator_func(train_ids, voi_df=None, n=12, n_art=0):
 	"""n is the number of samples from each class, n_art is the number of artificial samples"""
 
 	import voi_methods as vm
-	if C is None:
-		C = config.Config()
+	C = config.Config()
+
 	if voi_df is None:
 		voi_df = pd.read_csv(C.art_voi_path)
-	classes_to_include = C.classes_to_include
-	
-	num_classes = len(classes_to_include)
+
+	#avg_X2 = {}
+	#for cls in orig_data_dict:
+	#	avg_X2[cls] = np.mean(orig_data_dict[cls][1], axis=0)
+
+	num_classes = len(C.classes_to_include)
 	while True:
 		x1 = np.empty(((n+n_art)*num_classes, C.dims[0], C.dims[1], C.dims[2], C.nb_channels))
-		#x2 = np.empty(((n+n_art)*num_classes, 2))
+		x2 = np.empty(((n+n_art)*num_classes, 2))
 		y = np.zeros(((n+n_art)*num_classes, num_classes))
 
 		train_cnt = 0
-		for cls in classes_to_include:
+		for cls in C.classes_to_include:
 			if n_art > 0:
 				img_fns = os.listdir(C.artif_dir+cls)
 				for _ in range(n_art):
@@ -647,8 +658,7 @@ def _train_generator_func(train_ids, voi_df=None, n=12, n_art=0, C=None):
 					if C.hard_scale:
 						x1[train_cnt] = vm.scale_intensity(x1[train_cnt], 1, max_int=2, keep_min=False)
 
-					row = voi_df[(voi_df["Filename"] == img_fn[:img_fn.find('_')] + ".npy") &
-								 (voi_df["lesion_num"] == int(img_fn[img_fn.find('_')+1:img_fn.rfind('_')]))]
+					row = voi_df[voi_df["lesion_num"] == int(img_fn[img_fn.find('_')+1:img_fn.rfind('_')])]
 					#x2[train_cnt] = [(float(row["real_dx"]) * float(row["real_dy"]) * float(row["real_dz"])) ** (1/3) / 50,
 					#					max(float(row["real_dx"]), float(row["real_dy"])) / float(row["real_dz"])]
 					
@@ -659,7 +669,7 @@ def _train_generator_func(train_ids, voi_df=None, n=12, n_art=0, C=None):
 						break
 
 		if C.non_imaging_inputs:
-			yield _separate_phases([np.array(x1), np.array(x2)]), np.array(y) #[np.array(x1), np.array(x2)], np.array(y) #
+			yield [np.array(x1), np.array(x2)], np.array(y) #[np.array(x1), np.array(x2)], np.array(y) #
 		else:
 			yield np.array(x1), np.array(y) #[np.array(x1), np.array(x2)], np.array(y) #
 

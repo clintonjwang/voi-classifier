@@ -1,3 +1,10 @@
+"""
+Converts a nifti file to a numpy array.
+Accepts either a single nifti file or a folder of niftis as the input argument.
+
+Author: Clinton Wang, E-mail: `clintonjwang@gmail.com`, Github: `https://github.com/clintonjwang/voi-classifier`
+"""
+
 from custom_mods.convert_dicom import dicom_series_to_nifti
 from custom_mods.convert_siemens import dicom_to_nifti
 import copy
@@ -16,6 +23,17 @@ import shutil
 import SimpleITK as sitk
 import subprocess
 import transforms as tr
+
+def test_decorator(func):
+	"""Decorator that autofills the first argument with the classes
+	specified by C.classes_to_include if it is not included."""
+
+	def wrapper(*args, **kwargs):
+		print("hi")
+		result = func(*args, **kwargs)
+		return result
+
+	return wrapper
 
 ###########################
 ### IMAGE LOADING

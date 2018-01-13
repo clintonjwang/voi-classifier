@@ -1,3 +1,16 @@
+"""
+Converts a nifti file to a numpy array.
+Accepts either a single nifti file or a folder of niftis as the input argument.
+
+Usage:
+	python nii_to_np.py data/nifti/volume-01.nii
+	python nii_to_np.py data/nifti/
+	python nii_to_np.py data/nifti/ --dest data/numpy/
+	python nii_to_np.py data/nifti/volume-01.nii --dest data/numpy/
+
+Author: Clinton Wang, E-mail: `clintonjwang@gmail.com`, Github: `https://github.com/clintonjwang/voi-classifier`
+"""
+
 import pyelastix
 from keras.callbacks import EarlyStopping
 
@@ -91,7 +104,7 @@ class Hyperparams:
 		self.dense_units = 100
 		self.dilation_rate = (1,1,1)
 		self.kernel_size = (3,3,2)
-		self.pool_sizes = [(2,2,1),(1,1,1)]
+		self.pool_sizes = [(2,2,2),(2,2,1)]
 		self.activation_type = 'relu'
 		self.merge_layer = 1
 		self.time_dist = False
