@@ -45,6 +45,7 @@ def xref_dirs_with_excel(cls=None, fix_inplace=True):
 	index = C.cls_names.index(cls)
 	acc_num_df = C.sheetnames[index]
 	df = pd.read_excel(C.xls_name, C.sheetnames[index])
+	voi_df = pd.read_csv(C.art_voi_path)
 	xls_accnums = list(df[df['Run'] <= C.run_num]['Patient E Number'].astype(str))
 	unique, counts = np.unique(xls_accnums, return_counts=True)
 	xls_set = set(unique)
@@ -96,7 +97,7 @@ def xref_dirs_with_excel(cls=None, fix_inplace=True):
 			print("Mismatch in number of lesions in the spreadsheet vs", C.crops_dir, "for", acc_num)
 			bad_acc_nums.append(acc_num)
 
-	# Check cropped lesions
+	# Check unaugmented lesions
 	acc_nums = [fn[:fn.find("_")] for fn in os.listdir(C.orig_dir + "\\" + cls)]
 	unique, counts = np.unique(acc_nums, return_counts=True)
 	diff = xls_set.difference(unique)
@@ -115,63 +116,40 @@ def xref_dirs_with_excel(cls=None, fix_inplace=True):
 			print("Mismatch in number of lesions in the spreadsheet vs", C.orig_dir, "for", acc_num)
 			bad_acc_nums.append(acc_num)
 
+
+	# Check augmented lesions
+	lesion_ids_folder = set([fn[:fn.rfind("_")] for fn in os.listdir(C.aug_dir + "\\" + cls)])
+	lesion_ids_df = set(voi_df.loc[voi_df["cls"] == cls,"id"].values)
+	diff = lesion_ids_df.difference(lesion_ids_folder)
+	if len(diff) > 0:
+		print(diff, "are contained in voi_df but not in", C.aug_dir)
+		bad_acc_nums += [x[:x.find('_')] for x in diff]
+	diff = lesion_ids_folder.difference(lesion_ids_df)
+	if len(diff) > 0:
+		print(diff, "are contained in", C.aug_dir, "but not in voi_df.")
+		bad_acc_nums += [x[:x.find('_')] for x in diff]
+
+	# Fix lesions
 	if fix_inplace:
 		print("Reloading", set(bad_acc_nums))
 		for acc_num in set(bad_acc_nums):
 			reload_accnum(acc_num, cls)
 
-def reload_accnum(acc_num, cls, augment=True, overwrite=True, C=None):
-	"""Reloads cropped, scaled and augmented images. Updates voi_dfs and small_vois accordingly.
-	small_vois needs to include class."""
-
-	if C is None:
-		C = config.Config()
-
-	# Update VOIs
-	voi_df_art = pd.read_csv(C.art_voi_path)
-	voi_df_ven = pd.read_csv(C.ven_voi_path)
-	voi_df_eq = pd.read_csv(C.eq_voi_path)
-	voi_dfs = [voi_df_art, voi_df_ven, voi_df_eq]
-
-	#try:
-	voi_dfs = drm.load_vois_batch(cls, voi_dfs, acc_nums=[acc_num], overwrite=overwrite)
-	#except Exception as e:
-	#	print(acc_num, "is not loaded or included.")
-	#	remove_acc_num(acc_num, cls, C)
-	#	return
-
-	voi_df_art, voi_df_ven, voi_df_eq = voi_dfs
-	voi_df_art.to_csv(C.art_voi_path, index=False)
-	voi_df_ven.to_csv(C.ven_voi_path, index=False)
-	voi_df_eq.to_csv(C.eq_voi_path, index=False)
-
-	# Update small_vois / cropped image
-	intensity_df = pd.read_csv(C.int_df_path)
-
-	img_fn = acc_num + ".npy"
-	img = np.load(C.full_img_dir+"\\"+cls+"\\"+img_fn)
-	art_vois = voi_df_art[(voi_df_art["Filename"] == img_fn) & (voi_df_art["cls"] == cls)]
+def reload_accnum(acc_num, cls, augment=True, overwrite=True):
+	"""Reloads cropped, scaled and augmented images. Updates voi_dfs and small_vois accordingly."""
+	drm.load_vois_batch(cls, acc_nums=[acc_num], overwrite=overwrite)
 
 	if overwrite:
-		for fn in os.listdir(C.crops_dir + cls):
-			if fn.startswith(acc_num):
-				os.remove(C.crops_dir + cls + "\\" + fn)
-		for fn in os.listdir(C.orig_dir + cls):
-			if fn.startswith(acc_num):
-				os.remove(C.orig_dir + cls + "\\" + fn)
-		if augment:
-			for fn in os.listdir(C.aug_dir + cls):
-				if fn.startswith(acc_num):
-					os.remove(C.aug_dir + cls + "\\" + fn)
+		remove_lesion_from_folders(cls, acc_num)
 
-	small_voi_df = extract_vois(classes=[cls], acc_nums=[acc_num])
-	small_voi_df.to_csv(C.small_voi_path, index=False)
+	extract_vois(cls, [acc_num])
+	save_unaugment_set(cls, acc_num)
+	if augment:
+		parallel_augment(cls, acc_num)
 
-	save_unaugment_set(cls, acc_num, small_voi_df)
-	parallel_augment(small_voi_df=small_voi_df, classes=[cls], acc_num=acc_num)
 
 @drm.autofill_cls_arg
-def save_vois_as_imgs(cls=None, lesion_nums=None, save_dir=None, normalize=[-1,1], rescale_factor=3):
+def save_vois_as_imgs(cls=None, lesion_ids=None, save_dir=None, normalize=[-1,1], rescale_factor=3):
 	"""Save all voi images as jpg."""
 	C = config.Config()
 
@@ -180,8 +158,8 @@ def save_vois_as_imgs(cls=None, lesion_nums=None, save_dir=None, normalize=[-1,1
 	if not os.path.exists(save_dir):
 		os.makedirs(save_dir)
 
-	if lesion_nums is not None:
-		fns = [acc_num+".npy" for acc_num in lesion_nums]
+	if lesion_ids is not None:
+		fns = [acc_num+".npy" for acc_num in lesion_ids]
 	else:
 		fns = os.listdir(os.path.join(C.orig_dir, cls))
 
@@ -216,7 +194,7 @@ def save_vois_as_imgs(cls=None, lesion_nums=None, save_dir=None, normalize=[-1,1
 		imsave("%s\\%s%s.png" % (save_dir, fn[:-4], fn_suffix), rescale(ret, rescale_factor, mode='constant'))
 
 @drm.autofill_cls_arg
-def save_imgs_with_bbox(cls=None, lesion_nums=None, fn_suffix=None, save_dir=None, normalize=None, fixed_width=100):
+def save_imgs_with_bbox(cls=None, lesion_ids=None, fn_suffix=None, save_dir=None, normalize=None, fixed_width=100):
 
 	C = config.Config()
 
@@ -225,8 +203,8 @@ def save_imgs_with_bbox(cls=None, lesion_nums=None, fn_suffix=None, save_dir=Non
 	if not os.path.exists(save_dir):
 		os.makedirs(save_dir)
 		
-	if lesion_nums is not None:
-		fns = [lesion_num+".npy" for lesion_num in lesion_nums]
+	if lesion_ids is not None:
+		fns = [lesion_id+".npy" for lesion_id in lesion_ids]
 	else:
 		fns = os.listdir(os.path.join(C.crops_dir, cls))
 	
@@ -273,6 +251,33 @@ def save_imgs_with_bbox(cls=None, lesion_nums=None, fn_suffix=None, save_dir=Non
 		else:
 			imsave("%s\\%s%s.png" % (save_dir, fn[:-4], fn_suffix), ret)
 
+def remove_lesion_from_folders(cls=None, acc_num=None, lesion_id=None, include_augment=True):
+	"""Can either specify both cls and acc_num or just lesion_id"""
+
+	C = config.Config()
+
+	if lesion_id is None:
+		for fn in os.listdir(C.crops_dir + cls):
+			if fn.startswith(acc_num):
+				os.remove(C.crops_dir + cls + "\\" + fn)
+		for fn in os.listdir(C.orig_dir + cls):
+			if fn.startswith(acc_num):
+				os.remove(C.orig_dir + cls + "\\" + fn)
+		if include_augment:
+			for fn in os.listdir(C.aug_dir + cls):
+				if fn.startswith(acc_num):
+					os.remove(C.aug_dir + cls + "\\" + fn)
+	else:
+		small_voi_df = pd.read_csv(C.small_voi_path)
+		cls = small_voi_df.loc[small_voi_df["id"] == lesion_id, "cls"].values[0]
+
+		os.remove(os.path.join(C.crops_dir, cls, lesion_id+".npy"))
+		os.remove(os.path.join(C.orig_dir, cls, lesion_id+".npy"))
+		if include_augment:
+			for fn in os.listdir(C.aug_dir + cls):
+				if fn.startswith(lesion_id):
+					os.remove(C.aug_dir + cls + "\\" + fn)
+
 #####################################
 ### Data Creation
 #####################################
@@ -309,7 +314,7 @@ def extract_vois(cls=None, acc_nums=None, debug=False, overwrite_df=False):
 
 		art_vois = voi_df_art[(voi_df_art["Filename"] == acc_num+".npy") & (voi_df_art["cls"] == cls)]
 
-		small_voi_df = _filter_small_vois(small_voi_df, acc_num, cls)
+		small_voi_df = _rm_lesion_from_voi_df(small_voi_df, acc_num, cls)
 
 		# iterate over each voi in that image
 		for voi_row in art_vois.iterrows():
@@ -327,17 +332,15 @@ def extract_vois(cls=None, acc_nums=None, debug=False, overwrite_df=False):
 
 		if img_num % 20 == 0:
 			print(".", end="")
+	
+	small_voi_df.to_csv(C.small_voi_path, index=False)
 
-def save_unaugment_set(cls=None, acc_num=None, small_voi_df=None):
+@drm.autofill_cls_arg
+def save_unaugment_set(cls=None, acc_num=None):
 	"""Save unaugmented lesion images"""
 	C = config.Config()
 
-	if cls is None:
-		for cls in C.classes_to_include:
-			save_unaugment_set(cls, acc_num, small_voi_df)
-
-	if small_voi_df is None:
-		small_voi_df = pd.read_csv(C.small_voi_path)
+	small_voi_df = pd.read_csv(C.small_voi_path)
 
 	if acc_num is None:
 		acc_num_subset = os.listdir(C.crops_dir + cls)
@@ -356,35 +359,31 @@ def save_unaugment_set(cls=None, acc_num=None, small_voi_df=None):
 			continue
 		np.save(C.orig_dir + cls + "\\" + fn, unaug_img)
 
-def parallel_augment(small_voi_df=None, classes=None, acc_num=None, num_cores=None, overwrite=True):
+@drm.autofill_cls_arg
+def parallel_augment(cls=None, acc_num=None, num_cores=None, overwrite=True):
 	"""Augment all images in cls using CPU parallelization"""
 	C = config.Config()
-	if classes is None:
-		classes = C.classes_to_include
-	if small_voi_df is None:
-		small_voi_df = pd.read_csv(C.small_voi_path)
+	small_voi_df = pd.read_csv(C.small_voi_path)
 
 	if acc_num is not None:
-		cls = classes[0]
 		fn_subset = [x for x in os.listdir(C.crops_dir + cls) if x.startswith(acc_num)]
 		for fn in fn_subset:
 			_save_augmented_img(fn, cls, _get_coords(small_voi_df[small_voi_df["id"] == fn[:-4]]), C)
 
 	else:
 		t = time.time()
-		for cls in classes:
-			if num_cores is None:
-				num_cores = multiprocessing.cpu_count()
+		if num_cores is None:
+			num_cores = multiprocessing.cpu_count()
 
-			if num_cores > 1:
-				Parallel(n_jobs=num_cores)(delayed(_save_augmented_img)(fn, cls,
-					_get_coords(small_voi_df[small_voi_df["id"] == fn[:-4]]),
-					C, overwrite=overwrite) for fn in os.listdir(C.crops_dir + cls))
-			else:
-				for fn in os.listdir(C.crops_dir + cls):
-					_save_augmented_img(fn, cls, small_vois[fn[:-4]], C, overwrite=overwrite)
+		if num_cores > 1:
+			Parallel(n_jobs=num_cores)(delayed(_save_augmented_img)(fn, cls,
+				_get_coords(small_voi_df[small_voi_df["id"] == fn[:-4]]),
+				C, overwrite=overwrite) for fn in os.listdir(C.crops_dir + cls))
+		else:
+			for fn in os.listdir(C.crops_dir + cls):
+				_save_augmented_img(fn, cls, small_vois[fn[:-4]], C, overwrite=overwrite)
 
-			print(cls, time.time()-t)
+		print(cls, time.time()-t)
 
 
 #####################################
@@ -566,7 +565,7 @@ def _add_small_voi(small_voi_df, lesion_id, cls, coords):
 
 	return small_voi_df
 
-def _filter_small_vois(small_voi_df, acc_num, cls=None):
+def _rm_lesion_from_voi_df(small_voi_df, acc_num, cls=None):
 	"""Remove any elements in small_voi_df with the given acc_num. Limit to cls if specified."""
 
 	if cls is not None:

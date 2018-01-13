@@ -189,11 +189,11 @@ def run_fixed_hyperparams(C_list=None, overwrite=False, max_runs=999, hyperparam
 			Z_test, Z_train_orig = Z
 			X_train_orig, Y_train_orig = train_orig
 		#for _ in range(cycle_len):
-			model = build_cnn(C, 'adam', activation_type=activation_type[index % len(activation_type)],
+			model = build_cnn('adam', activation_type=activation_type[index % len(activation_type)],
 					dilation_rate=dilation_rate[index % len(dilation_rate)], f=f[index % len(f)], pool_sizes=pool_sizes,
 					padding=padding[index % len(padding)], dropout=dropout[index % len(dropout)],
 					dense_units=dense_units[index % len(dense_units)], kernel_size=kernel_size[index % len(kernel_size)],
-					merge_layer=merge_layer[index % len(merge_layer)], non_imaging_inputs=C.non_imaging_inputs, time_dist=time_dist)
+					merge_layer=merge_layer[index % len(merge_layer)], dual_inputs=C.non_imaging_inputs, time_dist=time_dist)
 		
 			t = time.time()
 			hist = model.fit_generator(train_generator, steps_per_epoch=steps_per_epoch[index % len(steps_per_epoch)],
@@ -328,15 +328,15 @@ def build_cnn_hyperparams(hyperparams):
 		padding=hyperparams.padding, pool_sizes=hyperparams.pool_sizes, dropout=hyperparams.dropout,
 		activation_type=hyperparams.activation_type, f=hyperparams.f, dense_units=hyperparams.dense_units,
 		kernel_size=hyperparams.kernel_size, merge_layer=hyperparams.merge_layer,
-		non_imaging_inputs=C.non_imaging_inputs, run_2d=hyperparams.run_2d, time_dist=hyperparams.time_dist)
+		dual_inputs=C.non_imaging_inputs, run_2d=hyperparams.run_2d, time_dist=hyperparams.time_dist)
 
-def build_cnn(C=None, optimizer='adam', dilation_rate=(1,1,1), padding=['same', 'valid'], pool_sizes = [(2,2,2), (2,2,2)],
+def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same', 'valid'], pool_sizes = [(2,2,2), (2,2,2)],
 	dropout=[0.1,0.1], activation_type='relu', f=[64,128,128], dense_units=100, kernel_size=(3,3,2), merge_layer=1,
-	non_imaging_inputs=False, run_2d=False, time_dist=True, stride=(1,1,1)):
+	dual_inputs=False, run_2d=False, time_dist=True, stride=(1,1,1)):
 	"""Main class for setting up a CNN. Returns the compiled model."""
 
-	if C is None:
-		C = config.Config()
+	C = config.Config()
+
 	if activation_type == 'elu':
 		ActivationLayer = ELU
 		activation_args = 1
@@ -409,13 +409,6 @@ def build_cnn(C=None, optimizer='adam', dilation_rate=(1,1,1), padding=['same', 
 				if layer_num == 1:
 					x = TimeDistributed(MaxPooling3D(pool_sizes[0]))(x)
 			
-			#x = Permute((2,3,4,1,5))(x)
-
-			#if padding[1] == "valid":
-			#	dims = [(C.dims[i]-len(f)*math.ceil(kernel_size[i]/2))//2 for i in range(3)]
-			#else:
-			#	dims = C.dims
-			#x = Reshape((dims[0], dims[1], dims[2], -1))(x)
 		else:
 			for layer_num in range(len(f)):
 				x = Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1])(x)
@@ -429,11 +422,6 @@ def build_cnn(C=None, optimizer='adam', dilation_rate=(1,1,1), padding=['same', 
 		x = TimeDistributed(MaxPooling3D(pool_sizes[1]))(x)
 		x = TimeDistributed(Flatten())(x)
 
-		#x = TimeDistributed(Dense(dense_units))(x) #, kernel_regularizer=l2(.01)
-		#x = BatchNormalization()(x)
-		#x = TimeDistributed(Dropout(dropout[1]))(x)
-		#x = ActivationLayer(activation_args)(x)
-
 		#x = SimpleRNN(128, return_sequences=True)(x)
 		x = SimpleRNN(dense_units)(x)
 		x = Dropout(dropout[1])(x)
@@ -441,23 +429,23 @@ def build_cnn(C=None, optimizer='adam', dilation_rate=(1,1,1), padding=['same', 
 		x = MaxPooling3D(pool_sizes[1])(x)
 		x = Flatten()(x)
 
-		if non_imaging_inputs:
-			img_traits = Input(shape=(2,)) #bounding volume and aspect ratio of lesion
-			x = Concatenate(axis=1)([x, img_traits])
-
 		x = Dense(dense_units)(x)#, kernel_initializer='normal', kernel_regularizer=l2(.01), kernel_constraint=max_norm(3.))(x)
 		x = BatchNormalization()(x)
 		x = Dropout(dropout[1])(x)
 		x = ActivationLayer(activation_args)(x)
 
+	if dual_inputs:
+		non_img_inputs = Input(shape=(C.num_non_image_inputs,))
+		x = Concatenate(axis=1)([x, non_img_inputs])
+
 	x = Dense(nb_classes)(x)
 	x = BatchNormalization()(x)
 	pred_class = Activation('softmax')(x)
 
-	if not non_imaging_inputs:
+	if not dual_inputs:
 		model = Model(img, pred_class)
 	else:
-		model = Model([img, img_traits], pred_class)
+		model = Model([img, non_img_inputs], pred_class)
 	
 	#optim = Adam(lr=0.01)#5, decay=0.001)
 	model.compile(optimizer=optimizer, loss='categorical_crossentropy', metrics=['accuracy'])
@@ -483,15 +471,15 @@ def build_pretrain_model(trained_model, C=None):
 	x = Dropout(0.5)(x)
 	x = Flatten()(x)
 
-	img_traits = Input(shape=(2,)) #bounding volume and aspect ratio of lesion
+	non_img_inputs = Input(shape=(2,)) #bounding volume and aspect ratio of lesion
 
-	intermed = Concatenate(axis=1)([x, img_traits])
+	intermed = Concatenate(axis=1)([x, non_img_inputs])
 	x = Dense(64, activation='relu')(intermed)#, kernel_initializer='normal', kernel_regularizer=l1(.01), kernel_constraint=max_norm(3.))(x)
 	x = Dropout(0.5)(x)
 	pred_class = Dense(nb_classes, activation='softmax')(x)
 
 
-	model_pretrain = Model([voi_img, img_traits], pred_class)
+	model_pretrain = Model([voi_img, non_img_inputs], pred_class)
 	model_pretrain.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
 
 	for l in range(1,5):
@@ -555,15 +543,15 @@ def get_cnn_data(n=4, n_art=4, run_2d=False, verbose=False, C=None):
 	if C.non_imaging_inputs:
 		X_test = [np.array(X_test), np.array(X2_test)]
 		X_train_orig = [np.array(X_train_orig), np.array(X2_train_orig)]
+	else:
+		X_test = np.array(X_test)
+		X_train_orig = np.array(X_train_orig)
 
 	Y_test = np.array(Y_test)
 	Y_train_orig = np.array(Y_train_orig)
 
 	Z_test = np.array(Z_test)
 	Z_train_orig = np.array(Z_train_orig)
-
-	X_test = np.array(X_test)#_separate_phases(X_test, C.non_imaging_inputs)
-	X_train_orig = np.array(X_train_orig)#_separate_phases(X_train_orig, C.non_imaging_inputs)
 
 	if run_2d:
 		train_generator = _train_generator_func_2d(train_ids, n=n, n_art=n_art)
@@ -619,23 +607,24 @@ def condense_cm(y_true, y_pred, cls_mapping):
 ### Training Submodules
 ####################################
 
-def _train_generator_func(train_ids, voi_df=None, n=12, n_art=0):
+def _train_generator_func(train_ids, n=12, n_art=0):
 	"""n is the number of samples from each class, n_art is the number of artificial samples"""
 
 	import voi_methods as vm
 	C = config.Config()
 
-	if voi_df is None:
-		voi_df = pd.read_csv(C.art_voi_path)
+	voi_df = pd.read_csv(C.art_voi_path)
 
 	#avg_X2 = {}
 	#for cls in orig_data_dict:
 	#	avg_X2[cls] = np.mean(orig_data_dict[cls][1], axis=0)
+	patient_info_df = pd.read_excel(C.xls_name, C.patient_sheetname)
+	patient_info_df["AccNum"] = patient_info_df["AccNum"].astype(str)
 
 	num_classes = len(C.classes_to_include)
 	while True:
 		x1 = np.empty(((n+n_art)*num_classes, C.dims[0], C.dims[1], C.dims[2], C.nb_channels))
-		x2 = np.empty(((n+n_art)*num_classes, 2))
+		x2 = np.empty(((n+n_art)*num_classes, C.num_non_image_inputs))
 		y = np.zeros(((n+n_art)*num_classes, num_classes))
 
 		train_cnt = 0
@@ -653,14 +642,28 @@ def _train_generator_func(train_ids, voi_df=None, n=12, n_art=0):
 			img_fns = os.listdir(C.aug_dir+cls)
 			while n > 0:
 				img_fn = random.choice(img_fns)
-				if img_fn[:img_fn.rfind('_')] + ".npy" in train_ids[cls]:
+				lesion_num = img_fn[:img_fn.rfind('_')]
+				if lesion_num + ".npy" in train_ids[cls]:
 					x1[train_cnt] = np.load(C.aug_dir+cls+"\\"+img_fn)
 					if C.hard_scale:
 						x1[train_cnt] = vm.scale_intensity(x1[train_cnt], 1, max_int=2, keep_min=False)
 
-					row = voi_df[voi_df["lesion_num"] == int(img_fn[img_fn.find('_')+1:img_fn.rfind('_')])]
-					#x2[train_cnt] = [(float(row["real_dx"]) * float(row["real_dy"]) * float(row["real_dz"])) ** (1/3) / 50,
-					#					max(float(row["real_dx"]), float(row["real_dy"])) / float(row["real_dz"])]
+					if C.non_imaging_inputs:
+						row = voi_df[voi_df["id"] == lesion_num]
+						try:
+							side_length = (float(row["real_dx"]) * float(row["real_dy"]) * float(row["real_dz"])) ** (1/3) / 50
+						except TypeError:
+							raise ValueError(row["id"], lesion_num)
+						aspect_ratio = max(float(row["real_dx"]), float(row["real_dy"])) / float(row["real_dz"])
+
+						accnum = row["Filename"].values[0][:-4]
+						row = patient_info_df[patient_info_df["AccNum"] == accnum]
+						try:
+							age = float(row["AgeAtImaging"].values[0]) / 57.26
+						except:
+							raise ValueError(accnum, lesion_num)
+						sex = 0 if row["Sex"].values[0]=="M" else 1
+						x2[train_cnt] = [side_length, age, sex]
 					
 					y[train_cnt][C.classes_to_include.index(cls)] = 1
 					
@@ -683,7 +686,7 @@ def _train_generator_func_2d(train_ids, voi_df, avg_X2, n=12, n_art=0, C=None):
 	num_classes = len(classes_to_include)
 	while True:
 		x1 = np.empty(((n+n_art)*num_classes, C.dims[0], C.dims[1], C.nb_channels))
-		x2 = np.empty(((n+n_art)*num_classes, 2))
+		x2 = np.empty(((n+n_art)*num_classes, C.num_non_image_inputs))
 		y = np.zeros(((n+n_art)*num_classes, num_classes))
 
 		train_cnt = 0

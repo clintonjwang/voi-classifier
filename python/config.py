@@ -32,7 +32,8 @@ class Config:
 		self.train_frac = None#.9
 		self.test_num = 10 # only used if train_frac is None
 
-		self.non_imaging_inputs = False # whether volume and aspect ratio is incorporated into the neural network
+		self.non_imaging_inputs = True # whether non-imaging inputs should be incorporated into the neural network
+		self.num_non_image_inputs = 3
 		self.lesion_ratio = 0.75 # ratio of the lesion side length to the length of the cropped image
 		self.intensity_scaling = [.05,.05]
 		self.intensity_local_frac = .5 # normalizes all images locally by this fraction
@@ -53,6 +54,7 @@ class Config:
 		self.classes_to_include = ['hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh']
 		self.cls_names = ['hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh', 'adenoma']
 		self.sheetnames = ['HCC', 'Cholangio', 'Colorectal', 'Cyst', 'Hemangioma', 'FNH', 'Adenoma']
+		self.patient_sheetname = 'Patient Info'
 		self.img_dirs = ['optn5a', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh', 'adenoma']
 		self.simplify_map = {'hcc': 0, 'cyst': 1, 'hemangioma': 1, 'fnh': 1, 'cholangio': 2, 'colorectal': 2}
 
