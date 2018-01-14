@@ -19,6 +19,7 @@ from keras.callbacks import EarlyStopping
 from keras.optimizers import Adam
 #from keras.utils import np_utils
 
+import argparse
 import copy
 import config
 import helper_fxns as hf
@@ -38,59 +39,6 @@ import voi_methods as vm
 ####################################
 ### OVERNIGHT PROCESSES
 ####################################
-
-def run_all():
-	"""Reruns everything except dimensions. Meant for overnight runs."""
-	
-	import dr_methods as drm
-	import voi_methods as vm
-	import artif_gen_methods as agm
-	
-	C = config.Config()
-	drm.load_all_vois(C)
-	
-	intensity_df = drm.load_ints(C)
-	intensity_df.to_csv(C.int_df_path, index=False)
-	
-	n = 1500
-	for cls in C.classes_to_include:
-		agm.gen_imgs(cls, C, n)
-		if not os.path.exists(C.orig_dir + cls):
-			os.makedirs(C.orig_dir + cls)
-		if not os.path.exists(C.aug_dir + cls):
-			os.makedirs(C.aug_dir + cls)
-		if not os.path.exists(C.crops_dir + cls):
-			os.makedirs(C.crops_dir + cls)
-			
-	final_size = C.dims
-
-	voi_df_art = pd.read_csv(C.art_voi_path)
-	voi_df_ven = pd.read_csv(C.ven_voi_path)
-	voi_df_eq = pd.read_csv(C.eq_voi_path)
-	intensity_df = pd.read_csv(C.int_df_path)
-	
-	small_vois = {}
-	small_vois = vm.extract_vois(small_vois, C, voi_df_art, voi_df_ven, voi_df_eq, intensity_df)
-
-	# scaled imgs
-	t = time.time()
-	for cls in C.classes_to_include:
-		for fn in os.listdir(C.crops_dir + cls):
-			img = np.load(C.crops_dir + cls + "\\" + fn)
-			unaug_img = vm.resize_img(img, C.dims, small_vois[fn[:-4]])
-			np.save(C.orig_dir + cls + "\\" + fn, unaug_img)
-	print(time.time()-t)
-	
-	# augmented imgs
-	t = time.time()
-	for cls in C.classes_to_include:
-		vm.parallel_augment(cls, small_vois, C)
-		print(cls, time.time()-t)
-		
-	for cls in C.classes_to_include:
-		vm.save_vois_as_imgs(cls, C)
-		
-	run_fixed_hyperparams(C)
 
 def hyperband():
 	# https://arxiv.org/abs/1603.06560
@@ -116,11 +64,13 @@ def hyperband():
 		#### End Finite Horizon Successive Halving with (n,r)
 	return val_losses, T
 
-def run_fixed_hyperparams(C_list=None, overwrite=False, max_runs=999, hyperparams=None):
-	"""Runs the CNN indefinitely, saving performance metrics."""
-	if C_list is None:
-		C_list = [config.Config()]
-	if overwrite:
+def run_fixed_hyperparams(overwrite=False, max_runs=999, hyperparams=None):
+	"""Runs the CNN for max_runs times, saving performance metrics."""
+	C_list = [config.Config()]
+	try:
+		running_stats = pd.read_csv(C_list[0].run_stats_path)
+		index = len(running_stats)
+	except FileNotFoundError:
 		running_stats = pd.DataFrame(columns = ["n", "n_art", "steps_per_epoch", "epochs",
 			"num_phases", "input_res", "training_fraction", "test_num", "augment_factor", "non_imaging_inputs",
 			"kernel_size", "conv_filters", "conv_padding",
@@ -131,9 +81,6 @@ def run_fixed_hyperparams(C_list=None, overwrite=False, max_runs=999, hyperparam
 			'misclassified_test', 'misclassified_train', 'model_num',
 			'y_true', 'y_pred_raw', 'z_test'])
 		index = 0
-	else:
-		running_stats = pd.read_csv(C_list[0].run_stats_path)
-		index = len(running_stats)
 
 	model_names = os.listdir(C_list[0].model_dir)
 	if len(model_names) > 0:	
@@ -172,7 +119,7 @@ def run_fixed_hyperparams(C_list=None, overwrite=False, max_runs=999, hyperparam
 			T = hyperparams
 
 			X_test, Y_test, train_generator, num_samples, train_orig, Z = get_cnn_data(n=T.n,
-						n_art=T.n_art, run_2d=T.run_2d, C=C)
+						n_art=T.n_art, run_2d=T.run_2d)
 			Z_test, Z_train_orig = Z
 			X_train_orig, Y_train_orig = train_orig
 			model = build_cnn_hyperparams(T)
@@ -185,7 +132,7 @@ def run_fixed_hyperparams(C_list=None, overwrite=False, max_runs=999, hyperparam
 
 		else:
 			X_test, Y_test, train_generator, num_samples, train_orig, Z = get_cnn_data(n=n[C_index % len(n)],
-						n_art=n_art[C_index % len(n_art)], run_2d=run_2d, C=C)
+						n_art=n_art[C_index % len(n_art)], run_2d=run_2d)
 			Z_test, Z_train_orig = Z
 			X_train_orig, Y_train_orig = train_orig
 		#for _ in range(cycle_len):
@@ -254,7 +201,7 @@ def run_then_return_val_loss(num_iters=1, hyperparams=None):
 	index = len(running_stats)
 
 	X_test, Y_test, train_generator, num_samples, train_orig, Z = get_cnn_data(n=T.n,
-				n_art=T.n_art, run_2d=T.run_2d, C=C)
+				n_art=T.n_art, run_2d=T.run_2d)
 	#Z_test, Z_train_orig = Z
 	#X_train_orig, Y_train_orig = train_orig
 
@@ -302,23 +249,7 @@ def _get_hyperparams_as_list(C=None, T=None):
 			T.dropout, T.time_dist, T.dilation_rate, T.dense_units]
 
 def get_random_hyperparameter_configuration():
-	n = [4]
-	n_art = [0]
-	steps_per_epoch = [750]
-	epochs = [30]
-	run_2d = False
-	f = [[64,128,128]]
-	padding = [['same','valid']]
-	dropout = [[0.1,0.1]]
-	dense_units = [100]
-	dilation_rate = [(2, 2, 2)]
-	kernel_size = [(3,3,2)]
-	activation_type = ['relu']
-	merge_layer = [-1]
-	cycle_len = 1
-	early_stopping = EarlyStopping(monitor='loss', min_delta=0.002, patience=3)
-	time_dist = True
-	T = []
+	T = config.Hyperparams()
 
 	return T
 
@@ -488,14 +419,13 @@ def build_pretrain_model(trained_model, C=None):
 
 	return model_pretrain
 
-def get_cnn_data(n=4, n_art=4, run_2d=False, verbose=False, C=None):
+def get_cnn_data(n=4, n_art=4, run_2d=False, verbose=False):
 	"""Subroutine to run CNN"""
 
-	if C is None:
-		C = config.Config()
+	C = config.Config()
 
 	nb_classes = len(C.classes_to_include)
-	orig_data_dict, num_samples = _collect_unaug_data(C)
+	orig_data_dict, num_samples = _collect_unaug_data()
 
 	train_ids = {} #filenames of training set originals
 	test_ids = {} #filenames of test set
@@ -649,21 +579,11 @@ def _train_generator_func(train_ids, n=12, n_art=0):
 						x1[train_cnt] = vm.scale_intensity(x1[train_cnt], 1, max_int=2, keep_min=False)
 
 					if C.non_imaging_inputs:
-						row = voi_df[voi_df["id"] == lesion_num]
-						try:
-							side_length = (float(row["real_dx"]) * float(row["real_dy"]) * float(row["real_dz"])) ** (1/3) / 50
-						except TypeError:
-							raise ValueError(row["id"], lesion_num)
-						aspect_ratio = max(float(row["real_dx"]), float(row["real_dy"])) / float(row["real_dz"])
+						voi_row = voi_df[voi_df["id"] == lesion_num]
 
-						accnum = row["Filename"].values[0][:-4]
-						row = patient_info_df[patient_info_df["AccNum"] == accnum]
-						try:
-							age = float(row["AgeAtImaging"].values[0]) / 57.26
-						except:
-							raise ValueError(accnum, lesion_num)
-						sex = 0 if row["Sex"].values[0]=="M" else 1
-						x2[train_cnt] = [side_length, age, sex]
+						accnum = voi_row["Filename"].values[0][:-4]
+						patient_row = patient_info_df[patient_info_df["AccNum"] == accnum]
+						x2[train_cnt] = get_non_img_inputs(voi_row, patient_row)
 					
 					y[train_cnt][C.classes_to_include.index(cls)] = 1
 					
@@ -754,19 +674,19 @@ def _separate_phases(X, non_imaging_inputs=False):
 
 	return X
 
-def _collect_unaug_data(C, verbose=False):
+def _collect_unaug_data():
 	"""Return dictionary pointing to X (img data) and Z (filenames) and dictionary storing number of samples of each class."""
 
+	C = config.Config()
 	orig_data_dict = {}
 	num_samples = {}
 	voi_df = pd.read_csv(C.art_voi_path)
+	patient_info_df = pd.read_excel(C.xls_name, C.patient_sheetname)
+	patient_info_df["AccNum"] = patient_info_df["AccNum"].astype(str)
 
 	for cls in C.classes_to_include:
-		if verbose:
-			print("\n"+cls)
-
 		x = np.empty((10000, C.dims[0], C.dims[1], C.dims[2], C.nb_channels))
-		#x2 = np.empty((10000, 2))
+		x2 = np.empty((10000, C.num_non_image_inputs))
 		z = []
 
 		for index, img_fn in enumerate(os.listdir(C.orig_dir+cls)):
@@ -778,27 +698,32 @@ def _collect_unaug_data(C, verbose=False):
 				raise ValueError(C.orig_dir+cls+"\\"+img_fn + " not found")
 			z.append(img_fn)
 			
-			row = voi_df[(voi_df["Filename"] == img_fn[:img_fn.find('_')] + ".npy") &
-						 (voi_df["lesion_num"] == int(img_fn[img_fn.find('_')+1:-4]))]
-			
-			try:
-				skip=False
-				#x2[index] = [(float(row["real_dx"]) * float(row["real_dy"]) * float(row["real_dz"])) ** (1/3) / 50,
-				#			max(float(row["real_dx"]), float(row["real_dy"])) / float(row["real_dz"])]
-			except TypeError:
-				print(img_fn[:img_fn.find('_')], end=",")
-				skip=True
-				continue
-				#raise ValueError(img_fn + " is probably missing a voi_df entry.")
+			if C.non_imaging_inputs:
+				lesion_num = img_fn[:-4]
+				voi_row = voi_df[voi_df["id"] == lesion_num]
 
-		if not skip:
-			x.resize((index+1, C.dims[0], C.dims[1], C.dims[2], C.nb_channels)) #shrink first dimension to fit
-			#x2.resize((index+1, 2)) #shrink first dimension to fit
-			orig_data_dict[cls] = [x,np.array(z)]
-			num_samples[cls] = index + 1
+				accnum = voi_row["Filename"].values[0][:-4]
+				patient_row = patient_info_df[patient_info_df["AccNum"] == accnum]
+				x2[index] = get_non_img_inputs(voi_row, patient_row)
+
+		x.resize((index+1, C.dims[0], C.dims[1], C.dims[2], C.nb_channels)) #shrink first dimension to fit
+		if C.non_imaging_inputs:
+			x2.resize((index+1, C.num_non_image_inputs)) #shrink first dimension to fit
+			orig_data_dict[cls] = [x, x2, np.array(z)]
+		else:
+			orig_data_dict[cls] = [x, np.array(z)]
+
+		num_samples[cls] = index + 1
 		
 	return orig_data_dict, num_samples
 
+def get_non_img_inputs(voi_info, patient_info):
+	side_length = ((float(voi_info["real_dx"]) * float(voi_info["real_dy"]) * float(voi_info["real_dz"])) ** (1/3) - 26.98) / 14.78
+	aspect_ratio = max(float(voi_info["real_dx"]), float(voi_info["real_dy"])) / float(voi_info["real_dz"])
+	age = (float(patient_info["AgeAtImaging"].values[0]) - 56.58) / 13.24
+	sex = 0 if patient_info["Sex"].values[0]=="M" else 1
+
+	return [side_length, age, sex]
 
 ###########################
 ### Output Submodules
@@ -834,6 +759,9 @@ def _draw_bbox(img_slice, voi, C=None):
 	return img_slice
 
 if __name__ == '__main__':
-	run_fixed_hyperparams()
-	#import doctest
-	#doctest.testmod()
+	parser = argparse.ArgumentParser(description='Convert DICOMs to npy files and transfer voi coordinates from excel to csv.')
+	parser.add_argument('-m', '--max_runs', type=int, help='max number of runs to allow')
+	parser.add_argument('-o', '--overwrite', action='store_true', help='overwrite')
+	args = parser.parse_args()
+
+	run_fixed_hyperparams(max_runs=args.max_runs)

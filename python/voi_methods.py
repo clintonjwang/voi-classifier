@@ -3,27 +3,31 @@ Converts a nifti file to a numpy array.
 Accepts either a single nifti file or a folder of niftis as the input argument.
 
 Usage:
-	python cnn_builder.py
+	python voi_methods.py
+	python voi_methods.py --cls hcc
+	python voi_methods.py -v -c cyst
+	python voi_methods.py -ovc hemangioma
 
 Author: Clinton Wang, E-mail: `clintonjwang@gmail.com`, Github: `https://github.com/clintonjwang/voi-classifier`
 """
 
+import argparse
 import ast
 import config
 import copy
 import dr_methods as drm
 import helper_fxns as hf
+from joblib import Parallel, delayed
 import math
+import multiprocessing
 import numpy as np
 import os
 import pandas as pd
 import random
-import time
-import transforms as tr
-from joblib import Parallel, delayed
-import multiprocessing
 from scipy.misc import imsave
 from skimage.transform import rescale, resize
+import time
+import transforms as tr
 
 #####################################
 ### QC methods
@@ -130,12 +134,12 @@ def xref_dirs_with_excel(cls=None, fix_inplace=True):
 		bad_acc_nums += [x[:x.find('_')] for x in diff]
 
 	# Fix lesions
-	if fix_inplace:
+	if fix_inplace and len(bad_acc_nums) > 0:
 		print("Reloading", set(bad_acc_nums))
 		for acc_num in set(bad_acc_nums):
 			reload_accnum(acc_num, cls)
 
-def reload_accnum(acc_num, cls, augment=True, overwrite=True):
+def reload_accnum(cls=None, acc_num=None, augment=True, overwrite=True):
 	"""Reloads cropped, scaled and augmented images. Updates voi_dfs and small_vois accordingly."""
 	drm.load_vois_batch(cls, acc_nums=[acc_num], overwrite=overwrite)
 
@@ -143,10 +147,9 @@ def reload_accnum(acc_num, cls, augment=True, overwrite=True):
 		remove_lesion_from_folders(cls, acc_num)
 
 	extract_vois(cls, [acc_num])
-	save_unaugment_set(cls, acc_num)
+	save_unaugmented_set(cls, acc_num)
 	if augment:
-		parallel_augment(cls, acc_num)
-
+		save_augmented_set(cls, acc_num)
 
 @drm.autofill_cls_arg
 def save_vois_as_imgs(cls=None, lesion_ids=None, save_dir=None, normalize=[-1,1], rescale_factor=3):
@@ -154,7 +157,7 @@ def save_vois_as_imgs(cls=None, lesion_ids=None, save_dir=None, normalize=[-1,1]
 	C = config.Config()
 
 	if save_dir is None:
-		save_dir = os.path.join(C.vois_dir, cls)
+		save_dir = os.path.join(C.output_img_dir, cls)
 	if not os.path.exists(save_dir):
 		os.makedirs(save_dir)
 
@@ -285,8 +288,9 @@ def remove_lesion_from_folders(cls=None, acc_num=None, lesion_id=None, include_a
 @drm.autofill_cls_arg
 def extract_vois(cls=None, acc_nums=None, debug=False, overwrite_df=False):
 	"""Produces grossly cropped but unscaled versions of the images.
-	This intermediate step makes debugging and visualization much easier.
-	drm.load_vois_batch() must be run first to populate the voi_dfs."""
+	This intermediate step makes debugging and visualization easier.
+	drm.load_vois_batch() must be run first to populate the voi_dfs.
+	Overwrites any existing images without checking."""
 
 	C = config.Config()
 	voi_df_art = pd.read_csv(C.art_voi_path)
@@ -302,11 +306,11 @@ def extract_vois(cls=None, acc_nums=None, debug=False, overwrite_df=False):
 		small_voi_df = pd.DataFrame(columns=["id", "acc_num", "cls", "coords"])
 
 	if acc_nums is None:
-		acc_nums = [x[:-4] for x in os.listdir(C.full_img_dir + "\\" + cls)]
+		acc_nums = [x[:-4] for x in os.listdir(os.path.join(C.full_img_dir, cls))]
 
 	for img_num, acc_num in enumerate(acc_nums):
 		try:
-			img = np.load(C.full_img_dir+"\\"+cls+"\\"+acc_num+".npy")
+			img = np.load(os.path.join(C.full_img_dir, cls, acc_num+".npy"))
 		except Exception as e:
 			if debug:
 				raise ValueError(e)
@@ -336,8 +340,9 @@ def extract_vois(cls=None, acc_nums=None, debug=False, overwrite_df=False):
 	small_voi_df.to_csv(C.small_voi_path, index=False)
 
 @drm.autofill_cls_arg
-def save_unaugment_set(cls=None, acc_num=None):
-	"""Save unaugmented lesion images"""
+def save_unaugmented_set(cls=None, acc_num=None):
+	"""Save unaugmented lesion images. Overwrites without checking."""
+
 	C = config.Config()
 
 	small_voi_df = pd.read_csv(C.small_voi_path)
@@ -360,8 +365,10 @@ def save_unaugment_set(cls=None, acc_num=None):
 		np.save(C.orig_dir + cls + "\\" + fn, unaug_img)
 
 @drm.autofill_cls_arg
-def parallel_augment(cls=None, acc_num=None, num_cores=None, overwrite=True):
-	"""Augment all images in cls using CPU parallelization"""
+def save_augmented_set(cls=None, acc_num=None, num_cores=None, overwrite=True):
+	"""Augment all images in cls using CPU parallelization.
+	[Overwrite behavior?]"""
+
 	C = config.Config()
 	small_voi_df = pd.read_csv(C.small_voi_path)
 
@@ -654,5 +661,18 @@ def _extract_voi(img, voi, min_dims, ven_voi=[], eq_voi=[]):
 	return pad_img[x1:x2, y1:y2, z1:z2, :], [int(x) for x in new_voi]
 
 if __name__ == '__main__':
-	import doctest
-	doctest.testmod()
+	parser = argparse.ArgumentParser(description='Convert DICOMs to npy files and transfer voi coordinates from excel to csv.')
+	parser.add_argument('-c', '--cls', help='limit to a specific class')
+	parser.add_argument('-v', '--verbose', action='store_true', help='verbosity')
+	parser.add_argument('-o', '--overwrite', action='store_true', help='overwrite')
+	args = parser.parse_args()
+
+	s = time.time()
+	dcm2npy_batch(cls=args.cls, verbose=args.verbose, overwrite=args.overwrite)
+	print("Time to convert dcm to npy: %s" % str(time.time() - s))
+
+	s = time.time()
+	load_vois_batch(cls=args.cls, verbose=args.verbose, overwrite=args.overwrite)
+	print("Time to load voi coordinates: %s" % str(time.time() - s))
+
+	print("Finished!")

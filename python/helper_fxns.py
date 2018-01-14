@@ -149,6 +149,16 @@ def save_nii(img, dest, dims=(1,1,1), flip_x=False, flip_y=False):
 		nii = nib.Nifti1Image(img[::(-1)**flip_x,::(-1)**flip_y,:], affine)
 	nib.save(nii, dest)
 
+def get_dcm_header_value(txt, search_term):
+	"""Gets value corresponding to a dicom tag
+	search_term should be formatted like '<DicomAttribute tag="00100020" vr="LO" keyword="PatientID">'
+	"""
+
+	index = txt.find(search_term) + len(search_term+'\n      <Value number="1">')
+	if index == -1:
+		raise ValueError(search_term, "not found")
+	return txt[index:index + txt[index:].find("</Value>")]
+	
 ###########################
 ### MASKS
 ###########################
