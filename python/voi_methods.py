@@ -139,17 +139,18 @@ def xref_dirs_with_excel(cls=None, fix_inplace=True):
 		for acc_num in set(bad_acc_nums):
 			reload_accnum(cls, acc_num)
 
-def reload_accnum(cls=None, acc_num=None, augment=True, overwrite=True):
+def reload_accnum(cls=None, acc_nums=None, augment=True, overwrite=True):
 	"""Reloads cropped, scaled and augmented images. Updates voi_dfs and small_vois accordingly."""
-	drm.load_vois_batch(cls, acc_nums=[acc_num], overwrite=overwrite)
+	drm.load_vois_batch(cls, acc_nums=acc_nums, overwrite=overwrite)
 
 	if overwrite:
-		remove_lesion_from_folders(cls, acc_num)
+		for acc_num in acc_nums:
+			remove_lesion_from_folders(cls, acc_num)
 
-	extract_vois(cls, [acc_num])
-	save_unaugmented_set(cls, [acc_num])
+	extract_vois(cls, acc_nums)
+	save_unaugmented_set(cls, acc_nums)
 	if augment:
-		save_augmented_set(cls, [acc_num])
+		save_augmented_set(cls, acc_nums)
 
 @drm.autofill_cls_arg
 def save_vois_as_imgs(cls=None, lesion_ids=None, save_dir=None, normalize=[-1,1], rescale_factor=3):
@@ -198,6 +199,9 @@ def save_vois_as_imgs(cls=None, lesion_ids=None, save_dir=None, normalize=[-1,1]
 
 @drm.autofill_cls_arg
 def save_imgs_with_bbox(cls=None, lesion_ids=None, fn_suffix=None, save_dir=None, normalize=None, fixed_width=100):
+	"""Save images of grossly cropped lesions with a bounding box around the tighter crop.
+	If fixed_width is None, the images are not scaled.
+	Otherwise, the images are made square with the given width in pixels."""
 
 	C = config.Config()
 
@@ -206,16 +210,16 @@ def save_imgs_with_bbox(cls=None, lesion_ids=None, fn_suffix=None, save_dir=None
 	if not os.path.exists(save_dir):
 		os.makedirs(save_dir)
 		
-	if lesion_ids is not None:
-		fns = [lesion_id+".npy" for lesion_id in lesion_ids]
-	else:
-		fns = os.listdir(os.path.join(C.crops_dir, cls))
-	
-	for fn in fns:
-		img_fn = fn[:fn.find('_')] + ".npy"
-		cls = small_voi_df.loc[small_voi_df["id"] == fn[:-4], "cls"].values[0]
+	if lesion_ids is None:
+		lesion_ids = [x[:-4] for x in os.listdir(os.path.join(C.crops_dir, cls))]
 
-		img = np.load(C.crops_dir + cls + "\\" + fn)
+	#voi_df = drm.get_voi_dfs()[0]
+	#lesion_ids = set(lesion_ids).intersection(voi_df[voi_df["run_num"] > 2].index)
+	
+	for lesion_id in lesion_ids:
+		cls = small_voi_df.loc[small_voi_df["id"] == lesion_id, "cls"].values[0]
+
+		img = np.load(os.path.join(C.crops_dir, cls, lesion_id + ".npy"))
 		img_slice = img[:,:, img.shape[2]//2, :].astype(float)
 		#for ch in range(img_slice.shape[-1]):
 		#	img_slice[:, :, ch] *= 255/np.amax(img_slice[:, :, ch])
@@ -225,7 +229,7 @@ def save_imgs_with_bbox(cls=None, lesion_ids=None, fn_suffix=None, save_dir=None
 
 		img_slice = np.stack([img_slice, img_slice, img_slice], axis=2)
 		
-		img_slice = _draw_bbox(img_slice, vm._get_voi_coords(small_voi_df[small_voi_df["id"] == fn[:-4]]))
+		img_slice = _draw_bbox(img_slice, _get_voi_coords(small_voi_df[small_voi_df["id"] == lesion_id]))
 			
 		ch1 = np.transpose(img_slice[:,::-1,:,0], (1,0,2))
 		ch2 = np.transpose(img_slice[:,::-1,:,1], (1,0,2))
@@ -250,9 +254,9 @@ def save_imgs_with_bbox(cls=None, lesion_ids=None, fn_suffix=None, save_dir=None
 			fn_suffix = " (%s)" % cls
 
 		if fixed_width is not None:
-			imsave("%s\\%s%s.png" % (save_dir, fn[:-4], fn_suffix), resize(ret, [fixed_width*3, fixed_width]))
+			imsave("%s\\%s%s.png" % (save_dir, lesion_id, fn_suffix), resize(ret, [fixed_width*3, fixed_width]))
 		else:
-			imsave("%s\\%s%s.png" % (save_dir, fn[:-4], fn_suffix), ret)
+			imsave("%s\\%s%s.png" % (save_dir, lesion_id, fn_suffix), ret)
 
 def remove_lesion_from_folders(cls=None, acc_num=None, lesion_id=None, include_augment=True):
 	"""Can either specify both cls and acc_num or just lesion_id"""
@@ -328,7 +332,8 @@ def extract_vois(cls=None, acc_nums=None):
 				eq_voi = None
 
 			cropped_img, small_voi = _extract_voi(img, copy.deepcopy(voi_row), C.dims, ven_voi=ven_voi, eq_voi=eq_voi)
-			cropped_img = scale_intensity(cropped_img, 1, max_int=2, keep_min=True) - 1
+			#cropped_img = scale_intensity(cropped_img, 1, max_int=2, keep_min=True) - 1
+			cropped_img = scale_intensity(cropped_img, 1, max_int=1, keep_min=False)
 			#cropped_img = _scale_intensity_df(cropped_img, intensity_df[intensity_df["acc_num"] == img_fn[:img_fn.find('.')]])
 
 			np.save(os.path.join(C.crops_dir, cls, lesion_id), cropped_img)
@@ -446,6 +451,33 @@ def scale_intensity(img, fraction=.5, max_int=2, keep_min=False):
 #####################################
 ### Subroutines
 #####################################
+
+def _draw_bbox(img_slice, voi):
+	"""Draw a colored box around the voi of an image slice showing how it would be cropped."""
+	C = config.Config()
+
+	scale_ratios = get_scale_ratios(voi)
+	
+	crop = [img_slice.shape[i] - round(C.dims[i]/scale_ratios[i]) for i in range(2)]
+	
+	x1 = crop[0]//2
+	x2 = -crop[0]//2
+	y1 = crop[1]//2
+	y2 = -crop[1]//2
+
+	img_slice[x1:x2, y2, 2, :] = 1
+	img_slice[x1:x2, y2, :2, :] = -1
+
+	img_slice[x1:x2, y1, 2, :] = 1
+	img_slice[x1:x2, y1, :2, :] = -1
+
+	img_slice[x1, y1:y2, 2, :] = 1
+	img_slice[x1, y1:y2, :2, :] = -1
+
+	img_slice[x2, y1:y2, 2, :] = 1
+	img_slice[x2, y1:y2, :2, :] = -1
+	
+	return img_slice
 
 def _augment_img(img, voi, num_samples, add_reflections=False, save_name=None, overwrite=True):
 	"""For rescaling an img to final_dims while scaling to make sure the image contains the voi.

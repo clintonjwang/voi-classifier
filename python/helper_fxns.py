@@ -556,25 +556,25 @@ def plot_section_auto(orig_img, normalize=None, frac=None):
 
 		if frac is None:
 			plt.subplot(131)
-			_plot_without_axes(np.transpose(img[:, :, img.shape[2]//2, 0], (1,0)), cmap='gray')
+			_plot_without_axes(np.transpose(img[:, ::-1, img.shape[2]//2, 0], (1,0)), cmap='gray')
 			plt.subplot(132)
-			_plot_without_axes(np.transpose(img[:, :, img.shape[2]//2, 1], (1,0)), cmap='gray')
+			_plot_without_axes(np.transpose(img[:, ::-1, img.shape[2]//2, 1], (1,0)), cmap='gray')
 			plt.subplot(133)
-			_plot_without_axes(np.transpose(img[:, :, img.shape[2]//2, 2], (1,0)), cmap='gray')
+			_plot_without_axes(np.transpose(img[:, ::-1, img.shape[2]//2, 2], (1,0)), cmap='gray')
 		else:
 			plt.subplot(231)
-			_plot_without_axes(np.transpose(img[:, :, img.shape[2]//2, 0], (1,0)), cmap='gray')
+			_plot_without_axes(np.transpose(img[:, ::-1, img.shape[2]//2, 0], (1,0)), cmap='gray')
 			plt.subplot(232)
-			_plot_without_axes(np.transpose(img[:, :, img.shape[2]//2, 1], (1,0)), cmap='gray')
+			_plot_without_axes(np.transpose(img[:, ::-1, img.shape[2]//2, 1], (1,0)), cmap='gray')
 			plt.subplot(233)
-			_plot_without_axes(np.transpose(img[:, :, img.shape[2]//2, 2], (1,0)), cmap='gray')
+			_plot_without_axes(np.transpose(img[:, ::-1, img.shape[2]//2, 2], (1,0)), cmap='gray')
 
 			plt.subplot(234)
-			_plot_without_axes(np.transpose(img[:, :, int(img.shape[2]*frac), 0], (1,0)), cmap='gray')
+			_plot_without_axes(np.transpose(img[:, ::-1, int(img.shape[2]*frac), 0], (1,0)), cmap='gray')
 			plt.subplot(235)
-			_plot_without_axes(np.transpose(img[:, :, int(img.shape[2]*frac), 1], (1,0)), cmap='gray')
+			_plot_without_axes(np.transpose(img[:, ::-1, int(img.shape[2]*frac), 1], (1,0)), cmap='gray')
 			plt.subplot(236)
-			_plot_without_axes(np.transpose(img[:, :, int(img.shape[2]*frac), 2], (1,0)), cmap='gray')
+			_plot_without_axes(np.transpose(img[:, ::-1, int(img.shape[2]*frac), 2], (1,0)), cmap='gray')
 
 	else:
 		img = copy.deepcopy(orig_img)
@@ -585,11 +585,11 @@ def plot_section_auto(orig_img, normalize=None, frac=None):
 			print("frac does nothing for 3D images.")
 
 		plt.subplot(131)
-		_plot_without_axes(np.transpose(img[:, :, img.shape[2]//4], (1,0)), cmap='gray')
+		_plot_without_axes(np.transpose(img[:, ::-1, img.shape[2]//4], (1,0)), cmap='gray')
 		plt.subplot(132)
-		_plot_without_axes(np.transpose(img[:, :, img.shape[2]//2], (1,0)), cmap='gray')
+		_plot_without_axes(np.transpose(img[:, ::-1, img.shape[2]//2], (1,0)), cmap='gray')
 		plt.subplot(133)
-		_plot_without_axes(np.transpose(img[:, :, img.shape[2]*3//4], (1,0)), cmap='gray')
+		_plot_without_axes(np.transpose(img[:, ::-1, img.shape[2]*3//4], (1,0)), cmap='gray')
 
 	plt.subplots_adjust(wspace=0, hspace=0)
 

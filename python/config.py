@@ -23,6 +23,7 @@ class Config:
 	def __init__(self):
 		import pyelastix
 		self.run_num = 5
+		self.test_run_num = 5
 		self.dims = [24,24,12]
 		self.nb_channels = 3
 		self.reg_params = pyelastix.get_default_params(type="AFFINE")
@@ -46,7 +47,7 @@ class Config:
 		self.int_df_path = "..\\data\\intensity.csv"
 		self.small_voi_path = "..\\data\\small_vois_full.csv"
 		self.run_stats_path = "..\\data\\overnight_run.csv"
-		self.patient_info_path = "Z:\\patient_info.csv"
+		self.patient_info_path = "..\\data\\patient_info.csv"
 		self.xls_name = 'Z:\\Prototype1e.xlsx'
 
 		# Information about the abnormality classes

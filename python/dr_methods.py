@@ -178,11 +178,13 @@ def load_vois_batch(cls=None, acc_nums=None, overwrite=True, verbose=False):
 
 	dims_df = pd.read_csv(C.dims_df_path)
 
+	i = C.cls_names.index(cls)
+	src_data_df = pd.read_excel(C.xls_name, C.sheetnames[i])
+	src_data_df = _filter_voi_df(src_data_df, C)
 	if acc_nums is None:
-		i = C.cls_names.index(cls)
-		src_data_df = pd.read_excel(C.xls_name, C.sheetnames[i])
-		src_data_df = _filter_voi_df(src_data_df, C)
 		acc_nums = list(set(src_data_df['Patient E Number'].values))
+	else:
+		acc_nums = set(acc_nums).intersection(src_data_df['Patient E Number'].values)
 	
 	voi_df_art, voi_df_ven, voi_df_eq = get_voi_dfs()
 
@@ -202,7 +204,7 @@ def load_vois_batch(cls=None, acc_nums=None, overwrite=True, verbose=False):
 	write_voi_dfs(voi_dfs)
 
 @autofill_cls_arg
-def load_patient_info(cls=None, acc_nums=None, save_path=None, verbose=False):
+def load_patient_info(cls=None, acc_nums=None, overwrite=False, verbose=False):
 	"""Loads patient demographic info from metadata files downloaded alongside the dcms."""
 
 	def get_patient_info(metadata_txt):
@@ -237,21 +239,22 @@ def load_patient_info(cls=None, acc_nums=None, save_path=None, verbose=False):
 	i = C.cls_names.index(cls)
 	sheetname = C.sheetnames[i]
 	img_dir = "Z:\\"+C.img_dirs[i]
-
-	print("\nLoading DCMs of type", sheetname)
 	df = pd.read_excel(C.xls_name, sheetname)
 	df = _filter_voi_df(df, C)
 
 	if acc_nums is None:
-		acc_nums = list(set(df['Patient E Number'].dropna().astype(str).tolist()))
+		acc_nums = set(df['Patient E Number'].astype(str).values)
 
-	patient_info_df = pd.DataFrame(columns = ["MRN", "Sex", "AccNum", "AgeAtImaging", "cls"])
+	try:
+		patient_info_df = pd.read_csv(C.patient_info_path)
+	except FileNotFoundError:
+		patient_info_df = pd.DataFrame(columns = ["MRN", "Sex", "AccNum", "AgeAtImaging", "cls"])
 
-	if len(patient_info_df) == 0:
-		i = 0
-	else:
-		i = patient_info_df.index[-1]+1
+	if not overwrite:
+		acc_nums = acc_nums.difference(patient_info_df["AccNum"].values)
 
+	i = len(patient_info_df)
+	print(cls)
 	for cnt, acc_num in enumerate(acc_nums):
 		df_subset = df.loc[df['Patient E Number'].astype(str) == acc_num]
 		subdir = img_dir+"\\"+acc_num
@@ -274,7 +277,7 @@ def load_patient_info(cls=None, acc_nums=None, save_path=None, verbose=False):
 
 		patient_info_df.loc[cnt+i] = get_patient_info(''.join(f.readlines()))
 
-	patient_info_df.to_csv(save_path, index=False)
+	patient_info_df.to_csv(C.patient_info_path, index=False)
 
 ###########################
 ### Public Subroutines

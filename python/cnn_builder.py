@@ -368,11 +368,11 @@ def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same', 'valid']
 
 	if dual_inputs:
 		non_img_inputs = Input(shape=(C.num_non_image_inputs,))
-		y = Dense(20)(non_img_inputs)
-		y = BatchNormalization()(y)
-		y = Dropout(dropout[1])(y)
-		y = ActivationLayer(activation_args)(y)
-		x = Concatenate(axis=1)([x, y])
+		#y = Dense(20)(non_img_inputs)
+		#y = BatchNormalization()(y)
+		#y = Dropout(dropout[1])(y)
+		#y = ActivationLayer(activation_args)(y)
+		x = Concatenate(axis=1)([x, non_img_inputs])
 
 	x = Dense(nb_classes)(x)
 	x = BatchNormalization()(x)
@@ -489,9 +489,9 @@ def get_cnn_data(n=4, n_art=4, run_2d=False, verbose=False):
 	Z_train_orig = np.array(Z_train_orig)
 
 	if run_2d:
-		train_generator = _train_generator_func_2d(train_ids, n=n, n_art=n_art)
+		train_generator = _train_generator_func_2d(test_ids, n=n, n_art=n_art)
 	else:
-		train_generator = _train_generator_func(train_ids, n=n, n_art=n_art)
+		train_generator = _train_generator_func(test_ids, n=n, n_art=n_art)
 
 	return X_test, Y_test, train_generator, num_samples, [X_train_orig, Y_train_orig], [Z_test, Z_train_orig]
 
@@ -542,7 +542,7 @@ def condense_cm(y_true, y_pred, cls_mapping):
 ### Training Submodules
 ####################################
 
-def _train_generator_func(train_ids, n=12, n_art=0):
+def _train_generator_func(test_ids, n=12, n_art=0):
 	"""n is the number of samples from each class, n_art is the number of artificial samples"""
 
 	C = config.Config()
@@ -552,7 +552,7 @@ def _train_generator_func(train_ids, n=12, n_art=0):
 	#avg_X2 = {}
 	#for cls in orig_data_dict:
 	#	avg_X2[cls] = np.mean(orig_data_dict[cls][1], axis=0)
-	patient_info_df = pd.read_excel(C.xls_name, C.patient_sheetname)
+	patient_info_df = pd.read_csv(C.patient_info_path)
 	patient_info_df["AccNum"] = patient_info_df["AccNum"].astype(str)
 
 	num_classes = len(C.classes_to_include)
@@ -577,7 +577,7 @@ def _train_generator_func(train_ids, n=12, n_art=0):
 			while n > 0:
 				img_fn = random.choice(img_fns)
 				lesion_num = img_fn[:img_fn.rfind('_')]
-				if lesion_num + ".npy" not in train_ids[cls]:
+				if lesion_num + ".npy" not in test_ids[cls]:
 					x1[train_cnt] = np.load(C.aug_dir+cls+"\\"+img_fn)
 					if C.hard_scale:
 						x1[train_cnt] = vm.scale_intensity(x1[train_cnt], 1, max_int=2, keep_min=False)
@@ -683,7 +683,8 @@ def _collect_unaug_data():
 	orig_data_dict = {}
 	num_samples = {}
 	voi_df = drm.get_voi_dfs()[0]
-	patient_info_df = pd.read_excel(C.xls_name, C.patient_sheetname)
+	voi_df = voi_df[voi_df["run_num"] <= C.test_run_num]
+	patient_info_df = pd.read_csv(C.patient_info_path)
 	patient_info_df["AccNum"] = patient_info_df["AccNum"].astype(str)
 
 	for cls in C.classes_to_include:
@@ -724,39 +725,6 @@ def get_non_img_inputs(voi_info, patient_info):
 	sex = 0 if patient_info["Sex"].values[0]=="M" else 1
 
 	return [side_length, age, sex]
-
-###########################
-### Output Submodules
-###########################
-
-def _draw_bbox(img_slice, voi, C=None):
-	"""Draw a colored box around the voi of an image slice showing how it would be cropped."""
-
-	if C is None:
-		C = config.Config()
-
-	scale_ratios = vm.get_scale_ratios(voi)
-	
-	crop = [img_slice.shape[i] - round(C.dims[i]/scale_ratios[i]) for i in range(2)]
-	
-	x1 = crop[0]//2
-	x2 = -crop[0]//2
-	y1 = crop[1]//2
-	y2 = -crop[1]//2
-
-	img_slice[x1:x2, y2, 2, :] = 1
-	img_slice[x1:x2, y2, :2, :] = -1
-
-	img_slice[x1:x2, y1, 2, :] = 1
-	img_slice[x1:x2, y1, :2, :] = -1
-
-	img_slice[x1, y1:y2, 2, :] = 1
-	img_slice[x1, y1:y2, :2, :] = -1
-
-	img_slice[x2, y1:y2, 2, :] = 1
-	img_slice[x2, y1:y2, :2, :] = -1
-	
-	return img_slice
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description='Convert DICOMs to npy files and transfer voi coordinates from excel to csv.')
