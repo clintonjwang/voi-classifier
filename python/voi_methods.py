@@ -49,7 +49,7 @@ def xref_dirs_with_excel(cls=None, fix_inplace=True):
 	index = C.cls_names.index(cls)
 	acc_num_df = C.sheetnames[index]
 	df = pd.read_excel(C.xls_name, C.sheetnames[index])
-	voi_df = pd.read_csv(C.art_voi_path)
+	voi_df = drm.get_voi_dfs()[0]
 	xls_accnums = list(df[df['Run'] <= C.run_num]['Patient E Number'].astype(str))
 	unique, counts = np.unique(xls_accnums, return_counts=True)
 	xls_set = set(unique)
@@ -123,7 +123,7 @@ def xref_dirs_with_excel(cls=None, fix_inplace=True):
 
 	# Check augmented lesions
 	lesion_ids_folder = set([fn[:fn.rfind("_")] for fn in os.listdir(C.aug_dir + "\\" + cls)])
-	lesion_ids_df = set(voi_df.loc[voi_df["cls"] == cls,"id"].values)
+	lesion_ids_df = set(voi_df[voi_df["cls"] == cls].index)
 	diff = lesion_ids_df.difference(lesion_ids_folder)
 	if len(diff) > 0:
 		print(diff, "are contained in voi_df but not in", C.aug_dir)
@@ -137,7 +137,7 @@ def xref_dirs_with_excel(cls=None, fix_inplace=True):
 	if fix_inplace and len(bad_acc_nums) > 0:
 		print("Reloading", set(bad_acc_nums))
 		for acc_num in set(bad_acc_nums):
-			reload_accnum(acc_num, cls)
+			reload_accnum(cls, acc_num)
 
 def reload_accnum(cls=None, acc_num=None, augment=True, overwrite=True):
 	"""Reloads cropped, scaled and augmented images. Updates voi_dfs and small_vois accordingly."""
@@ -147,9 +147,9 @@ def reload_accnum(cls=None, acc_num=None, augment=True, overwrite=True):
 		remove_lesion_from_folders(cls, acc_num)
 
 	extract_vois(cls, [acc_num])
-	save_unaugmented_set(cls, acc_num)
+	save_unaugmented_set(cls, [acc_num])
 	if augment:
-		save_augmented_set(cls, acc_num)
+		save_augmented_set(cls, [acc_num])
 
 @drm.autofill_cls_arg
 def save_vois_as_imgs(cls=None, lesion_ids=None, save_dir=None, normalize=[-1,1], rescale_factor=3):
@@ -225,7 +225,7 @@ def save_imgs_with_bbox(cls=None, lesion_ids=None, fn_suffix=None, save_dir=None
 
 		img_slice = np.stack([img_slice, img_slice, img_slice], axis=2)
 		
-		img_slice = _draw_bbox(img_slice, vm._get_coords(small_voi_df[small_voi_df["id"] == fn[:-4]]))
+		img_slice = _draw_bbox(img_slice, vm._get_voi_coords(small_voi_df[small_voi_df["id"] == fn[:-4]]))
 			
 		ch1 = np.transpose(img_slice[:,::-1,:,0], (1,0,2))
 		ch2 = np.transpose(img_slice[:,::-1,:,1], (1,0,2))
@@ -286,22 +286,19 @@ def remove_lesion_from_folders(cls=None, acc_num=None, lesion_id=None, include_a
 #####################################
 
 @drm.autofill_cls_arg
-def extract_vois(cls=None, acc_nums=None, debug=False, overwrite_df=False):
+def extract_vois(cls=None, acc_nums=None):
 	"""Produces grossly cropped but unscaled versions of the images.
-	This intermediate step makes debugging and visualization easier.
+	This intermediate step makes debugging and visualization easier, and augmentation faster.
+	Rotation, scaling, etc. for augmentation can be done directly on these images.
 	drm.load_vois_batch() must be run first to populate the voi_dfs.
-	Overwrites any existing images without checking."""
+	Overwrites any existing images and voi_df entries without checking."""
 
 	C = config.Config()
-	voi_df_art = pd.read_csv(C.art_voi_path)
-	voi_df_ven = pd.read_csv(C.ven_voi_path)
-	voi_df_eq = pd.read_csv(C.eq_voi_path)
+	voi_df_art, voi_df_ven, voi_df_eq = drm.get_voi_dfs()
 	#intensity_df = pd.read_csv(C.int_df_path)
 
 	try:
 		small_voi_df = pd.read_csv(C.small_voi_path)
-		if overwrite_df:
-			small_voi_df = small_voi_df[small_voi_df["cls"] != cls]
 	except FileNotFoundError:
 		small_voi_df = pd.DataFrame(columns=["id", "acc_num", "cls", "coords"])
 
@@ -312,70 +309,68 @@ def extract_vois(cls=None, acc_nums=None, debug=False, overwrite_df=False):
 		try:
 			img = np.load(os.path.join(C.full_img_dir, cls, acc_num+".npy"))
 		except Exception as e:
-			if debug:
-				raise ValueError(e)
+			#raise ValueError(e)
 			continue
 
-		art_vois = voi_df_art[(voi_df_art["Filename"] == acc_num+".npy") & (voi_df_art["cls"] == cls)]
+		art_vois = voi_df_art[(voi_df_art["acc_num"] == acc_num) & (voi_df_art["cls"] == cls)]
 
 		small_voi_df = _rm_lesion_from_voi_df(small_voi_df, acc_num, cls)
 
 		# iterate over each voi in that image
-		for voi_row in art_vois.iterrows():
-			ven_voi = voi_df_ven[voi_df_ven["id"] == voi_row[1]["id"]]
-			eq_voi = voi_df_eq[voi_df_eq["id"] == voi_row[1]["id"]]
+		for lesion_id, voi_row in art_vois.iterrows():
+			try:
+				ven_voi = voi_df_ven.loc[lesion_id]
+			except KeyError:
+				ven_voi = None
+			try:
+				eq_voi = voi_df_eq.loc[lesion_id]
+			except KeyError:
+				eq_voi = None
 
-			cropped_img, small_voi = _extract_voi(img, copy.deepcopy(voi_row[1]), C.dims, ven_voi=ven_voi, eq_voi=eq_voi)
+			cropped_img, small_voi = _extract_voi(img, copy.deepcopy(voi_row), C.dims, ven_voi=ven_voi, eq_voi=eq_voi)
 			cropped_img = scale_intensity(cropped_img, 1, max_int=2, keep_min=True) - 1
 			#cropped_img = _scale_intensity_df(cropped_img, intensity_df[intensity_df["acc_num"] == img_fn[:img_fn.find('.')]])
 
-			lesion_id = str(voi_row[1]["id"])
 			np.save(os.path.join(C.crops_dir, cls, lesion_id), cropped_img)
 
 			small_voi_df = _add_small_voi(small_voi_df, lesion_id, cls, small_voi)
 
 		if img_num % 20 == 0:
 			print(".", end="")
+			small_voi_df.to_csv(C.small_voi_path, index=False)
 	
 	small_voi_df.to_csv(C.small_voi_path, index=False)
 
 @drm.autofill_cls_arg
-def save_unaugmented_set(cls=None, acc_num=None):
+def save_unaugmented_set(cls=None, acc_nums=None):
 	"""Save unaugmented lesion images. Overwrites without checking."""
 
 	C = config.Config()
 
 	small_voi_df = pd.read_csv(C.small_voi_path)
 
-	if acc_num is None:
-		acc_num_subset = os.listdir(C.crops_dir + cls)
+	if acc_nums is None:
+		lesion_ids = os.listdir(C.crops_dir + cls)
 	else:
-		acc_num_subset = [x for x in os.listdir(C.crops_dir + cls) if x.startswith(acc_num)]
+		lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir + cls) if x[:x.find('_')] in acc_nums]
 
-	for fn in acc_num_subset:
-		img = np.load(C.crops_dir + cls + "\\" + fn)
-
-		try:
-			unaug_img = _resize_img(img, _get_coords(small_voi_df[small_voi_df["id"] == fn[:-4]]))
-		except Exception as e:
-			if len(classes) == 1:
-				raise ValueError(e)
-			print(cls, fn)
-			continue
-		np.save(C.orig_dir + cls + "\\" + fn, unaug_img)
+	for lesion_id in lesion_ids:
+		unaug_img = _resize_img(os.path.join(C.crops_dir, cls, lesion_id + ".npy"),
+					_get_voi_coords(small_voi_df[small_voi_df["id"] == lesion_id]))
+		np.save(os.path.join(C.orig_dir, cls, lesion_id), unaug_img)
 
 @drm.autofill_cls_arg
-def save_augmented_set(cls=None, acc_num=None, num_cores=None, overwrite=True):
+def save_augmented_set(cls=None, acc_nums=None, num_cores=None, overwrite=True):
 	"""Augment all images in cls using CPU parallelization.
 	[Overwrite behavior?]"""
 
 	C = config.Config()
 	small_voi_df = pd.read_csv(C.small_voi_path)
 
-	if acc_num is not None:
-		fn_subset = [x for x in os.listdir(C.crops_dir + cls) if x.startswith(acc_num)]
+	if acc_nums is not None:
+		fn_subset = [x for x in os.listdir(C.crops_dir + cls) if x[:x.find('_')] in acc_nums]
 		for fn in fn_subset:
-			_save_augmented_img(fn, cls, _get_coords(small_voi_df[small_voi_df["id"] == fn[:-4]]), C)
+			_save_augmented_img(fn[:-4], cls, _get_voi_coords(small_voi_df[small_voi_df["id"] == fn[:-4]]))
 
 	else:
 		t = time.time()
@@ -384,11 +379,11 @@ def save_augmented_set(cls=None, acc_num=None, num_cores=None, overwrite=True):
 
 		if num_cores > 1:
 			Parallel(n_jobs=num_cores)(delayed(_save_augmented_img)(fn, cls,
-				_get_coords(small_voi_df[small_voi_df["id"] == fn[:-4]]),
+				_get_voi_coords(small_voi_df[small_voi_df["id"] == fn[:-4]]),
 				C, overwrite=overwrite) for fn in os.listdir(C.crops_dir + cls))
 		else:
 			for fn in os.listdir(C.crops_dir + cls):
-				_save_augmented_img(fn, cls, small_vois[fn[:-4]], C, overwrite=overwrite)
+				_save_augmented_img(fn[:-4], cls, _get_voi_coords(small_voi_df[small_voi_df["id"] == fn[:-4]]), overwrite=overwrite)
 
 		print(cls, time.time()-t)
 
@@ -401,7 +396,9 @@ def get_scale_ratios(voi, final_dims=None, lesion_ratio=None):
 	"""Based on a voi in an image and the final dimensions desired,
 	determine how much the image needs to be scaled so that the voi fits
 	in the desired dimensions, with optional padding.
-	Padding of 1 means no padding is added. <1 adds padding"""
+
+	lesion_ratio of .8 means that the width of the lesion is 80% of the image width.
+	lesion_ratio of 1 means no padding is added."""
 
 	C = config.Config()
 
@@ -450,7 +447,7 @@ def scale_intensity(img, fraction=.5, max_int=2, keep_min=False):
 ### Subroutines
 #####################################
 
-def _augment_img(img, voi, num_samples, translate=[2,2,1], add_reflections=False, save_name=None, intensity_scaling=[.05,.05], overwrite=True):
+def _augment_img(img, voi, num_samples, add_reflections=False, save_name=None, overwrite=True):
 	"""For rescaling an img to final_dims while scaling to make sure the image contains the voi.
 	add_reflections and save_name cannot be used simultaneously"""
 	C = config.Config()
@@ -473,18 +470,15 @@ def _augment_img(img, voi, num_samples, translate=[2,2,1], add_reflections=False
 				 random.uniform(scale_ratios[2]*buffer1, scale_ratios[2]*buffer2)]
 		
 		angle = random.randint(0, 359)
+		
+		trans = [random.randint(-C.translate[0], C.translate[0]),
+				 random.randint(-C.translate[1], C.translate[1]),
+				 random.randint(-C.translate[2], C.translate[2])]
+		
+		flip = [random.choice([-1, 1]), random.choice([-1, 1]), random.choice([-1, 1])]
 
 		temp_img = tr.scale3d(img, scales)
 		temp_img = tr.rotate(temp_img, angle)
-		
-		if translate is not None:
-			trans = [random.randint(-translate[0], translate[0]),
-					 random.randint(-translate[1], translate[1]),
-					 random.randint(-translate[2], translate[2])]
-		else:
-			trans = [0,0,0]
-		
-		flip = [random.choice([-1, 1]), random.choice([-1, 1]), random.choice([-1, 1])]
 
 		crops = [temp_img.shape[i] - final_dims[i] for i in range(3)]
 	
@@ -499,9 +493,9 @@ def _augment_img(img, voi, num_samples, translate=[2,2,1], add_reflections=False
 							crops[2]//2 *flip[2] + trans[2] : -crops[2]//2 *flip[2] + trans[2] : flip[2], :]
 		
 		#temp_img = scale_intensity(temp_img, C.intensity_local_frac, max_int=1.5)#random.gauss(C.intensity_local_frac, 0.1))
-		temp_img[:,:,:,0] = temp_img[:,:,:,0] * random.gauss(1,intensity_scaling[0]) + random.gauss(0,intensity_scaling[1])
-		temp_img[:,:,:,1] = temp_img[:,:,:,1] * random.gauss(1,intensity_scaling[0]) + random.gauss(0,intensity_scaling[1])
-		temp_img[:,:,:,2] = temp_img[:,:,:,2] * random.gauss(1,intensity_scaling[0]) + random.gauss(0,intensity_scaling[1])
+		temp_img[:,:,:,0] = temp_img[:,:,:,0] * random.gauss(1,C.intensity_scaling[0]) + random.gauss(0,C.intensity_scaling[1])
+		temp_img[:,:,:,1] = temp_img[:,:,:,1] * random.gauss(1,C.intensity_scaling[0]) + random.gauss(0,C.intensity_scaling[1])
+		temp_img[:,:,:,2] = temp_img[:,:,:,2] * random.gauss(1,C.intensity_scaling[0]) + random.gauss(0,C.intensity_scaling[1])
 
 		if save_name is None:
 			aug_imgs.append(temp_img)
@@ -513,14 +507,14 @@ def _augment_img(img, voi, num_samples, translate=[2,2,1], add_reflections=False
 	
 	return aug_imgs
 
-def _save_augmented_img(fn, cls, voi_coords, C, overwrite=True):
+def _save_augmented_img(lesion_id, cls, voi_coords, overwrite=True):
 	"""Written in a way to allow partial overwriting"""
-	if not overwrite and os.path.exists(C.aug_dir + cls + "\\" + fn[:-4] + "_0.npy"):
+	C = config.Config()
+	if not overwrite and os.path.exists(os.path.join(C.aug_dir, cls, lesion_id + "_0.npy")):
 		return
 
-	img = np.load(C.crops_dir + cls + "\\" + fn)
-	_augment_img(img, voi_coords, num_samples=C.aug_factor, translate=[2,2,1],
-			save_name=C.aug_dir + cls + "\\" + fn[:-4], intensity_scaling=C.intensity_scaling, overwrite=overwrite)
+	img = np.load(os.path.join(C.crops_dir, cls, lesion_id + ".npy"))
+	_augment_img(img, voi_coords, num_samples=C.aug_factor, save_name=os.path.join(C.aug_dir, cls, lesion_id), overwrite=overwrite)
 
 def _scale_intensity_df(img, intensity_row, min_int=1):
 	"""Rescale intensities in img such that the max intensity of the original image has a value of 1. Min intensity is -1."""
@@ -534,21 +528,20 @@ def _scale_intensity_df(img, intensity_row, min_int=1):
 
 	return img
 
-def _get_coords(small_voi_df_row):
+def _get_voi_coords(small_voi_df_row):
 	try:
 		return ast.literal_eval(small_voi_df_row["coords"].values[0])
 	except:
 		return small_voi_df_row["coords"].values[0]
 
-def _resize_img(img, voi, C=None):
+def _resize_img(img_path, voi):
 	"""For rescaling an img to final_dims while scaling to make sure the image contains the voi.
 	Do not reuse img
 	"""
-	if C is None:
-		C = config.Config()
-
+	C = config.Config()
 	scale_ratios = get_scale_ratios(voi)
 
+	img = np.load(img_path)
 	img = tr.scale3d(img, scale_ratios)
 
 	crop = [img.shape[i] - C.dims[i] for i in range(3)]
@@ -582,18 +575,18 @@ def _rm_lesion_from_voi_df(small_voi_df, acc_num, cls=None):
 
 	return small_voi_df
 
-def _extract_voi(img, voi, min_dims, ven_voi=[], eq_voi=[]):
+def _extract_voi(img, voi, min_dims, ven_voi, eq_voi):
 	"""Input: image, a voi to center on, and the min dims of the unaugmented img.
 	Outputs loosely cropped voi-centered image and coords of the voi within this loosely cropped image.
 	"""
 	
-	def _align_phases(img, voi, ven_voi, ch):
+	def _align_phases(img, voi, ch_voi, ch):
 		"""Align phases based on centers along each axis"""
 
 		temp_ven = copy.deepcopy(img[:,:,:,ch])
-		dx = ((ven_voi["x1"] + ven_voi["x2"]) - (voi["x1"] + voi["x2"])) // 2
-		dy = ((ven_voi["y1"] + ven_voi["y2"]) - (voi["y1"] + voi["y2"])) // 2
-		dz = ((ven_voi["z1"] + ven_voi["z2"]) - (voi["z1"] + voi["z2"])) // 2
+		dx = ((ch_voi["x1"] + ch_voi["x2"]) - (voi["x1"] + voi["x2"])) // 2
+		dy = ((ch_voi["y1"] + ch_voi["y2"]) - (voi["y1"] + voi["y2"])) // 2
+		dz = ((ch_voi["z1"] + ch_voi["z2"]) - (voi["z1"] + voi["z2"])) // 2
 		
 		pad = int(max(abs(dx), abs(dy), abs(dz)))+1
 		temp_ven = np.pad(temp_ven, pad, 'constant')[pad+dx:-pad+dx, pad+dy:-pad+dy, pad+dz:-pad+dz]
@@ -614,17 +607,15 @@ def _extract_voi(img, voi, min_dims, ven_voi=[], eq_voi=[]):
 	dx = x2 - x1
 	dy = y2 - y1
 	dz = z2 - z1
-	assert dx > 0, "Bad voi for " + str(voi["id"])
-	assert dy > 0, "Bad voi for " + str(voi["id"])
-	assert dz > 0, "Bad voi for " + str(voi["id"])
+	assert dx > 0, "Bad voi for " + str(voi["acc_num"])
+	assert dy > 0, "Bad voi for " + str(voi["acc_num"])
+	assert dz > 0, "Bad voi for " + str(voi["acc_num"])
 	
 	# align all phases
-	if len(ven_voi) > 0:
-		ven_voi = ven_voi.iloc[0]
+	if ven_voi is not None:
 		temp_img = _align_phases(temp_img, voi, ven_voi, 1)
 		
-	if len(eq_voi) > 0:
-		eq_voi = eq_voi.iloc[0]
+	if eq_voi is not None:
 		temp_img = _align_phases(temp_img, voi, eq_voi, 2)
 
 	#padding around lesion
@@ -638,10 +629,6 @@ def _extract_voi(img, voi, min_dims, ven_voi=[], eq_voi=[]):
 	for ch in range(temp_img.shape[-1]):
 		pad_img.append(np.pad(temp_img[:,:,:,ch], side_padding, 'constant'))
 	pad_img = np.stack(pad_img, axis=3)
-	
-	assert xpad > 0
-	assert ypad > 0
-	assert zpad > 0
 	
 	#choice of ceil/floor needed to make total padding amount correct
 	x1 += side_padding - math.floor(xpad/2)

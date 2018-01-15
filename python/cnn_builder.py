@@ -35,6 +35,7 @@ from skimage.transform import rescale
 from sklearn.metrics import confusion_matrix, f1_score, accuracy_score
 import time
 import voi_methods as vm
+import dr_methods as drm
 
 ####################################
 ### OVERNIGHT PROCESSES
@@ -367,7 +368,11 @@ def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same', 'valid']
 
 	if dual_inputs:
 		non_img_inputs = Input(shape=(C.num_non_image_inputs,))
-		x = Concatenate(axis=1)([x, non_img_inputs])
+		y = Dense(20)(non_img_inputs)
+		y = BatchNormalization()(y)
+		y = Dropout(dropout[1])(y)
+		y = ActivationLayer(activation_args)(y)
+		x = Concatenate(axis=1)([x, y])
 
 	x = Dense(nb_classes)(x)
 	x = BatchNormalization()(x)
@@ -540,10 +545,9 @@ def condense_cm(y_true, y_pred, cls_mapping):
 def _train_generator_func(train_ids, n=12, n_art=0):
 	"""n is the number of samples from each class, n_art is the number of artificial samples"""
 
-	import voi_methods as vm
 	C = config.Config()
 
-	voi_df = pd.read_csv(C.art_voi_path)
+	voi_df = drm.get_voi_dfs()[0]
 
 	#avg_X2 = {}
 	#for cls in orig_data_dict:
@@ -573,16 +577,14 @@ def _train_generator_func(train_ids, n=12, n_art=0):
 			while n > 0:
 				img_fn = random.choice(img_fns)
 				lesion_num = img_fn[:img_fn.rfind('_')]
-				if lesion_num + ".npy" in train_ids[cls]:
+				if lesion_num + ".npy" not in train_ids[cls]:
 					x1[train_cnt] = np.load(C.aug_dir+cls+"\\"+img_fn)
 					if C.hard_scale:
 						x1[train_cnt] = vm.scale_intensity(x1[train_cnt], 1, max_int=2, keep_min=False)
 
 					if C.non_imaging_inputs:
-						voi_row = voi_df[voi_df["id"] == lesion_num]
-
-						accnum = voi_row["Filename"].values[0][:-4]
-						patient_row = patient_info_df[patient_info_df["AccNum"] == accnum]
+						voi_row = voi_df.loc[lesion_num]
+						patient_row = patient_info_df[patient_info_df["AccNum"] == voi_row["acc_num"]]
 						x2[train_cnt] = get_non_img_inputs(voi_row, patient_row)
 					
 					y[train_cnt][C.classes_to_include.index(cls)] = 1
@@ -680,7 +682,7 @@ def _collect_unaug_data():
 	C = config.Config()
 	orig_data_dict = {}
 	num_samples = {}
-	voi_df = pd.read_csv(C.art_voi_path)
+	voi_df = drm.get_voi_dfs()[0]
 	patient_info_df = pd.read_excel(C.xls_name, C.patient_sheetname)
 	patient_info_df["AccNum"] = patient_info_df["AccNum"].astype(str)
 
@@ -700,10 +702,8 @@ def _collect_unaug_data():
 			
 			if C.non_imaging_inputs:
 				lesion_num = img_fn[:-4]
-				voi_row = voi_df[voi_df["id"] == lesion_num]
-
-				accnum = voi_row["Filename"].values[0][:-4]
-				patient_row = patient_info_df[patient_info_df["AccNum"] == accnum]
+				voi_row = voi_df.loc[lesion_num]
+				patient_row = patient_info_df[patient_info_df["AccNum"] == voi_row["acc_num"]]
 				x2[index] = get_non_img_inputs(voi_row, patient_row)
 
 		x.resize((index+1, C.dims[0], C.dims[1], C.dims[2], C.nb_channels)) #shrink first dimension to fit

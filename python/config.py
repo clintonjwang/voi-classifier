@@ -30,10 +30,11 @@ class Config:
 		self.train_frac = None#.9
 		self.test_num = 10 # only used if train_frac is None
 
-		self.non_imaging_inputs = True # whether non-imaging inputs should be incorporated into the neural network
+		self.non_imaging_inputs = False # whether non-imaging inputs should be incorporated into the neural network
 		self.num_non_image_inputs = 3
+
 		self.lesion_ratio = 0.75 # ratio of the lesion side length to the length of the cropped image
-		self.intensity_scaling = [.05,.05]
+
 		self.intensity_local_frac = .5 # normalizes all images locally by this fraction
 		self.hard_scale = False # if True, normalizes all images within the tightly cropped region
 
@@ -43,7 +44,7 @@ class Config:
 		self.eq_voi_path = "..\\data\\voi_eq_full.csv"
 		self.dims_df_path = "..\\data\\img_dims.csv"
 		self.int_df_path = "..\\data\\intensity.csv"
-		self.small_voi_path = "..\\data\\small_vois.csv"
+		self.small_voi_path = "..\\data\\small_vois_full.csv"
 		self.run_stats_path = "..\\data\\overnight_run.csv"
 		self.patient_info_path = "Z:\\patient_info.csv"
 		self.xls_name = 'Z:\\Prototype1e.xlsx'
@@ -63,6 +64,10 @@ class Config:
 		self.orig_dir = "E:\\imgs\\orig_imgs_2412_full\\"
 		self.artif_dir = "E:\\imgs\\artif_imgs_2412\\"
 		self.model_dir = "E:\\models\\"
+
+		# Augmentation parameters
+		self.intensity_scaling = [.05,.05]
+		self.translate = [2,2,1]
 
 		# Artificial sample parameters
 		self.long_size_frac = [0.6, 0.85]

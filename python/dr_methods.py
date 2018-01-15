@@ -73,6 +73,21 @@ def plot_check(num, lesion_num=None, normalize=[-1,0]):
 	return img
 
 @autofill_cls_arg
+def check_dims_df(cls=None):
+	"""Checks to see if dims_df is missing any accession numbers."""
+
+	C = config.Config()
+	i = C.cls_names.index(cls)
+	sheetname = C.sheetnames[i]
+	df = pd.read_excel(C.xls_name, sheetname)
+	df = _filter_voi_df(df, C)
+	acc_nums = set(df['Patient E Number'].astype(str).tolist())
+	dims_df = pd.read_csv(C.dims_df_path)
+	missing = acc_nums.difference(dims_df["AccNum"])
+	if len(missing) > 0:
+		print(cls, missing)
+
+@autofill_cls_arg
 def report_missing_folders(cls=None):
 	"""Checks to see if any image phases are missing from the DICOM directories"""
 
@@ -83,7 +98,7 @@ def report_missing_folders(cls=None):
 
 	df = pd.read_excel(C.xls_name, sheetname)
 	df = _filter_voi_df(df, C)
-	acc_nums = list(set(df['Patient E Number'].dropna().astype(str).tolist()))
+	acc_nums = list(set(df['Patient E Number'].tolist()))
 
 	for cnt, acc_num in enumerate(acc_nums):
 		df_subset = df.loc[df['Patient E Number'].astype(str) == acc_num]
@@ -122,7 +137,9 @@ def dcm2npy_batch(cls=None, acc_nums=None, update_intensities=False, overwrite=T
 		os.makedirs(os.path.join(C.full_img_dir, cls))
 
 	if acc_nums is None:
-		acc_nums = list(set(src_data_df['Patient E Number'].dropna().astype(str).tolist()))
+		acc_nums = list(set(src_data_df['Patient E Number'].values))
+	else:
+		acc_nums = set(acc_nums).intersection(src_data_df['Patient E Number'].values)
 
 	for cnt, acc_num in enumerate(acc_nums):
 		dims_df = _dcm2npy(load_dir=os.path.join(img_dir, acc_num),
@@ -145,44 +162,44 @@ def load_vois_batch(cls=None, acc_nums=None, overwrite=True, verbose=False):
 	"""Updates the voi_dfs based on the raw spreadsheet.
 	dcm2npy_batch() must be run first to produce full size npy images."""
 
+	def write_voi_dfs(*args):
+		C = config.Config()
+
+		if len(args) == 1:
+			voi_df_art, voi_df_ven, voi_df_eq = args[0]
+		else:
+			voi_df_art, voi_df_ven, voi_df_eq = args
+
+		voi_df_art.to_csv(C.art_voi_path)
+		voi_df_ven.to_csv(C.ven_voi_path)
+		voi_df_eq.to_csv(C.eq_voi_path)
+
 	C = config.Config()
-
-	try:
-		voi_df_art = pd.read_csv(C.art_voi_path)
-		voi_df_ven = pd.read_csv(C.ven_voi_path)
-		voi_df_eq = pd.read_csv(C.eq_voi_path)
-	except FileNotFoundError:
-		voi_df_art = pd.DataFrame(columns = ["acc_num", "x1", "x2", "y1", "y2", "z1", "z2", "cls",
-										 "real_dx", "real_dy", "real_dz", "run_num"])
-		voi_df_ven = pd.DataFrame(columns = ["x1", "x2", "y1", "y2", "z1", "z2"]) #voi_df_ven only contains entries where manually specified
-		voi_df_eq = pd.DataFrame(columns = ["x1", "x2", "y1", "y2", "z1", "z2"]) #voi_df_ven only contains entries where manually specified
-
-	voi_df_art["acc_num"] = voi_df_art["acc_num"].astype(str)
 
 	dims_df = pd.read_csv(C.dims_df_path)
 
-	i = C.cls_names.index(cls)
-	sheetname = C.sheetnames[i]
-	src_data_df = pd.read_excel(C.xls_name, sheetname)
-	src_data_df = _filter_voi_df(src_data_df, C)
-	
 	if acc_nums is None:
-		acc_nums = list(set(src_data_df['Patient E Number'].dropna().astype(str).tolist()))
+		i = C.cls_names.index(cls)
+		src_data_df = pd.read_excel(C.xls_name, C.sheetnames[i])
+		src_data_df = _filter_voi_df(src_data_df, C)
+		acc_nums = list(set(src_data_df['Patient E Number'].values))
+	
+	voi_df_art, voi_df_ven, voi_df_eq = get_voi_dfs()
 
 	if overwrite:
 		voi_df_art, voi_df_ven, voi_df_eq = _remove_accnums_from_vois(voi_df_art, voi_df_ven, voi_df_eq, acc_nums, cls)
 	else:
-		acc_nums = set(acc_nums).difference(voi_df_art["acc_num"].values)
+		acc_nums = set(acc_nums).difference(voi_df_art[voi_df_art["cls"] == cls]["acc_num"].values)
 
+	voi_dfs = voi_df_art, voi_df_ven, voi_df_eq
 	for cnt, acc_num in enumerate(acc_nums):
-		voi_df_art, voi_df_ven, voi_df_eq = _load_vois(cls, acc_num, voi_df_art, voi_df_ven, voi_df_eq)
+		voi_dfs = _load_vois(cls, acc_num, voi_dfs)
 
 		if cnt % 10 == 2:
 			print(".", end="")
+			write_voi_dfs(voi_dfs)
 
-	voi_df_art.to_csv(C.art_voi_path, index=False)
-	voi_df_ven.to_csv(C.ven_voi_path, index=False)
-	voi_df_eq.to_csv(C.eq_voi_path, index=False)
+	write_voi_dfs(voi_dfs)
 
 @autofill_cls_arg
 def load_patient_info(cls=None, acc_nums=None, save_path=None, verbose=False):
@@ -258,6 +275,26 @@ def load_patient_info(cls=None, acc_nums=None, save_path=None, verbose=False):
 		patient_info_df.loc[cnt+i] = get_patient_info(''.join(f.readlines()))
 
 	patient_info_df.to_csv(save_path, index=False)
+
+###########################
+### Public Subroutines
+###########################
+
+def get_voi_dfs():
+	C = config.Config()
+
+	try:
+		voi_df_art = pd.read_csv(C.art_voi_path, index_col=0)
+		voi_df_ven = pd.read_csv(C.ven_voi_path, index_col=0)
+		voi_df_eq = pd.read_csv(C.eq_voi_path, index_col=0)
+		voi_df_art["acc_num"] = voi_df_art["acc_num"].astype(str)
+	except FileNotFoundError:
+		voi_df_art = pd.DataFrame(columns = ["acc_num", "x1", "x2", "y1", "y2", "z1", "z2", "cls",
+										 "real_dx", "real_dy", "real_dz", "run_num"])
+		voi_df_ven = pd.DataFrame(columns = ["x1", "x2", "y1", "y2", "z1", "z2"]) #voi_df_ven only contains entries where manually specified
+		voi_df_eq = pd.DataFrame(columns = ["x1", "x2", "y1", "y2", "z1", "z2"]) #voi_df_ven only contains entries where manually specified
+
+	return voi_df_art, voi_df_ven, voi_df_eq
 
 ###########################
 ### Subroutines
@@ -347,6 +384,7 @@ def _filter_voi_df(df, filters):
 	"""Select only rows for this run. Collect acc_nums and voi coordinates."""
 	
 	df = df[df['Run'] <= filters.run_num].dropna(subset=["x1"])
+	df['Patient E Number'] = df['Patient E Number'].astype(str)
 	
 	return df.drop(set(df.columns).difference(['Patient E Number', 
 		  'x1', 'x2', 'y1', 'y2', 'z1', 'z2', 'Flipped',
@@ -390,7 +428,7 @@ def _dcm2npy(load_dir, save_path, dims_df, info=None, flip_x=True, overwrite=Tru
 
 	return dims_df
 
-def _load_vois(cls, acc_num, voi_df_art=None, voi_df_ven=None, voi_df_eq=None):
+def _load_vois(cls, acc_num, voi_dfs=None):
 	"""Load all vois belonging to an acc_num. Does not overwrite entries."""
 
 	def _add_voi_row(voi_df, x, y, z, acc_num=None, cls=None, run_num=-1, vox_dims=None, index=None):
@@ -408,7 +446,7 @@ def _load_vois(cls, acc_num, voi_df_art=None, voi_df_ven=None, voi_df_eq=None):
 			real_dx = (x[1] - x[0])*vox_dims[0]
 			real_dy = (y[1] - y[0])*vox_dims[1]
 			real_dz = (z[1] - z[0])*vox_dims[2]
-			
+
 			voi_df.loc[index] = [str(acc_num), x[0], x[1], y[0], y[1], z[0], z[1], cls, real_dx, real_dy, real_dz, run_num]
 			return voi_df, index
 			
@@ -420,10 +458,10 @@ def _load_vois(cls, acc_num, voi_df_art=None, voi_df_ven=None, voi_df_eq=None):
 
 	dims_df = pd.read_csv(C.dims_df_path)
 
-	if voi_df_art is None:
-		voi_df_art = pd.read_csv(C.art_voi_path)
-		voi_df_ven = pd.read_csv(C.ven_voi_path)
-		voi_df_eq = pd.read_csv(C.eq_voi_path)
+	if voi_dfs is None:
+		voi_df_art, voi_df_ven, voi_df_eq = get_voi_dfs()
+	else:
+		voi_df_art, voi_df_ven, voi_df_eq = voi_dfs
 
 	src_data_df = pd.read_excel(C.xls_name, C.sheetnames[C.cls_names.index(cls)])
 	src_data_df = _filter_voi_df(src_data_df, C)
