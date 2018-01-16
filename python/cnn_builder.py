@@ -692,7 +692,8 @@ def _collect_unaug_data():
 		x2 = np.empty((10000, C.num_non_image_inputs))
 		z = []
 
-		for index, img_fn in enumerate(os.listdir(C.orig_dir+cls)):
+		for index, lesion_id in enumerate(voi_df[voi_df["cls"] == cls].index):
+			img_fn = lesion_id + ".npy"
 			try:
 				x[index] = np.load(C.orig_dir+cls+"\\"+img_fn)
 				if C.hard_scale:
@@ -702,8 +703,7 @@ def _collect_unaug_data():
 			z.append(img_fn)
 			
 			if C.non_imaging_inputs:
-				lesion_num = img_fn[:-4]
-				voi_row = voi_df.loc[lesion_num]
+				voi_row = voi_df.loc[lesion_id]
 				patient_row = patient_info_df[patient_info_df["AccNum"] == voi_row["acc_num"]]
 				x2[index] = get_non_img_inputs(voi_row, patient_row)
 

@@ -22,8 +22,8 @@ Author: Clinton Wang, E-mail: `clintonjwang@gmail.com`, Github: `https://github.
 class Config:
 	def __init__(self):
 		import pyelastix
-		self.run_num = 5
-		self.test_run_num = 5
+		self.run_num = 2
+		self.test_run_num = 2
 		self.dims = [24,24,12]
 		self.nb_channels = 3
 		self.reg_params = pyelastix.get_default_params(type="AFFINE")

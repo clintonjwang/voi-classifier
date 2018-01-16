@@ -213,7 +213,8 @@ def load_patient_info(cls=None, acc_nums=None, overwrite=False, verbose=False):
 		birthdate_tag = '<DicomAttribute tag="00100030" vr="DA" keyword="PatientsBirthDate">'
 		curdate_tag = 'DicomAttribute tag="00080021" vr="DA" keyword="SeriesDate">'
 		sex_tag = '<DicomAttribute tag="00100040" vr="CS" keyword="PatientsSex">'
-		search_terms = [mrn_tag, birthdate_tag, curdate_tag, sex_tag]
+		ethnic_tag = '<DicomAttribute tag="00102160" vr="SH" keyword="EthnicGroup">'
+		search_terms = [mrn_tag, birthdate_tag, curdate_tag, sex_tag, ethnic_tag]
 
 		for search_term in search_terms:
 			result[search_term] = hf.get_dcm_header_value(metadata_txt, search_term)
@@ -231,8 +232,20 @@ def load_patient_info(cls=None, acc_nums=None, overwrite=False, verbose=False):
 			age = imgdate.year - birthdate.year - 1
 
 		sex = result[sex_tag]
+		ethnicity = result[ethnic_tag]
 
-		return [mrn, sex, acc_num, age, cls]
+		if ethnicity.upper() == 'W':
+			ethnicity = "White"
+		elif ethnicity.upper() == 'B':
+			ethnicity = "Black"
+		elif ethnicity.upper() == 'H':
+			ethnicity = "Hisp"
+		elif ethnicity.upper() == 'O':
+			ethnicity = "Other"
+		elif ethnicity in ['U', 'P', "Pt Refused"] or len(ethnicity) > 12:
+			ethnicity = "Unknown"
+
+		return [mrn, sex, acc_num, age, ethnicity, cls]
 
 	C = config.Config()
 
@@ -248,7 +261,7 @@ def load_patient_info(cls=None, acc_nums=None, overwrite=False, verbose=False):
 	try:
 		patient_info_df = pd.read_csv(C.patient_info_path)
 	except FileNotFoundError:
-		patient_info_df = pd.DataFrame(columns = ["MRN", "Sex", "AccNum", "AgeAtImaging", "cls"])
+		patient_info_df = pd.DataFrame(columns = ["MRN", "Sex", "AccNum", "AgeAtImaging", "Ethnicity", "cls"])
 
 	if not overwrite:
 		acc_nums = acc_nums.difference(patient_info_df["AccNum"].values)
@@ -276,6 +289,9 @@ def load_patient_info(cls=None, acc_nums=None, overwrite=False, verbose=False):
 				continue
 
 		patient_info_df.loc[cnt+i] = get_patient_info(''.join(f.readlines()))
+
+		if cnt % 20 == 2:
+			patient_info_df.to_csv(C.patient_info_path, index=False)
 
 	patient_info_df.to_csv(C.patient_info_path, index=False)
 
