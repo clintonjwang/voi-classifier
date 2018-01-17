@@ -21,7 +21,7 @@ Author: Clinton Wang, E-mail: `clintonjwang@gmail.com`, Github: `https://github.
 import argparse
 import config
 import datetime
-import helper_fxns as hf
+import niftiutils.helper_fxns as hf
 import numpy as np
 import os
 import pandas as pd
@@ -264,7 +264,7 @@ def load_patient_info(cls=None, acc_nums=None, overwrite=False, verbose=False):
 		patient_info_df = pd.DataFrame(columns = ["MRN", "Sex", "AccNum", "AgeAtImaging", "Ethnicity", "cls"])
 
 	if not overwrite:
-		acc_nums = acc_nums.difference(patient_info_df["AccNum"].values)
+		acc_nums = acc_nums.difference(patient_info_df[patient_info_df["cls"] == cls]["AccNum"].values)
 
 	i = len(patient_info_df)
 	print(cls)
@@ -432,12 +432,12 @@ def _dcm2npy(load_dir, save_path, dims_df, info=None, flip_x=True, overwrite=Tru
 	
 	# register phases if venous was not specified separately
 	ven, _ = hf.dcm_load(os.path.join(load_dir, "T1_VP"), flip_x=flip_x)
-	if "Image type2" not in info.columns or info.iloc[0]["Image type2"] != "VP-T1":
-		ven, _ = hf.reg_imgs(moving=ven, fixed=art, params=C.reg_params)
+	if not np.isnan(info['x3']):
+		ven, _ = hf.reg_elastix(moving=ven, fixed=art)
 
 	eq, _ = hf.dcm_load(os.path.join(load_dir, "T1_EQ"), flip_x=flip_x)
-	if "Image type3" not in info.columns or info.iloc[0]["Image type3"] != "EQ-T1":
-		eq, _ = hf.reg_imgs(moving=eq, fixed=art, params=C.reg_params)
+	if not np.isnan(row['x5']):
+		eq, _ = hf.reg_elastix(moving=eq, fixed=art)
 
 	img = np.transpose(np.stack((art, ven, eq)), (1,2,3,0))
 	

@@ -16,10 +16,11 @@ import ast
 import config
 import copy
 import dr_methods as drm
-import helper_fxns as hf
 from joblib import Parallel, delayed
 import math
 import multiprocessing
+import niftiutils.helper_fxns as hf
+import niftiutils.transforms as tr
 import numpy as np
 import os
 import pandas as pd
@@ -27,7 +28,6 @@ import random
 from scipy.misc import imsave
 from skimage.transform import rescale, resize
 import time
-import transforms as tr
 
 #####################################
 ### QC methods
@@ -141,11 +141,12 @@ def xref_dirs_with_excel(cls=None, fix_inplace=True):
 
 def reload_accnum(cls=None, acc_nums=None, augment=True, overwrite=True):
 	"""Reloads cropped, scaled and augmented images. Updates voi_dfs and small_vois accordingly."""
+	C = config.Config()
 	drm.load_vois_batch(cls, acc_nums=acc_nums, overwrite=overwrite)
 
-	if overwrite:
-		for acc_num in acc_nums:
-			remove_lesion_from_folders(cls, acc_num)
+	for base_dir in [C.crops_dir, C.orig_dir, C.aug_dir]:
+		if not os.path.exists(os.path.join(base_dir, cls)):
+			os.makedirs(os.path.join(base_dir, cls))
 
 	extract_vois(cls, acc_nums)
 	save_unaugmented_set(cls, acc_nums)

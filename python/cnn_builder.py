@@ -22,7 +22,7 @@ from keras.optimizers import Adam
 import argparse
 import copy
 import config
-import helper_fxns as hf
+import niftiutils.helper_fxns as hf
 import math
 from math import log, ceil
 import numpy as np

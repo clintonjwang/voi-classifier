@@ -1,12 +1,5 @@
 """
-Converts a nifti file to a numpy array.
-Accepts either a single nifti file or a folder of niftis as the input argument.
-
-Usage:
-	python nii_to_np.py data/nifti/volume-01.nii
-	python nii_to_np.py data/nifti/
-	python nii_to_np.py data/nifti/ --dest data/numpy/
-	python nii_to_np.py data/nifti/volume-01.nii --dest data/numpy/
+Config file
 
 Author: Clinton Wang, E-mail: `clintonjwang@gmail.com`, Github: `https://github.com/clintonjwang/voi-classifier`
 """
@@ -21,12 +14,10 @@ Author: Clinton Wang, E-mail: `clintonjwang@gmail.com`, Github: `https://github.
 
 class Config:
 	def __init__(self):
-		import pyelastix
 		self.run_num = 2
 		self.test_run_num = 2
 		self.dims = [24,24,12]
 		self.nb_channels = 3
-		self.reg_params = pyelastix.get_default_params(type="AFFINE")
 		self.aug_factor = 100
 		self.train_frac = None#.9
 		self.test_num = 10 # only used if train_frac is None
@@ -58,10 +49,10 @@ class Config:
 		self.img_dirs = self.cls_names
 		self.simplify_map = {'hcc': 0, 'cyst': 1, 'hemangioma': 1, 'fnh': 1, 'cholangio': 2, 'colorectal': 2}
 
-		self.full_img_dir = "Z:\\INPUT\\full_imgs_origdims"
+		self.full_img_dir = "Z:\\INPUT\\full_imgs"
 		self.output_img_dir = "Z:\\OUTPUT\\1-14"
 		self.crops_dir = "E:\\imgs\\unscaled_crops_full\\"
-		self.aug_dir = "E:\\imgs\\aug_imgs_2412_full\\"
+		self.aug_dir = "E:\\imgs\\aug_imgs_2412_test\\"
 		self.orig_dir = "E:\\imgs\\orig_imgs_2412_full\\"
 		self.artif_dir = "E:\\imgs\\artif_imgs_2412\\"
 		self.model_dir = "E:\\models\\"

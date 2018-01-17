@@ -4,7 +4,7 @@ import numpy as np
 import random
 import voi_methods as vm
 import os
-import transforms as tr
+import niftiutils.transforms as tr
 from scipy.ndimage.filters import gaussian_filter
 
 
