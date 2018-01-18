@@ -154,7 +154,7 @@ def reload_accnum(cls=None, acc_nums=None, augment=True, overwrite=True):
 		save_augmented_set(cls, acc_nums)
 
 @drm.autofill_cls_arg
-def save_vois_as_imgs(cls=None, lesion_ids=None, save_dir=None, normalize=[-1,1], rescale_factor=3):
+def save_vois_as_imgs(cls=None, lesion_ids=None, save_dir=None, normalize=None, rescale_factor=3, fn_suffix=None):
 	"""Save all voi images as jpg."""
 	C = config.Config()
 
@@ -164,7 +164,7 @@ def save_vois_as_imgs(cls=None, lesion_ids=None, save_dir=None, normalize=[-1,1]
 		os.makedirs(save_dir)
 
 	if lesion_ids is not None:
-		fns = [acc_num+".npy" for acc_num in lesion_ids]
+		fns = [lesion_id+".npy" for lesion_id in lesion_ids if lesion_id+".npy" in os.listdir(os.path.join(C.orig_dir, cls))]
 	else:
 		fns = os.listdir(os.path.join(C.orig_dir, cls))
 
@@ -194,9 +194,11 @@ def save_vois_as_imgs(cls=None, lesion_ids=None, save_dir=None, normalize=[-1,1]
 			ret[ch1.shape[0]*2:,:] = ch3
 		
 		if fn_suffix is None:
-			fn_suffix = " (%s)" % cls
+			suffix = " (%s)" % cls
+		else:
+			suffix = fn_suffix
 
-		imsave("%s\\%s%s.png" % (save_dir, fn[:-4], fn_suffix), rescale(ret, rescale_factor, mode='constant'))
+		imsave("%s\\%s%s.png" % (save_dir, fn[:-4], suffix), rescale(ret, rescale_factor, mode='constant'))
 
 @drm.autofill_cls_arg
 def save_imgs_with_bbox(cls=None, lesion_ids=None, fn_suffix=None, save_dir=None, normalize=None, fixed_width=100):
@@ -213,13 +215,14 @@ def save_imgs_with_bbox(cls=None, lesion_ids=None, fn_suffix=None, save_dir=None
 		
 	if lesion_ids is None:
 		lesion_ids = [x[:-4] for x in os.listdir(os.path.join(C.crops_dir, cls))]
+	else:
+		lesion_ids = [lesion_id for lesion_id in lesion_ids if lesion_id+".npy" in os.listdir(os.path.join(C.crops_dir, cls))]
 
 	#voi_df = drm.get_voi_dfs()[0]
 	#lesion_ids = set(lesion_ids).intersection(voi_df[voi_df["run_num"] > 2].index)
 	
 	for lesion_id in lesion_ids:
-		cls = small_voi_df.loc[small_voi_df["id"] == lesion_id, "cls"].values[0]
-
+		#cls = small_voi_df.loc[small_voi_df["id"] == lesion_id, "cls"].values[0]
 		img = np.load(os.path.join(C.crops_dir, cls, lesion_id + ".npy"))
 		img_slice = img[:,:, img.shape[2]//2, :].astype(float)
 		#for ch in range(img_slice.shape[-1]):
@@ -252,12 +255,14 @@ def save_imgs_with_bbox(cls=None, lesion_ids=None, fn_suffix=None, save_dir=None
 			raise ValueError("Invalid num channels")
 		
 		if fn_suffix is None:
-			fn_suffix = " (%s)" % cls
+			suffix = " (%s)" % cls
+		else:
+			suffix = fn_suffix
 
 		if fixed_width is not None:
-			imsave("%s\\%s%s.png" % (save_dir, lesion_id, fn_suffix), resize(ret, [fixed_width*3, fixed_width]))
+			imsave("%s\\%s%s.png" % (save_dir, lesion_id, suffix), resize(ret, [fixed_width*3, fixed_width]))
 		else:
-			imsave("%s\\%s%s.png" % (save_dir, lesion_id, fn_suffix), ret)
+			imsave("%s\\%s%s.png" % (save_dir, lesion_id, suffix), ret)
 
 def remove_lesion_from_folders(cls=None, acc_num=None, lesion_id=None, include_augment=True):
 	"""Can either specify both cls and acc_num or just lesion_id"""
@@ -333,8 +338,8 @@ def extract_vois(cls=None, acc_nums=None):
 				eq_voi = None
 
 			cropped_img, small_voi = _extract_voi(img, copy.deepcopy(voi_row), C.dims, ven_voi=ven_voi, eq_voi=eq_voi)
-			#cropped_img = scale_intensity(cropped_img, 1, max_int=2, keep_min=True) - 1
-			cropped_img = scale_intensity(cropped_img, 1, max_int=1, keep_min=False)
+			#cropped_img = scale_intensity(cropped_img, 1, max_intensity=1, min_intensity=-1)
+			cropped_img = tr.normalize_intensity(cropped_img, max_intensity=2, min_intensity=None) - 1
 			#cropped_img = _scale_intensity_df(cropped_img, intensity_df[intensity_df["acc_num"] == img_fn[:img_fn.find('.')]])
 
 			np.save(os.path.join(C.crops_dir, cls, lesion_id), cropped_img)
@@ -426,28 +431,6 @@ def get_scale_ratios(voi, final_dims=None, lesion_ratio=None):
 	scale_ratios = [final_dims[0]/dx * lesion_ratio, final_dims[1]/dy * lesion_ratio, final_dims[2]/dz * lesion_ratio]
 
 	return scale_ratios
-
-def scale_intensity(img, fraction=.5, max_int=2, keep_min=False):
-	"""Scales each channel intensity separately.
-	Assumes original is within a -1 to 1 scale.
-	When fraction is 1, force max to be 1 and min to be -1.
-	When fraction is 0, rescale within a -1 to 1 scale."""
-
-	img = img.astype(float)
-	fraction = min(max(fraction, 0), 1)
-
-	for ch in range(img.shape[3]):
-		ch_max = np.amax(img[:,:,:,ch])
-		ch_min = np.amin(img[:,:,:,ch])
-		target_max = max_int * fraction + ch_max * (1-fraction)
-		if keep_min:
-			target_min = ch_min
-		else:
-			target_min = -max_int * fraction + ch_min * (1-fraction)
-		img[:,:,:,ch] = img[:,:,:,ch] - ch_min
-		img[:,:,:,ch] = img[:,:,:,ch] * (target_max - target_min) / (ch_max - ch_min) + target_min
-
-	return img
 
 #####################################
 ### Subroutines

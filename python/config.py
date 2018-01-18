@@ -31,12 +31,12 @@ class Config:
 		self.hard_scale = False # if True, normalizes all images within the tightly cropped region
 
 		#self.model_path = "..\\data\\model.hdf5"
-		self.art_voi_path = "..\\data\\voi_art_full.csv"
-		self.ven_voi_path = "..\\data\\voi_ven_full.csv"
-		self.eq_voi_path = "..\\data\\voi_eq_full.csv"
+		self.art_voi_path = "..\\data\\voi_art.csv"
+		self.ven_voi_path = "..\\data\\voi_ven.csv"
+		self.eq_voi_path = "..\\data\\voi_eq.csv"
 		self.dims_df_path = "..\\data\\img_dims.csv"
 		self.int_df_path = "..\\data\\intensity.csv"
-		self.small_voi_path = "..\\data\\small_vois_full.csv"
+		self.small_voi_path = "..\\data\\small_vois.csv"
 		self.run_stats_path = "..\\data\\overnight_run.csv"
 		self.patient_info_path = "..\\data\\patient_info.csv"
 		self.xls_name = 'Z:\\Prototype1e.xlsx'
@@ -46,14 +46,14 @@ class Config:
 		self.sheetnames = ['HCC', 'Cholangio', 'Colorectal', 'Cyst', 'Hemangioma', 'FNH', 'Adenoma']
 		self.patient_sheetname = 'Patient Info'
 		self.cls_names = ['hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh', 'adenoma']
-		self.img_dirs = self.cls_names
+		self.img_dirs = ["Z:\\DICOMs\\" + fn for fn in self.cls_names]
 		self.simplify_map = {'hcc': 0, 'cyst': 1, 'hemangioma': 1, 'fnh': 1, 'cholangio': 2, 'colorectal': 2}
 
 		self.full_img_dir = "Z:\\INPUT\\full_imgs"
 		self.output_img_dir = "Z:\\OUTPUT\\1-14"
-		self.crops_dir = "E:\\imgs\\unscaled_crops_full\\"
-		self.aug_dir = "E:\\imgs\\aug_imgs_2412_test\\"
-		self.orig_dir = "E:\\imgs\\orig_imgs_2412_full\\"
+		self.crops_dir = "E:\\imgs\\unscaled_crops_1e\\"
+		self.aug_dir = "E:\\imgs\\aug_imgs_2412_1e\\"
+		self.orig_dir = "E:\\imgs\\orig_imgs_2412_1e\\"
 		self.artif_dir = "E:\\imgs\\artif_imgs_2412\\"
 		self.model_dir = "E:\\models\\"
 
@@ -62,6 +62,7 @@ class Config:
 		self.translate = [2,2,1]
 
 		# Artificial sample parameters
+		self.n_aug = 1500
 		self.long_size_frac = [0.6, 0.85]
 		self.max_side_ratio = 1.6
 		self.noise_std = 0.05

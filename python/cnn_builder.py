@@ -34,8 +34,9 @@ from scipy.misc import imsave
 from skimage.transform import rescale
 from sklearn.metrics import confusion_matrix, f1_score, accuracy_score
 import time
-import voi_methods as vm
+
 import dr_methods as drm
+import voi_methods as vm
 
 ####################################
 ### OVERNIGHT PROCESSES
@@ -729,7 +730,7 @@ def get_non_img_inputs(voi_info, patient_info):
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description='Convert DICOMs to npy files and transfer voi coordinates from excel to csv.')
 	parser.add_argument('-m', '--max_runs', type=int, help='max number of runs to allow')
-	parser.add_argument('-o', '--overwrite', action='store_true', help='overwrite')
+	#parser.add_argument('-o', '--overwrite', action='store_true', help='overwrite')
 	args = parser.parse_args()
 
 	run_fixed_hyperparams(max_runs=args.max_runs)

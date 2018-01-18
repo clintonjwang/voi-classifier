@@ -7,7 +7,11 @@ Assumes that all the DICOM images for a study are stored in subfolders...
 The study subfolder should be stored in a subfolder named after the class to which it belongs.
 If a single study has multiple classes, it needs to be copied to each class's subfolder.
 
-Z:/imaging_studies/cyst/E123456789/ax_haste/
+base_directory/cyst/E123456789/ax_haste/
+> 0.dcm
+> 1.dcm
+> ...
+> metadata.xml
 
 Usage:
 	python dr_methods.py
@@ -48,26 +52,36 @@ def autofill_cls_arg(func):
 ### QC methods
 ###########################
 
-def plot_check(num, lesion_num=None, normalize=[-1,0]):
+def plot_check(num, lesion_id=None, cls=None, normalize=[-1,0]):
 	"""Plot the unscaled, cropped or augmented versions of a lesion.
-	Lesion selected at random from cls if lesion_num is None."""
+	Lesion selected at random from cls if lesion_id is None.
+	Either lesion_id or cls must be specified.
+	If accession number is put instead of lesion_id, picks the first lesion."""
 
 	C = config.Config()
 
-	small_voi_df = pd.read_csv(C.small_voi_path)
-	cls = small_voi_df.loc[small_voi_df["id"] == lesion_num, "cls"].values[0]
-
-	if lesion_num==None:
-		fn = random.choice(os.listdir(C.crops_dir + cls))
-		lesion_num = fn[:fn.find('.')]
-		print(lesion_num)
+	if lesion_id is None:
+		fn = random.choice(os.listdir(os.path.join(C.crops_dir, cls)))
+		lesion_id = fn[:fn.find('.')]
+		print(lesion_id)
+	elif cls is None:
+		small_voi_df = pd.read_csv(C.small_voi_path)
+		try:
+			cls = small_voi_df.loc[small_voi_df["id"] == lesion_id, "cls"].values[0]
+		except:
+			lesion_id += "_0"
+			cls = small_voi_df.loc[small_voi_df["id"] == lesion_id, "cls"].values[0]
 		
-	if num==1:
-		img = np.load(C.crops_dir + cls + "\\" + lesion_num + ".npy")
-	elif num==2:
-		img = np.load(C.orig_dir + cls + "\\" + lesion_num + ".npy")
+	if num == 0:
+		img = np.load(os.path.join(C.full_img_dir, cls, lesion_id[:lesion_id.find('_')] + ".npy"))
+	elif num == 1:
+		img = np.load(os.path.join(C.crops_dir, cls, lesion_id + ".npy"))
+	elif num == 2:
+		img = np.load(os.path.join(C.orig_dir, cls, lesion_id + ".npy"))
+	elif num == 3:
+		img = np.load(os.path.join(C.aug_dir, cls, lesion_id + "_" + str(random.randint(0,C.aug_factor-1)) + ".npy"))
 	else:
-		img = np.load(C.aug_dir + cls + "\\" + lesion_num + "_" + str(random.randint(0,C.aug_factor-1)) + ".npy")
+		raise ValueError(num + " should be 0 (uncropped), 1 (gross cropping), 2 (unaugmented) or 3 (augmented)")
 	hf.plot_section_auto(img, normalize=normalize)
 
 	return img
@@ -93,16 +107,14 @@ def report_missing_folders(cls=None):
 
 	C = config.Config()
 	i = C.cls_names.index(cls)
-	sheetname = C.sheetnames[i]
-	img_dir = "Z:\\"+C.img_dirs[i]
 
-	df = pd.read_excel(C.xls_name, sheetname)
+	df = pd.read_excel(C.xls_name, C.sheetnames[i])
 	df = _filter_voi_df(df, C)
 	acc_nums = list(set(df['Patient E Number'].tolist()))
 
 	for cnt, acc_num in enumerate(acc_nums):
 		df_subset = df.loc[df['Patient E Number'].astype(str) == acc_num]
-		subfolder = img_dir + "\\" + acc_num
+		subfolder = C.img_dirs[i] + "\\" + acc_num
 
 		if not os.path.exists(subfolder + "\\T1_AP"):
 			print(subfolder + "\\T1_AP is missing")
@@ -127,10 +139,8 @@ def dcm2npy_batch(cls=None, acc_nums=None, update_intensities=False, overwrite=T
 		dims_df = pd.DataFrame(columns = ["AccNum", "x", "y", "z"])
 
 	i = C.cls_names.index(cls)
-	sheetname = C.sheetnames[i]
-	img_dir = "Z:\\"+C.img_dirs[i]
 
-	src_data_df = pd.read_excel(C.xls_name, sheetname)
+	src_data_df = pd.read_excel(C.xls_name, C.sheetnames[i])
 	src_data_df = _filter_voi_df(src_data_df, C)
 
 	if not os.path.exists(os.path.join(C.full_img_dir, cls)):
@@ -142,7 +152,7 @@ def dcm2npy_batch(cls=None, acc_nums=None, update_intensities=False, overwrite=T
 		acc_nums = set(acc_nums).intersection(src_data_df['Patient E Number'].values)
 
 	for cnt, acc_num in enumerate(acc_nums):
-		dims_df = _dcm2npy(load_dir=os.path.join(img_dir, acc_num),
+		dims_df = _dcm2npy(load_dir=os.path.join(C.img_dirs[i], acc_num),
 			save_path=os.path.join(C.full_img_dir, cls, str(acc_num) + ".npy"), dims_df=dims_df,
 			info=src_data_df.loc[src_data_df['Patient E Number'].astype(str) == acc_num],
 			overwrite=overwrite, verbose=verbose)
@@ -250,9 +260,7 @@ def load_patient_info(cls=None, acc_nums=None, overwrite=False, verbose=False):
 	C = config.Config()
 
 	i = C.cls_names.index(cls)
-	sheetname = C.sheetnames[i]
-	img_dir = "Z:\\"+C.img_dirs[i]
-	df = pd.read_excel(C.xls_name, sheetname)
+	df = pd.read_excel(C.xls_name, C.sheetnames[i])
 	df = _filter_voi_df(df, C)
 
 	if acc_nums is None:
@@ -270,7 +278,7 @@ def load_patient_info(cls=None, acc_nums=None, overwrite=False, verbose=False):
 	print(cls)
 	for cnt, acc_num in enumerate(acc_nums):
 		df_subset = df.loc[df['Patient E Number'].astype(str) == acc_num]
-		subdir = img_dir+"\\"+acc_num
+		subdir = os.path.join(C.img_dirs[i], acc_num)
 		fn = subdir+"\\T1_AP\\metadata.xml"
 
 		try:
