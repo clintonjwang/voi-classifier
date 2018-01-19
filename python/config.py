@@ -31,7 +31,7 @@ class Config:
 		self.hard_scale = False # if True, normalizes all images within the tightly cropped region
 
 		#self.model_path = "..\\data\\model.hdf5"
-		self.art_voi_path = "..\\data\\voi_art.csv"
+		self.art_voi_path = "..\\data\\voi_art_reformat.csv"
 		self.ven_voi_path = "..\\data\\voi_ven.csv"
 		self.eq_voi_path = "..\\data\\voi_eq.csv"
 		self.dims_df_path = "..\\data\\img_dims.csv"

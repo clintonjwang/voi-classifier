@@ -154,12 +154,14 @@ def reload_accnum(cls=None, acc_nums=None, augment=True, overwrite=True):
 		save_augmented_set(cls, acc_nums)
 
 @drm.autofill_cls_arg
-def save_vois_as_imgs(cls=None, lesion_ids=None, save_dir=None, normalize=None, rescale_factor=3, fn_suffix=None):
+def save_vois_as_imgs(cls=None, lesion_ids=None, save_dir=None, normalize=None, rescale_factor=3, fn_suffix=None, separate_by_cls=True):
 	"""Save all voi images as jpg."""
 	C = config.Config()
 
 	if save_dir is None:
-		save_dir = os.path.join(C.output_img_dir, cls)
+		save_dir = C.output_img_dir
+	if separate_by_cls:
+		save_dir = os.path.join(save_dir, cls)
 	if not os.path.exists(save_dir):
 		os.makedirs(save_dir)
 
@@ -201,7 +203,7 @@ def save_vois_as_imgs(cls=None, lesion_ids=None, save_dir=None, normalize=None, 
 		imsave("%s\\%s%s.png" % (save_dir, fn[:-4], suffix), rescale(ret, rescale_factor, mode='constant'))
 
 @drm.autofill_cls_arg
-def save_imgs_with_bbox(cls=None, lesion_ids=None, fn_suffix=None, save_dir=None, normalize=None, fixed_width=100):
+def save_imgs_with_bbox(cls=None, lesion_ids=None, fn_suffix=None, save_dir=None, normalize=None, fixed_width=100, separate_by_cls=True):
 	"""Save images of grossly cropped lesions with a bounding box around the tighter crop.
 	If fixed_width is None, the images are not scaled.
 	Otherwise, the images are made square with the given width in pixels."""
@@ -210,6 +212,13 @@ def save_imgs_with_bbox(cls=None, lesion_ids=None, fn_suffix=None, save_dir=None
 
 	small_voi_df = pd.read_csv(C.small_voi_path)
 
+	if save_dir is None:
+		save_dir = C.output_img_dir
+	if separate_by_cls:
+		save_dir = os.path.join(save_dir, cls)
+		if fn_suffix is None:
+			fn_suffix = ""
+			
 	if not os.path.exists(save_dir):
 		os.makedirs(save_dir)
 		

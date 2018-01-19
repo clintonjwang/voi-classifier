@@ -8,9 +8,8 @@ Usage:
 Author: Clinton Wang, E-mail: `clintonjwang@gmail.com`, Github: `https://github.com/clintonjwang/voi-classifier`
 """
 
-
 import keras.backend as K
-from keras.layers import Input, Dense, Concatenate, Flatten, Dropout, Lambda, Conv3D, MaxPooling3D, LSTM
+from keras.layers import Input, Dense, Concatenate, Flatten, Dropout, Lambda, Conv3D, MaxPooling3D, LSTM, AveragePooling3D
 from keras.layers import SimpleRNN, Conv2D, MaxPooling2D, ZeroPadding3D, Activation, ELU, TimeDistributed, Permute, Reshape
 from keras.layers.normalization import BatchNormalization
 from keras.models import Model
@@ -190,7 +189,6 @@ def run_fixed_hyperparams(overwrite=False, max_runs=999, hyperparams=None):
 		index += 1
 		#end cycle_len
 		C_index += 1
-
 
 ####################################
 ### BUILD CNNS
@@ -389,39 +387,60 @@ def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same', 'valid']
 
 	return model
 
-def build_pretrain_model(trained_model, C=None):
+def build_pretrain_model(trained_model, dilation_rate=(1,1,1), padding=['same', 'valid'], pool_sizes = [(2,2,2), (2,2,1)],
+	activation_type='relu', f=[64,128,128], kernel_size=(3,3,2), dense_units=100):
 	"""Sets up CNN with pretrained weights"""
 
-	if C is None:
-		C = config.Config()
+	C = config.Config()
+
+	ActivationLayer = Activation
+	activation_args = 'relu'
+
 	nb_classes = len(C.classes_to_include)
 
-	voi_img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], C.nb_channels))
-	x = voi_img
-	x = Conv3D(filters=128, kernel_size=(3,3,2), activation='relu', trainable=False)(x)
-	x = Dropout(0.5)(x)
-	x = Conv3D(filters=128, kernel_size=(3,3,2), activation='relu', trainable=False)(x)
-	x = MaxPooling3D((2, 2, 2))(x)
-	x = Dropout(0.5)(x)
-	x = Conv3D(filters=64, kernel_size=(3,3,2), activation='relu', trainable=False)(x)
-	x = MaxPooling3D((2, 2, 1))(x)
-	x = Dropout(0.5)(x)
+	img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 3))
+
+	art_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,0], axis=4))(img)
+	art_x = Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0], trainable=False)(art_x)
+	art_x = BatchNormalization(trainable=False)(art_x)
+	art_x = ActivationLayer(activation_args)(art_x)
+
+	ven_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,1], axis=4))(img)
+	ven_x = Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0], trainable=False)(ven_x)
+	ven_x = BatchNormalization(trainable=False)(ven_x)
+	ven_x = ActivationLayer(activation_args)(ven_x)
+
+	eq_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,2], axis=4))(img)
+	eq_x = Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0], trainable=False)(eq_x)
+	eq_x = BatchNormalization(trainable=False)(eq_x)
+	eq_x = ActivationLayer(activation_args)(eq_x)
+
+	x = Concatenate(axis=4)([art_x, ven_x, eq_x])
+	x = MaxPooling3D(pool_sizes[0])(x)
+
+	for layer_num in range(1,len(f)):
+		x = Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1], trainable=False)(x)
+		x = BatchNormalization(trainable=False)(x)
+		x = ActivationLayer(activation_args)(x)
+		x = Dropout(0)(x)
+
+	x = MaxPooling3D(pool_sizes[1])(x)
+	#x = AveragePooling3D((4,4,4))(x)
+	#filter_weights = Flatten()(x)
+
 	x = Flatten()(x)
 
-	non_img_inputs = Input(shape=(2,)) #bounding volume and aspect ratio of lesion
+	x = Dense(dense_units, trainable=False)(x)
+	x = BatchNormalization(trainable=False)(x)
+	x = Dropout(0)(x)
+	filter_weights = ActivationLayer(activation_args)(x)
 
-	intermed = Concatenate(axis=1)([x, non_img_inputs])
-	x = Dense(64, activation='relu')(intermed)#, kernel_initializer='normal', kernel_regularizer=l1(.01), kernel_constraint=max_norm(3.))(x)
-	x = Dropout(0.5)(x)
-	pred_class = Dense(nb_classes, activation='softmax')(x)
-
-
-	model_pretrain = Model([voi_img, non_img_inputs], pred_class)
+	model_pretrain = Model(img, filter_weights)
 	model_pretrain.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
 
-	for l in range(1,5):
-		if type(model_pretrain.layers[l]) == Conv3D:
-			model_pretrain.layers[l].set_weights(trained_model.layers[l].get_weights())
+	for l in range(1,len(model_pretrain.layers)):
+		#if type(model_pretrain.layers[l]) == Conv3D:
+		model_pretrain.layers[l].set_weights(trained_model.layers[l].get_weights())
 
 	return model_pretrain
 
@@ -496,7 +515,6 @@ def get_cnn_data(n=4, n_art=4, run_2d=False, verbose=False):
 
 	return X_test, Y_test, train_generator, num_samples, [X_train_orig, Y_train_orig], [Z_test, Z_train_orig]
 
-
 ###########################
 ### FOR OUTPUTTING IMAGES AFTER TRAINING
 ###########################
@@ -537,7 +555,6 @@ def condense_cm(y_true, y_pred, cls_mapping):
 	y_pred_simp = np.array([C.simplify_map[cls_mapping[y]] for y in y_pred])
 	
 	return y_true_simp, y_pred_simp, ['hcc', 'benign', 'malignant non-hcc']
-
 
 ####################################
 ### Training Submodules
