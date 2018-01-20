@@ -154,7 +154,7 @@ def reload_accnum(cls=None, acc_nums=None, augment=True, overwrite=True):
 		save_augmented_set(cls, acc_nums)
 
 @drm.autofill_cls_arg
-def save_vois_as_imgs(cls=None, lesion_ids=None, save_dir=None, normalize=None, rescale_factor=3, fn_suffix=None, separate_by_cls=True):
+def save_vois_as_imgs(cls=None, lesion_ids=None, save_dir=None, normalize=None, rescale_factor=3, fn_prefix="", fn_suffix=None, separate_by_cls=True):
 	"""Save all voi images as jpg."""
 	C = config.Config()
 
@@ -200,10 +200,10 @@ def save_vois_as_imgs(cls=None, lesion_ids=None, save_dir=None, normalize=None, 
 		else:
 			suffix = fn_suffix
 
-		imsave("%s\\%s%s.png" % (save_dir, fn[:-4], suffix), rescale(ret, rescale_factor, mode='constant'))
+		imsave("%s\\%s%s.png" % (save_dir, fn_prefix, fn[:-4], suffix), rescale(ret, rescale_factor, mode='constant'))
 
 @drm.autofill_cls_arg
-def save_imgs_with_bbox(cls=None, lesion_ids=None, fn_suffix=None, save_dir=None, normalize=None, fixed_width=100, separate_by_cls=True):
+def save_imgs_with_bbox(cls=None, lesion_ids=None, save_dir=None, normalize=None, fixed_width=100, fn_prefix="", fn_suffix=None, separate_by_cls=True):
 	"""Save images of grossly cropped lesions with a bounding box around the tighter crop.
 	If fixed_width is None, the images are not scaled.
 	Otherwise, the images are made square with the given width in pixels."""
@@ -218,7 +218,7 @@ def save_imgs_with_bbox(cls=None, lesion_ids=None, fn_suffix=None, save_dir=None
 		save_dir = os.path.join(save_dir, cls)
 		if fn_suffix is None:
 			fn_suffix = ""
-			
+
 	if not os.path.exists(save_dir):
 		os.makedirs(save_dir)
 		
@@ -269,9 +269,9 @@ def save_imgs_with_bbox(cls=None, lesion_ids=None, fn_suffix=None, save_dir=None
 			suffix = fn_suffix
 
 		if fixed_width is not None:
-			imsave("%s\\%s%s.png" % (save_dir, lesion_id, suffix), resize(ret, [fixed_width*3, fixed_width]))
+			imsave("%s\\%s%s.png" % (save_dir, fn_prefix, lesion_id, suffix), resize(ret, [fixed_width*3, fixed_width]))
 		else:
-			imsave("%s\\%s%s.png" % (save_dir, lesion_id, suffix), ret)
+			imsave("%s\\%s%s.png" % (save_dir, fn_prefix, lesion_id, suffix), ret)
 
 def remove_lesion_from_folders(cls=None, acc_num=None, lesion_id=None, include_augment=True):
 	"""Can either specify both cls and acc_num or just lesion_id"""

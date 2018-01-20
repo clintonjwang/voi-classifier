@@ -328,16 +328,16 @@ def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same', 'valid']
 			x = Permute((4,1,2,3,5))(x)
 
 			for layer_num in range(len(f)):
-				if layer_num == 2:
+				if layer_num == 1:
 					x = TimeDistributed(Conv3D(filters=f[layer_num], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[1]))(x) #, kernel_regularizer=l2(.01)
-				elif layer_num == 0:
-					x = TimeDistributed(Conv3D(filters=f[layer_num], kernel_size=kernel_size, strides=stride, padding=padding[1]))(x) #, kernel_regularizer=l2(.01)
+				#elif layer_num == 0:
+				#	x = TimeDistributed(Conv3D(filters=f[layer_num], kernel_size=kernel_size, strides=stride, padding=padding[1]))(x) #, kernel_regularizer=l2(.01)
 				else:
 					x = TimeDistributed(Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1 * (layer_num > 1)]))(x) #, kernel_regularizer=l2(.01)
 				#x = BatchNormalization()(x)
 				x = TimeDistributed(Dropout(dropout[0]))(x)
 				x = ActivationLayer(activation_args)(x)
-				if layer_num == 1:
+				if layer_num == 0:
 					x = TimeDistributed(MaxPooling3D(pool_sizes[0]))(x)
 			
 		else:
@@ -439,13 +439,14 @@ def build_pretrain_model(trained_model, dilation_rate=(1,1,1), padding=['same', 
 	model_pretrain.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
 
 	for l in range(1,len(model_pretrain.layers)):
-		#if type(model_pretrain.layers[l]) == Conv3D:
 		model_pretrain.layers[l].set_weights(trained_model.layers[l].get_weights())
 
 	return model_pretrain
 
-def get_cnn_data(n=4, n_art=4, run_2d=False, verbose=False):
-	"""Subroutine to run CNN"""
+def get_cnn_data(n=4, n_art=0, run_2d=False, Z_test=None, verbose=False):
+	"""Subroutine to run CNN
+	n is number of real samples, n_art is number of artificial samples
+	Z_test is filenames"""
 
 	C = config.Config()
 
@@ -465,6 +466,11 @@ def get_cnn_data(n=4, n_art=4, run_2d=False, verbose=False):
 
 	train_samples = {}
 
+	if Z_test is not None:
+		orders = {cls: np.where(np.isin(orig_data_dict[cls][1], Z_test)) for cls in orig_data_dict}
+		for cls in C.classes_to_include:
+		    orders[cls] = list(set(range(num_samples[cls])).difference(list(orders[cls][0]))) + list(orders[cls][0])
+
 	for cls in orig_data_dict:
 		cls_num = C.classes_to_include.index(cls)
 
@@ -473,7 +479,11 @@ def get_cnn_data(n=4, n_art=4, run_2d=False, verbose=False):
 		else:
 			train_samples[cls] = round(num_samples[cls]*C.train_frac)
 		
-		order = np.random.permutation(list(range(num_samples[cls])))
+		if Z_test is None:
+			order = np.random.permutation(list(range(num_samples[cls])))
+		else:
+			order = orders[cls]
+
 		train_ids[cls] = list(orig_data_dict[cls][-1][order[:train_samples[cls]]])
 		test_ids[cls] = list(orig_data_dict[cls][-1][order[train_samples[cls]:]])
 		
@@ -492,7 +502,8 @@ def get_cnn_data(n=4, n_art=4, run_2d=False, verbose=False):
 		if verbose:
 			print("%s has %d samples for training (%d after augmentation) and %d for testing" %
 				  (cls, train_samples[cls], train_samples[cls] * C.aug_factor, num_samples[cls] - train_samples[cls]))
-		
+
+
 	#Y_test = np_utils.to_categorical(Y_test, nb_classes)
 	#Y_train_orig = np_utils.to_categorical(Y_train_orig, nb_classes)
 	if C.non_imaging_inputs:
@@ -547,14 +558,17 @@ def save_output(Z, y_pred, y_true, C=None, save_dir=None):
 				fn_suffix = " (good_pred %s).png" % cls_mapping[y_pred[i]],
 				save_dir=save_dir + "\\correct\\" + cls_mapping[y_true[i]])
 
-def condense_cm(y_true, y_pred, cls_mapping):
+def merge_classes(y_true, y_pred, cls_mapping=None):
 	"""From lists y_true and y_pred with class numbers, """
 	C = config.Config()
+
+	if cls_mapping is None:
+		cls_mapping = C.classes_to_include
 	
 	y_true_simp = np.array([C.simplify_map[cls_mapping[y]] for y in y_true])
 	y_pred_simp = np.array([C.simplify_map[cls_mapping[y]] for y in y_pred])
 	
-	return y_true_simp, y_pred_simp, ['hcc', 'benign', 'malignant non-hcc']
+	return y_true_simp, y_pred_simp, ['LR5', 'LR1', 'LRM']
 
 ####################################
 ### Training Submodules
@@ -701,7 +715,7 @@ def _collect_unaug_data():
 	orig_data_dict = {}
 	num_samples = {}
 	voi_df = drm.get_voi_dfs()[0]
-	voi_df = voi_df[voi_df["run_num"] <= C.test_run_num]
+	#voi_df = voi_df[voi_df["run_num"] <= C.test_run_num]
 	patient_info_df = pd.read_csv(C.patient_info_path)
 	patient_info_df["AccNum"] = patient_info_df["AccNum"].astype(str)
 
