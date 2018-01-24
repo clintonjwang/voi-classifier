@@ -200,7 +200,7 @@ def save_vois_as_imgs(cls=None, lesion_ids=None, save_dir=None, normalize=None, 
 		else:
 			suffix = fn_suffix
 
-		imsave("%s\\%s%s.png" % (save_dir, fn_prefix, fn[:-4], suffix), rescale(ret, rescale_factor, mode='constant'))
+		imsave("%s\\%s%s%s.png" % (save_dir, fn_prefix, fn[:-4], suffix), rescale(ret, rescale_factor, mode='constant'))
 
 @drm.autofill_cls_arg
 def save_imgs_with_bbox(cls=None, lesion_ids=None, save_dir=None, normalize=None, fixed_width=100, fn_prefix="", fn_suffix=None, separate_by_cls=True):
@@ -269,9 +269,9 @@ def save_imgs_with_bbox(cls=None, lesion_ids=None, save_dir=None, normalize=None
 			suffix = fn_suffix
 
 		if fixed_width is not None:
-			imsave("%s\\%s%s.png" % (save_dir, fn_prefix, lesion_id, suffix), resize(ret, [fixed_width*3, fixed_width]))
+			imsave("%s\\%s%s%s.png" % (save_dir, fn_prefix, lesion_id, suffix), resize(ret, [fixed_width*3, fixed_width]))
 		else:
-			imsave("%s\\%s%s.png" % (save_dir, fn_prefix, lesion_id, suffix), ret)
+			imsave("%s\\%s%s%s.png" % (save_dir, fn_prefix, lesion_id, suffix), ret)
 
 def remove_lesion_from_folders(cls=None, acc_num=None, lesion_id=None, include_augment=True):
 	"""Can either specify both cls and acc_num or just lesion_id"""

@@ -279,7 +279,7 @@ def load_patient_info(cls=None, acc_nums=None, overwrite=False, verbose=False):
 	for cnt, acc_num in enumerate(acc_nums):
 		df_subset = df.loc[df['Patient E Number'].astype(str) == acc_num]
 		subdir = os.path.join(C.img_dirs[i], acc_num)
-		fn = subdir+"\\T1_AP\\metadata.xml"
+		fn = os.path.join(subdir, "T1_AP", "metadata.xml")
 
 		try:
 			f = open(fn, 'r')
@@ -287,7 +287,7 @@ def load_patient_info(cls=None, acc_nums=None, overwrite=False, verbose=False):
 			missing_metadata = True
 			foldernames = [x for x in os.listdir(subdir) if 'T1' in x or 'post' in x or 'post' in x]
 			for folder in foldernames:
-				fn = subdir + "\\" + folder + "\\metadata.xml"
+				fn = os.path.join(subdir, folder, "metadata.xml")
 				if os.path.exists(fn):
 					f = open(fn, 'r')
 					missing_metadata = False

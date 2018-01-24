@@ -489,14 +489,16 @@ def get_cnn_data(n=4, n_art=0, run_2d=False, Z_test=None, verbose=False):
 		
 		X_test = X_test + list(orig_data_dict[cls][0][order[train_samples[cls]:]])
 		X2_test = X2_test + list(orig_data_dict[cls][1][order[train_samples[cls]:]])
-		Y_test = Y_test + [[0] * cls_num + [1] + [0] * (nb_classes - cls_num - 1)] * \
-							(num_samples[cls] - train_samples[cls])
+		Y_test = Y_test + [cls_num] * (num_samples[cls] - train_samples[cls])
+		#Y_test = Y_test + [[0] * cls_num + [1] + [0] * (nb_classes - cls_num - 1)] * \
+		#					(num_samples[cls] - train_samples[cls])
 		Z_test = Z_test + test_ids[cls]
 		
 		X_train_orig = X_train_orig + list(orig_data_dict[cls][0][order[:train_samples[cls]]])
 		X2_train_orig = X2_train_orig + list(orig_data_dict[cls][1][order[:train_samples[cls]]])
-		Y_train_orig = Y_train_orig + [[0] * cls_num + [1] + [0] * (nb_classes - cls_num - 1)] * \
-							(train_samples[cls])
+		Y_train_orig = Y_train_orig + [cls_num] * (train_samples[cls])
+		#Y_train_orig = Y_train_orig + [[0] * cls_num + [1] + [0] * (nb_classes - cls_num - 1)] * \
+		#					(train_samples[cls])
 		Z_train_orig = Z_train_orig + train_ids[cls]
 		
 		if verbose:
@@ -504,8 +506,8 @@ def get_cnn_data(n=4, n_art=0, run_2d=False, Z_test=None, verbose=False):
 				  (cls, train_samples[cls], train_samples[cls] * C.aug_factor, num_samples[cls] - train_samples[cls]))
 
 
-	#Y_test = np_utils.to_categorical(Y_test, nb_classes)
-	#Y_train_orig = np_utils.to_categorical(Y_train_orig, nb_classes)
+	Y_test = np_utils.to_categorical(Y_test, nb_classes)
+	Y_train_orig = np_utils.to_categorical(Y_train_orig, nb_classes)
 	if C.non_imaging_inputs:
 		X_test = [np.array(X_test), np.array(X2_test)]
 		X_train_orig = [np.array(X_train_orig), np.array(X2_train_orig)]
@@ -525,6 +527,41 @@ def get_cnn_data(n=4, n_art=0, run_2d=False, Z_test=None, verbose=False):
 		train_generator = _train_generator_func(test_ids, n=n, n_art=n_art)
 
 	return X_test, Y_test, train_generator, num_samples, [X_train_orig, Y_train_orig], [Z_test, Z_train_orig]
+
+def load_data_capsnet():
+	C = config.Config()
+
+	nb_classes = len(C.classes_to_include)
+	orig_data_dict, num_samples = _collect_unaug_data()
+
+	test_ids = {} #filenames of test set
+	X_test = []
+	Y_test = []
+
+	train_samples = {}
+
+	for cls in orig_data_dict:
+		cls_num = C.classes_to_include.index(cls)
+
+		if C.train_frac is None:
+			train_samples[cls] = num_samples[cls] - C.test_num
+		else:
+			train_samples[cls] = round(num_samples[cls]*C.train_frac)
+		
+		if Z_test is None:
+			order = np.random.permutation(list(range(num_samples[cls])))
+		else:
+			order = orders[cls]
+
+		test_ids[cls] = list(orig_data_dict[cls][-1][order[train_samples[cls]:]])
+		Y_test += [cls_num] * (num_samples[cls] - train_samples[cls])
+		Y_train_orig += [cls_num] * (train_samples[cls])
+
+	Y_test = np_utils.to_categorical(Y_test, nb_classes)
+	X_test = np.array(X_test)
+	#Y_test = np.array(Y_test)
+
+	return _train_gen_capsnet(test_ids), (X_test, Y_test)
 
 ###########################
 ### FOR OUTPUTTING IMAGES AFTER TRAINING
@@ -574,6 +611,36 @@ def merge_classes(y_true, y_pred, cls_mapping=None):
 ### Training Submodules
 ####################################
 
+def _train_gen_capsnet(test_ids, n=4):
+	"""n is the number of samples from each class, n_art is the number of artificial samples"""
+	n_art=0
+
+	C = config.Config()
+
+	num_classes = len(C.classes_to_include)
+	while True:
+		x1 = np.empty(((n+n_art)*num_classes, C.dims[0], C.dims[1], C.dims[2], C.nb_channels))
+		y = np.zeros(((n+n_art)*num_classes, num_classes))
+
+		train_cnt = 0
+		for cls in C.classes_to_include:
+			img_fns = os.listdir(C.aug_dir+cls)
+			while n > 0:
+				img_fn = random.choice(img_fns)
+				lesion_id = img_fn[:img_fn.rfind('_')]
+				if lesion_id not in test_ids[cls]:
+					x1[train_cnt] = np.load(C.aug_dir+cls+"\\"+img_fn)
+					if C.hard_scale:
+						x1[train_cnt] = vm.scale_intensity(x1[train_cnt], 1, max_int=2, keep_min=False)
+					
+					y[train_cnt][C.classes_to_include.index(cls)] = 1
+					
+					train_cnt += 1
+					if train_cnt % (n+n_art) == 0:
+						break
+
+		yield (np.array(x1), np.array(y)), (np.array(y), np.array(x1))
+
 def _train_generator_func(test_ids, n=12, n_art=0):
 	"""n is the number of samples from each class, n_art is the number of artificial samples"""
 
@@ -608,8 +675,8 @@ def _train_generator_func(test_ids, n=12, n_art=0):
 			img_fns = os.listdir(C.aug_dir+cls)
 			while n > 0:
 				img_fn = random.choice(img_fns)
-				lesion_num = img_fn[:img_fn.rfind('_')]
-				if lesion_num + ".npy" not in test_ids[cls]:
+				lesion_id = img_fn[:img_fn.rfind('_')]
+				if lesion_id not in test_ids[cls]:
 					x1[train_cnt] = np.load(C.aug_dir+cls+"\\"+img_fn)
 					if C.hard_scale:
 						x1[train_cnt] = vm.scale_intensity(x1[train_cnt], 1, max_int=2, keep_min=False)
@@ -725,14 +792,14 @@ def _collect_unaug_data():
 		z = []
 
 		for index, lesion_id in enumerate(voi_df[voi_df["cls"] == cls].index):
-			img_fn = lesion_id + ".npy"
+			img_path = os.path.join(C.orig_dir, cls, lesion_id+".npy")
 			try:
-				x[index] = np.load(C.orig_dir+cls+"\\"+img_fn)
+				x[index] = np.load(img_path)
 				if C.hard_scale:
 					x[index] = vm.scale_intensity(x[index], 1, max_int=2)#, keep_min=True)
 			except:
-				raise ValueError(C.orig_dir+cls+"\\"+img_fn + " not found")
-			z.append(img_fn)
+				raise ValueError(img_path + " not found")
+			z.append(lesion_id)
 			
 			if C.non_imaging_inputs:
 				voi_row = voi_df.loc[lesion_id]
