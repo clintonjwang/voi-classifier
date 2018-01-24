@@ -16,7 +16,7 @@ from keras.models import Model
 from keras.regularizers import l2
 from keras.callbacks import EarlyStopping
 from keras.optimizers import Adam
-#from keras.utils import np_utils
+from keras.utils import np_utils
 
 import argparse
 import copy
@@ -443,7 +443,7 @@ def build_pretrain_model(trained_model, dilation_rate=(1,1,1), padding=['same', 
 
 	return model_pretrain
 
-def get_cnn_data(n=4, n_art=0, run_2d=False, Z_test=None, verbose=False):
+def get_cnn_data(n=4, n_art=0, run_2d=False, Z_test_fixed=None, verbose=False):
 	"""Subroutine to run CNN
 	n is number of real samples, n_art is number of artificial samples
 	Z_test is filenames"""
@@ -466,8 +466,8 @@ def get_cnn_data(n=4, n_art=0, run_2d=False, Z_test=None, verbose=False):
 
 	train_samples = {}
 
-	if Z_test is not None:
-		orders = {cls: np.where(np.isin(orig_data_dict[cls][1], Z_test)) for cls in orig_data_dict}
+	if Z_test_fixed is not None:
+		orders = {cls: np.where(np.isin(orig_data_dict[cls][1], Z_test_fixed)) for cls in orig_data_dict}
 		for cls in C.classes_to_include:
 		    orders[cls] = list(set(range(num_samples[cls])).difference(list(orders[cls][0]))) + list(orders[cls][0])
 
@@ -479,7 +479,7 @@ def get_cnn_data(n=4, n_art=0, run_2d=False, Z_test=None, verbose=False):
 		else:
 			train_samples[cls] = round(num_samples[cls]*C.train_frac)
 		
-		if Z_test is None:
+		if Z_test_fixed is None:
 			order = np.random.permutation(list(range(num_samples[cls])))
 		else:
 			order = orders[cls]
@@ -528,7 +528,7 @@ def get_cnn_data(n=4, n_art=0, run_2d=False, Z_test=None, verbose=False):
 
 	return X_test, Y_test, train_generator, num_samples, [X_train_orig, Y_train_orig], [Z_test, Z_train_orig]
 
-def load_data_capsnet():
+def load_data_capsnet(Z_test=None):
 	C = config.Config()
 
 	nb_classes = len(C.classes_to_include)
@@ -555,7 +555,6 @@ def load_data_capsnet():
 
 		test_ids[cls] = list(orig_data_dict[cls][-1][order[train_samples[cls]:]])
 		Y_test += [cls_num] * (num_samples[cls] - train_samples[cls])
-		Y_train_orig += [cls_num] * (train_samples[cls])
 
 	Y_test = np_utils.to_categorical(Y_test, nb_classes)
 	X_test = np.array(X_test)

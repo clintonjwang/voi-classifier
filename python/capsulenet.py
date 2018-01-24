@@ -16,6 +16,9 @@ Result:
 Author: Xifeng Guo, E-mail: `guoxifeng1990@163.com`, Github: `https://github.com/XifengGuo/CapsNet-Keras`
 """
 
+import os
+import argparse
+from keras import callbacks
 import numpy as np
 from keras import layers, models, optimizers
 from keras import backend as K
@@ -33,7 +36,7 @@ K.set_image_data_format('channels_last')
 def CapsNet(input_shape, n_class, routings):
     """
     A Capsule Network on MNIST.
-    :param input_shape: data shape, 3d, [width, height, channels]
+    :param input_shape: data shape, 4d, [width, height, channels]
     :param n_class: number of classes
     :param routings: number of routing iterations
     :return: Two Keras Models, the first one used for training, and the second one for evaluation.
@@ -42,10 +45,10 @@ def CapsNet(input_shape, n_class, routings):
     x = layers.Input(shape=input_shape)
 
     # Layer 1: Just a conventional Conv2D layer
-    conv1 = layers.Conv3D(filters=256, kernel_size=4, strides=1, padding='valid', activation='relu', name='conv1')(x)
+    conv1 = layers.Conv3D(filters=128, kernel_size=6, strides=1, padding='valid', activation='relu', name='conv1')(x)
 
     # Layer 2: Conv2D layer with `squash` activation, then reshape to [None, num_capsule, dim_capsule]
-    primarycaps = PrimaryCap(conv1, dim_capsule=8, n_channels=32, kernel_size=4, strides=1, padding='valid')
+    primarycaps = PrimaryCap(conv1, dim_capsule=8, n_channels=32, kernel_size=5, strides=1, padding='valid')
 
     # Layer 3: Capsule layer. Routing algorithm works here.
     digitcaps = CapsuleLayer(num_capsule=n_class, dim_capsule=16, routings=routings,
@@ -133,7 +136,7 @@ def train(model, data, args):
                         yield ([x_batch, y_batch], [y_batch, x_batch])"""
 
     # Training with data augmentation. If shift_fraction=0., also no augmentation.
-    (_, y_train), _ = train_generator.next()
+    (_, y_train), _ = next(train_generator)
     model.fit_generator(generator=train_generator,
                         steps_per_epoch=int(y_train.shape[0] / args.batch_size),
                         epochs=args.epochs,
@@ -190,12 +193,35 @@ def manipulate_latent(model, data, args):
     #print('manipulated result saved to %s/manipulate-%d.png' % (args.save_dir, args.digit))
     #print('-' * 30 + 'End: manipulate' + '-' * 30)
 
+def main(args):
+    import importlib
+    importlib.reload(cbuild)
+    if not os.path.exists(args.save_dir):
+        os.makedirs(args.save_dir)
+
+    # load data
+    train_generator, (x_test, y_test) = cbuild.load_data_capsnet()
+    (x_train, y_train), _ = next(train_generator)
+
+    # define model
+    model, eval_model, manipulate_model = CapsNet(input_shape=x_train.shape[1:],
+                                                  n_class=len(np.unique(np.argmax(y_train, 1))),
+                                                  routings=args.routings)
+    model.summary()
+
+    # train or test
+    if args.weights is not None:  # init the model weights with provided one
+        model.load_weights(args.weights)
+    if not args.testing:
+        train(model=model, data=(train_generator, (x_test, y_test)), args=args)
+    else:  # as long as weights are given, will run testing
+        if args.weights is None:
+            print('No weights are provided. Will test using random initialized weights.')
+        manipulate_latent(manipulate_model, (x_test, y_test), args)
+        test(model=eval_model, data=(x_test, y_test), args=args)
+
 
 if __name__ == "__main__":
-    import os
-    import argparse
-    from keras import callbacks
-
     # setting the hyper parameters
     parser = argparse.ArgumentParser(description="Capsule Network on MNIST.")
     parser.add_argument('--epochs', default=50, type=int)
@@ -220,28 +246,5 @@ if __name__ == "__main__":
     parser.add_argument('-w', '--weights', default=None,
                         help="The path of the saved weights. Should be specified when testing")
     args = parser.parse_args()
-    print(args)
 
-    if not os.path.exists(args.save_dir):
-        os.makedirs(args.save_dir)
-
-    # load data
-    train_generator, (x_test, y_test) = cbuild.load_data_capsnet()
-    (x_train, y_train), _ = train_generator.next()
-
-    # define model
-    model, eval_model, manipulate_model = CapsNet(input_shape=x_train.shape[1:],
-                                                  n_class=len(np.unique(np.argmax(y_train, 1))),
-                                                  routings=args.routings)
-    model.summary()
-
-    # train or test
-    if args.weights is not None:  # init the model weights with provided one
-        model.load_weights(args.weights)
-    if not args.testing:
-        train(model=model, data=(train_generator, (x_test, y_test)), args=args)
-    else:  # as long as weights are given, will run testing
-        if args.weights is None:
-            print('No weights are provided. Will test using random initialized weights.')
-        manipulate_latent(manipulate_model, (x_test, y_test), args)
-        test(model=eval_model, data=(x_test, y_test), args=args)
+    main(args)
