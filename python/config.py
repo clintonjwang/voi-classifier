@@ -30,15 +30,15 @@ class Config:
 		self.intensity_local_frac = .5 # normalizes all images locally by this fraction
 		self.hard_scale = False # if True, normalizes all images within the tightly cropped region
 
-		#self.model_path = "..\\data\\model.hdf5"
-		self.art_voi_path = "..\\data\\voi_art_reformat.csv"
-		self.ven_voi_path = "..\\data\\voi_ven.csv"
-		self.eq_voi_path = "..\\data\\voi_eq.csv"
-		self.dims_df_path = "..\\data\\img_dims.csv"
-		self.int_df_path = "..\\data\\intensity.csv"
-		self.small_voi_path = "..\\data\\small_vois.csv"
-		self.run_stats_path = "..\\data\\overnight_run.csv"
-		self.patient_info_path = "..\\data\\patient_info.csv"
+		self.base_dir = "C:\\Users\\Clinton\\Documents\\voi-classifier"
+		self.art_voi_path = self.base_dir + "\\data\\voi_art_reformat.csv"
+		self.ven_voi_path = self.base_dir + "\\data\\voi_ven.csv"
+		self.eq_voi_path = self.base_dir + "\\data\\voi_eq.csv"
+		self.dims_df_path = self.base_dir + "\\data\\img_dims.csv"
+		self.int_df_path = self.base_dir + "\\data\\intensity.csv"
+		self.small_voi_path = self.base_dir + "\\data\\small_vois.csv"
+		self.run_stats_path = self.base_dir + "\\data\\overnight_run.csv"
+		self.patient_info_path = self.base_dir + "\\data\\patient_info.csv"
 		self.xls_name = 'Z:\\Prototype1e.xlsx'
 
 		# Information about the abnormality classes

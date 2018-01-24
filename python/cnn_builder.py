@@ -490,15 +490,11 @@ def get_cnn_data(n=4, n_art=0, run_2d=False, Z_test_fixed=None, verbose=False):
 		X_test = X_test + list(orig_data_dict[cls][0][order[train_samples[cls]:]])
 		X2_test = X2_test + list(orig_data_dict[cls][1][order[train_samples[cls]:]])
 		Y_test = Y_test + [cls_num] * (num_samples[cls] - train_samples[cls])
-		#Y_test = Y_test + [[0] * cls_num + [1] + [0] * (nb_classes - cls_num - 1)] * \
-		#					(num_samples[cls] - train_samples[cls])
 		Z_test = Z_test + test_ids[cls]
 		
 		X_train_orig = X_train_orig + list(orig_data_dict[cls][0][order[:train_samples[cls]]])
 		X2_train_orig = X2_train_orig + list(orig_data_dict[cls][1][order[:train_samples[cls]]])
 		Y_train_orig = Y_train_orig + [cls_num] * (train_samples[cls])
-		#Y_train_orig = Y_train_orig + [[0] * cls_num + [1] + [0] * (nb_classes - cls_num - 1)] * \
-		#					(train_samples[cls])
 		Z_train_orig = Z_train_orig + train_ids[cls]
 		
 		if verbose:
@@ -528,7 +524,7 @@ def get_cnn_data(n=4, n_art=0, run_2d=False, Z_test_fixed=None, verbose=False):
 
 	return X_test, Y_test, train_generator, num_samples, [X_train_orig, Y_train_orig], [Z_test, Z_train_orig]
 
-def load_data_capsnet(Z_test=None):
+def load_data_capsnet(Z_test_fixed=None):
 	C = config.Config()
 
 	nb_classes = len(C.classes_to_include)
@@ -537,8 +533,15 @@ def load_data_capsnet(Z_test=None):
 	test_ids = {} #filenames of test set
 	X_test = []
 	Y_test = []
+	Z_test = []
 
 	train_samples = {}
+
+
+	if Z_test_fixed is not None:
+		orders = {cls: np.where(np.isin(orig_data_dict[cls][1], Z_test_fixed)) for cls in orig_data_dict}
+		for cls in C.classes_to_include:
+		    orders[cls] = list(set(range(num_samples[cls])).difference(list(orders[cls][0]))) + list(orders[cls][0])
 
 	for cls in orig_data_dict:
 		cls_num = C.classes_to_include.index(cls)
@@ -548,19 +551,21 @@ def load_data_capsnet(Z_test=None):
 		else:
 			train_samples[cls] = round(num_samples[cls]*C.train_frac)
 		
-		if Z_test is None:
+		if Z_test_fixed is None:
 			order = np.random.permutation(list(range(num_samples[cls])))
 		else:
 			order = orders[cls]
 
+		X_test = X_test + list(orig_data_dict[cls][0][order[train_samples[cls]:]])
 		test_ids[cls] = list(orig_data_dict[cls][-1][order[train_samples[cls]:]])
 		Y_test += [cls_num] * (num_samples[cls] - train_samples[cls])
+		Z_test = Z_test + test_ids[cls]
 
 	Y_test = np_utils.to_categorical(Y_test, nb_classes)
 	X_test = np.array(X_test)
-	#Y_test = np.array(Y_test)
+	Z_test = np.array(Z_test)
 
-	return _train_gen_capsnet(test_ids), (X_test, Y_test)
+	return _train_gen_capsnet(test_ids, n=1), (X_test, Y_test), Z_test
 
 ###########################
 ### FOR OUTPUTTING IMAGES AFTER TRAINING
@@ -638,7 +643,9 @@ def _train_gen_capsnet(test_ids, n=4):
 					if train_cnt % (n+n_art) == 0:
 						break
 
-		yield (np.array(x1), np.array(y)), (np.array(y), np.array(x1))
+		x_batch = np.array(x1)
+		y_batch = np.array(y)
+		yield ([x_batch, y_batch], [y_batch, x_batch])
 
 def _train_generator_func(test_ids, n=12, n_art=0):
 	"""n is the number of samples from each class, n_art is the number of artificial samples"""

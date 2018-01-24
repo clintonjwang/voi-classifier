@@ -42,16 +42,20 @@ def CapsNet(input_shape, n_class, routings):
     :return: Two Keras Models, the first one used for training, and the second one for evaluation.
             `eval_model` can also be used for training.
     """
+    dim_capsule = 8 #16
+    dense_units = 256 #512
+    n_channels = 32 # 32
+
     x = layers.Input(shape=input_shape)
 
     # Layer 1: Just a conventional Conv2D layer
-    conv1 = layers.Conv3D(filters=128, kernel_size=6, strides=1, padding='valid', activation='relu', name='conv1')(x)
+    conv1 = layers.Conv3D(filters=256, kernel_size=8, strides=1, padding='valid', activation='relu', name='conv1')(x)
 
     # Layer 2: Conv2D layer with `squash` activation, then reshape to [None, num_capsule, dim_capsule]
-    primarycaps = PrimaryCap(conv1, dim_capsule=8, n_channels=32, kernel_size=5, strides=1, padding='valid')
+    primarycaps = PrimaryCap(conv1, dim_capsule=dim_capsule, n_channels=n_channels, kernel_size=5, strides=2, padding='valid')
 
     # Layer 3: Capsule layer. Routing algorithm works here.
-    digitcaps = CapsuleLayer(num_capsule=n_class, dim_capsule=16, routings=routings,
+    digitcaps = CapsuleLayer(num_capsule=n_class, dim_capsule=dim_capsule, routings=routings,
                              name='digitcaps')(primarycaps)
 
     # Layer 4: This is an auxiliary layer to replace each capsule with its length. Just to match the true label's shape.
@@ -65,8 +69,8 @@ def CapsNet(input_shape, n_class, routings):
 
     # Shared Decoder model in training and prediction
     decoder = models.Sequential(name='decoder')
-    decoder.add(layers.Dense(512, activation='relu', input_dim=16*n_class))
-    decoder.add(layers.Dense(1024, activation='relu'))
+    decoder.add(layers.Dense(dense_units, activation='relu', input_dim=dim_capsule*n_class))
+    #decoder.add(layers.Dense(1024, activation='relu'))
     decoder.add(layers.Dense(np.prod(input_shape), activation='sigmoid'))
     decoder.add(layers.Reshape(target_shape=input_shape, name='out_recon'))
 
@@ -75,7 +79,7 @@ def CapsNet(input_shape, n_class, routings):
     eval_model = models.Model(x, [out_caps, decoder(masked)])
 
     # manipulate model
-    noise = layers.Input(shape=(n_class, 16))
+    noise = layers.Input(shape=(n_class, dim_capsule))
     noised_digitcaps = layers.Add()([digitcaps, noise])
     masked_noised_y = Mask()([noised_digitcaps, y])
     manipulate_model = models.Model([x, y, noise], decoder(masked_noised_y))
@@ -137,10 +141,9 @@ def train(model, data, args):
 
     # Training with data augmentation. If shift_fraction=0., also no augmentation.
     (_, y_train), _ = next(train_generator)
-    model.fit_generator(generator=train_generator,
-                        steps_per_epoch=int(y_train.shape[0] / args.batch_size),
-                        epochs=args.epochs,
-                        validation_data=[[x_test, y_test], [y_test, x_test]],
+    hist = model.fit_generator(train_generator,
+                        steps_per_epoch=1000, #int(y_train.shape[0] / args.batch_size)
+                        epochs=50, validation_data=[[x_test, y_test], [y_test, x_test]], #args.epochs
                         callbacks=[log, tb, checkpoint, lr_decay])
     # End: Training with data augmentation -----------------------------------------------------------------------#
 
@@ -159,14 +162,14 @@ def test(model, data, args):
     print('-'*30 + 'Begin: test' + '-'*30)
     print('Test acc:', np.sum(np.argmax(y_pred, 1) == np.argmax(y_test, 1))/y_test.shape[0])
 
-    img = combine_images(np.concatenate([x_test[:50],x_recon[:50]]))
-    image = img * 255
-    Image.fromarray(image.astype(np.uint8)).save(args.save_dir + "/real_and_recon.png")
-    print()
-    print('Reconstructed images are saved to %s/real_and_recon.png' % args.save_dir)
-    print('-' * 30 + 'End: test' + '-' * 30)
-    plt.imshow(plt.imread(args.save_dir + "/real_and_recon.png"))
-    plt.show()
+    """img = combine_images(np.concatenate([x_test[:50],x_recon[:50]]))
+                image = img * 255
+                Image.fromarray(image.astype(np.uint8)).save(args.save_dir + "/real_and_recon.png")
+                print()
+                print('Reconstructed images are saved to %s/real_and_recon.png' % args.save_dir)
+                print('-' * 30 + 'End: test' + '-' * 30)
+                plt.imshow(plt.imread(args.save_dir + "/real_and_recon.png"))
+                plt.show()"""
 
 
 def manipulate_latent(model, data, args):
@@ -193,14 +196,17 @@ def manipulate_latent(model, data, args):
     #print('manipulated result saved to %s/manipulate-%d.png' % (args.save_dir, args.digit))
     #print('-' * 30 + 'End: manipulate' + '-' * 30)
 
-def main(args):
+def main(args, data=None):
     import importlib
     importlib.reload(cbuild)
     if not os.path.exists(args.save_dir):
         os.makedirs(args.save_dir)
 
     # load data
-    train_generator, (x_test, y_test) = cbuild.load_data_capsnet()
+    if data is None:
+        train_generator, (x_test, y_test), _ = cbuild.load_data_capsnet()
+    else:
+        train_generator, (x_test, y_test) = data
     (x_train, y_train), _ = next(train_generator)
 
     # define model
@@ -217,11 +223,14 @@ def main(args):
     else:  # as long as weights are given, will run testing
         if args.weights is None:
             print('No weights are provided. Will test using random initialized weights.')
-        manipulate_latent(manipulate_model, (x_test, y_test), args)
+        #manipulate_latent(manipulate_model, (x_test, y_test), args)
         test(model=eval_model, data=(x_test, y_test), args=args)
 
 
 if __name__ == "__main__":
+    import win_unicode_console
+    win_unicode_console.enable()
+
     # setting the hyper parameters
     parser = argparse.ArgumentParser(description="Capsule Network on MNIST.")
     parser.add_argument('--epochs', default=50, type=int)
