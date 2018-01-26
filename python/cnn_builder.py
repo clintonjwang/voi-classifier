@@ -65,11 +65,10 @@ def hyperband():
 		#### End Finite Horizon Successive Halving with (n,r)
 	return val_losses, T
 
-def run_fixed_hyperparams(overwrite=False, max_runs=999, hyperparams=None):
-	"""Runs the CNN for max_runs times, saving performance metrics."""
-	C_list = [config.Config()]
+def get_run_stats_csv():
+	C = config.Config()
 	try:
-		running_stats = pd.read_csv(C_list[0].run_stats_path)
+		running_stats = pd.read_csv(C.run_stats_path)
 		index = len(running_stats)
 	except FileNotFoundError:
 		running_stats = pd.DataFrame(columns = ["n", "n_art", "steps_per_epoch", "epochs",
@@ -81,11 +80,19 @@ def run_fixed_hyperparams(overwrite=False, max_runs=999, hyperparams=None):
 			'confusion_matrix', 'f1', 'timestamp', 'run_num',
 			'misclassified_test', 'misclassified_train', 'model_num',
 			'y_true', 'y_pred_raw', 'z_test'])
-		index = 0
+
+	return running_stats
+
+def run_fixed_hyperparams(overwrite=False, max_runs=999, hyperparams=None):
+	"""Runs the CNN for max_runs times, saving performance metrics."""
+	C_list = [config.Config()]
+
+	running_stats = get_run_stats_csv()
+	index = len(running_stats)
 
 	model_names = os.listdir(C_list[0].model_dir)
-	if len(model_names) > 0:	
-		model_num = max([int(x[x.find('_')+1:x.find('.')]) for x in model_names]) + 1
+	if len(model_names) > 0:
+		model_num = max([int(x[x.find('_')+1:x.find('.')]) for x in model_names if 'reader' not in x]) + 1
 	else:
 		model_num = 0
 
@@ -163,7 +170,7 @@ def run_fixed_hyperparams(overwrite=False, max_runs=999, hyperparams=None):
 		running_acc_6.append(accuracy_score(y_true, y_pred))
 		print("6cls accuracy:", running_acc_6[-1], " - average:", np.mean(running_acc_6))
 
-		y_true_simp, y_pred_simp, _ = condense_cm(y_true, y_pred, C.classes_to_include)
+		y_true_simp, y_pred_simp, _ = merge_classes(y_true, y_pred, C.classes_to_include)
 		running_acc_3.append(accuracy_score(y_true_simp, y_pred_simp))
 		#print("3cls accuracy:", running_acc_3[-1], " - average:", np.mean(running_acc_3))
 
@@ -244,9 +251,9 @@ def _get_hyperparams_as_list(C=None, T=None):
 		C = config.Config()
 	
 	return [T.n, T.n_art, T.steps_per_epoch, T.epochs,
-			C.train_frac, C.test_num, C.aug_factor, C.non_imaging_inputs,
+			C.test_num, C.aug_factor, C.non_imaging_inputs,
 			T.kernel_size, T.f, T.padding,
-			T.dropout, T.time_dist, T.dilation_rate, T.dense_units]
+			T.dropout, T.time_dist, T.dilation_rate, T.dense_units, T.pool_sizes]
 
 def get_random_hyperparameter_configuration():
 	T = config.Hyperparams()
@@ -334,7 +341,7 @@ def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same', 'valid']
 				#	x = TimeDistributed(Conv3D(filters=f[layer_num], kernel_size=kernel_size, strides=stride, padding=padding[1]))(x) #, kernel_regularizer=l2(.01)
 				else:
 					x = TimeDistributed(Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1 * (layer_num > 1)]))(x) #, kernel_regularizer=l2(.01)
-				#x = BatchNormalization()(x)
+				x = BatchNormalization(axis=5)(x)
 				x = TimeDistributed(Dropout(dropout[0]))(x)
 				x = ActivationLayer(activation_args)(x)
 				if layer_num == 0:
@@ -355,6 +362,8 @@ def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same', 'valid']
 
 		#x = SimpleRNN(128, return_sequences=True)(x)
 		x = SimpleRNN(dense_units)(x)
+		x = BatchNormalization()(x)
+		x = ActivationLayer(activation_args)(x)
 		x = Dropout(dropout[1])(x)
 	else:
 		x = MaxPooling3D(pool_sizes[1])(x)
@@ -524,7 +533,7 @@ def get_cnn_data(n=4, n_art=0, run_2d=False, Z_test_fixed=None, verbose=False):
 
 	return X_test, Y_test, train_generator, num_samples, [X_train_orig, Y_train_orig], [Z_test, Z_train_orig]
 
-def load_data_capsnet(Z_test_fixed=None):
+def load_data_capsnet(n=2, Z_test_fixed=None):
 	C = config.Config()
 
 	nb_classes = len(C.classes_to_include)
@@ -565,7 +574,7 @@ def load_data_capsnet(Z_test_fixed=None):
 	X_test = np.array(X_test)
 	Z_test = np.array(Z_test)
 
-	return _train_gen_capsnet(test_ids, n=1), (X_test, Y_test), Z_test
+	return _train_gen_capsnet(test_ids, n=n), (X_test, Y_test), Z_test
 
 ###########################
 ### FOR OUTPUTTING IMAGES AFTER TRAINING

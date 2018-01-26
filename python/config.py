@@ -107,6 +107,18 @@ class Hyperparams:
 		self.merge_layer = 1
 		self.time_dist = False
 
+	def get_capsnet_params(self):
+		self.lr = 4
+		self.lr_decay = 0
+		self.n = 2
+		self.steps_per_epoch = 750
+		self.epochs = 30
+		self.dense_layers = True
+		self.dim_capsule = [8, 16]
+		self.dense_units = 256 #512
+		self.n_channels = 16 # 32
+		self.time_dist = False
+
 	def get_random_hyperparams(self):
 		self.f = random.choice([[64,128,128], [64,64,128,128], [64,64,64,128], [64,64,128,128], [64,128,128,128], [64,128,128,128,128]])
 		self.pool_sizes = [(2,2,2),(2,2,1)]
