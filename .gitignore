@@ -1,5 +1,4 @@
-python/result
-python/api
+python/result*
 documents
 data
 api_retrieval.ipynb

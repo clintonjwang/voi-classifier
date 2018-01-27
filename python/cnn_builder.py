@@ -9,7 +9,8 @@ Author: Clinton Wang, E-mail: `clintonjwang@gmail.com`, Github: `https://github.
 """
 
 import keras.backend as K
-from keras.layers import Input, Dense, Concatenate, Flatten, Dropout, Lambda, Conv3D, MaxPooling3D, LSTM, AveragePooling3D
+import keras.layers as layers
+from keras.layers import Input, Dense, Concatenate, Flatten, Dropout, Lambda
 from keras.layers import SimpleRNN, Conv2D, MaxPooling2D, ZeroPadding3D, Activation, ELU, TimeDistributed, Permute, Reshape
 from keras.layers.normalization import BatchNormalization
 from keras.models import Model
@@ -19,6 +20,7 @@ from keras.optimizers import Adam
 from keras.utils import np_utils
 
 import argparse
+import cnn_analyzer as cnna
 import copy
 import config
 import niftiutils.helper_fxns as hf
@@ -37,228 +39,6 @@ import time
 import dr_methods as drm
 import voi_methods as vm
 
-####################################
-### OVERNIGHT PROCESSES
-####################################
-
-def hyperband():
-	# https://arxiv.org/abs/1603.06560
-	max_iter = 30  # maximum iterations/epochs per configuration
-	eta = 3 # defines downsampling rate (default=3)
-	logeta = lambda x: log(x)/log(eta)
-	s_max = int(logeta(max_iter))  # number of unique executions of Successive Halving (minus one)
-	B = (s_max+1)*max_iter  # total number of iterations (without reuse) per execution of Succesive Halving (n,r)
-
-	#### Begin Finite Horizon Hyperband outlerloop. Repeat indefinetely.
-	for s in reversed(range(s_max+1)):
-		n = int(ceil(B/max_iter/(s+1)*eta**s)) # initial number of configurations
-		r = max_iter*eta**(-s) # initial number of iterations to run configurations for
-
-		#### Begin Finite Horizon Successive Halving with (n,r)
-		T = [ get_random_hyperparameter_configuration() for i in range(n) ]
-		for i in range(s+1):
-			# Run each of the n_i configs for r_i iterations and keep best n_i/eta
-			n_i = n*eta**(-i)
-			r_i = r*eta**(i)
-			val_losses = [ run_then_return_val_loss(num_iters=r_i, hyperparams=t) for t in T ]
-			T = [ T[i] for i in argsort(val_losses)[0:int( n_i/eta )] ]
-		#### End Finite Horizon Successive Halving with (n,r)
-	return val_losses, T
-
-def get_run_stats_csv():
-	C = config.Config()
-	try:
-		running_stats = pd.read_csv(C.run_stats_path)
-		index = len(running_stats)
-	except FileNotFoundError:
-		running_stats = pd.DataFrame(columns = ["n", "n_art", "steps_per_epoch", "epochs",
-			"num_phases", "input_res", "training_fraction", "test_num", "augment_factor", "non_imaging_inputs",
-			"kernel_size", "conv_filters", "conv_padding",
-			"dropout", "time_dist", "dilation", "dense_units",
-			"acc6cls", "acc3cls", "time_elapsed(s)", "loss_hist",
-			'hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh',
-			'confusion_matrix', 'f1', 'timestamp', 'run_num',
-			'misclassified_test', 'misclassified_train', 'model_num',
-			'y_true', 'y_pred_raw', 'z_test'])
-
-	return running_stats
-
-def run_fixed_hyperparams(overwrite=False, max_runs=999, hyperparams=None):
-	"""Runs the CNN for max_runs times, saving performance metrics."""
-	C_list = [config.Config()]
-
-	running_stats = get_run_stats_csv()
-	index = len(running_stats)
-
-	model_names = os.listdir(C_list[0].model_dir)
-	if len(model_names) > 0:
-		model_num = max([int(x[x.find('_')+1:x.find('.')]) for x in model_names if 'reader' not in x]) + 1
-	else:
-		model_num = 0
-
-	running_acc_6 = []
-	running_acc_3 = []
-	"""n = [4]
-				n_art = [0]
-				steps_per_epoch = [750]
-				epochs = [25]
-				run_2d = False
-				f = [[64,128,128]]
-				padding = [['valid','valid']]
-				dropout = [[0.1,0.1]]
-				dense_units = [128]
-				dilation_rate = [(1,1,1)]
-				kernel_size = [(3,3,2)]
-				pool_sizes = [(2,2,1),(1,1,2)]
-				activation_type = ['elu']
-				merge_layer = [0]
-				cycle_len = 1"""
-	early_stopping = EarlyStopping(monitor='loss', min_delta=0.002, patience=3)
-	time_dist = True
-
-	C_index = 0
-	while index < max_runs:
-		C = C_list[C_index % len(C_list)]
-		#C.hard_scale = False
-
-		#run_then_return_val_loss(num_iters=1, hyperparams=None)
-
-		if hyperparams is not None:
-			T = hyperparams
-
-			X_test, Y_test, train_generator, num_samples, train_orig, Z = get_cnn_data(n=T.n,
-						n_art=T.n_art, run_2d=T.run_2d)
-			Z_test, Z_train_orig = Z
-			X_train_orig, Y_train_orig = train_orig
-			model = build_cnn_hyperparams(T)
-			#print(model.summary())
-			#return
-			t = time.time()
-			hist = model.fit_generator(train_generator, steps_per_epoch=T.steps_per_epoch,
-					epochs=T.epochs, callbacks=[T.early_stopping], verbose=False)
-			loss_hist = hist.history['loss']
-
-		else:
-			X_test, Y_test, train_generator, num_samples, train_orig, Z = get_cnn_data(n=n[C_index % len(n)],
-						n_art=n_art[C_index % len(n_art)], run_2d=run_2d)
-			Z_test, Z_train_orig = Z
-			X_train_orig, Y_train_orig = train_orig
-		#for _ in range(cycle_len):
-			model = build_cnn('adam', activation_type=activation_type[index % len(activation_type)],
-					dilation_rate=dilation_rate[index % len(dilation_rate)], f=f[index % len(f)], pool_sizes=pool_sizes,
-					padding=padding[index % len(padding)], dropout=dropout[index % len(dropout)],
-					dense_units=dense_units[index % len(dense_units)], kernel_size=kernel_size[index % len(kernel_size)],
-					merge_layer=merge_layer[index % len(merge_layer)], dual_inputs=C.non_imaging_inputs, time_dist=time_dist)
-		
-			t = time.time()
-			hist = model.fit_generator(train_generator, steps_per_epoch=steps_per_epoch[index % len(steps_per_epoch)],
-					epochs=epochs[index % len(epochs)], callbacks=[early_stopping], verbose=False)
-			loss_hist = hist.history['loss']
-
-		Y_pred = model.predict(X_train_orig)
-		y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_train_orig])
-		y_pred = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_pred])
-		misclassified_train = list(Z_train_orig[~np.equal(y_pred, y_true)])
-
-		Y_pred = model.predict(X_test)
-		y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_test])
-		y_pred = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_pred])
-		misclassified_test = list(Z_test[~np.equal(y_pred, y_true)])
-		cm = confusion_matrix(y_true, y_pred)
-		f1 = f1_score(y_true, y_pred, average="weighted")
-
-		running_acc_6.append(accuracy_score(y_true, y_pred))
-		print("6cls accuracy:", running_acc_6[-1], " - average:", np.mean(running_acc_6))
-
-		y_true_simp, y_pred_simp, _ = merge_classes(y_true, y_pred, C.classes_to_include)
-		running_acc_3.append(accuracy_score(y_true_simp, y_pred_simp))
-		#print("3cls accuracy:", running_acc_3[-1], " - average:", np.mean(running_acc_3))
-
-		if hyperparams is not None:
-			running_stats.loc[index] = _get_hyperparams_as_list(C, T) + [running_acc_6[-1], running_acc_3[-1], time.time()-t, loss_hist,
-								num_samples['hcc'], num_samples['cholangio'], num_samples['colorectal'], num_samples['cyst'], num_samples['hemangioma'], num_samples['fnh'],
-								cm, time.time(), #C.run_num,
-								misclassified_test, misclassified_train, model_num, y_true, str(Y_pred), list(Z_test)]
-
-		else:
-			running_stats.loc[index] = [n[C_index % len(n)], n_art[C_index % len(n_art)], steps_per_epoch[index % len(steps_per_epoch)], epochs[index % len(epochs)],
-								C.train_frac, C.test_num, C.aug_factor, C.non_imaging_inputs,
-								kernel_size[index % len(kernel_size)], f[index % len(f)], padding[index % len(padding)],
-								dropout[index % len(dropout)], time_dist, dilation_rate[index % len(dilation_rate)], dense_units[index % len(dense_units)],
-								running_acc_6[-1], running_acc_3[-1], time.time()-t, loss_hist,
-								num_samples['hcc'], num_samples['cholangio'], num_samples['colorectal'], num_samples['cyst'], num_samples['hemangioma'], num_samples['fnh'],
-								cm, time.time(), #C.run_num,
-								misclassified_test, misclassified_train, model_num, y_true, str(Y_pred), list(Z_test)]
-		running_stats.to_csv(C.run_stats_path, index=False)
-
-		model.save(C.model_dir+'models_%d.hdf5' % model_num)
-		model_num += 1
-		index += 1
-		#end cycle_len
-		C_index += 1
-
-####################################
-### BUILD CNNS
-####################################
-
-def run_then_return_val_loss(num_iters=1, hyperparams=None):
-	"""Runs the CNN indefinitely, saving performance metrics."""
-	C = config.Config()
-	running_stats = pd.read_csv(C.run_stats_path)
-	index = len(running_stats)
-
-	X_test, Y_test, train_generator, num_samples, train_orig, Z = get_cnn_data(n=T.n,
-				n_art=T.n_art, run_2d=T.run_2d)
-	#Z_test, Z_train_orig = Z
-	#X_train_orig, Y_train_orig = train_orig
-
-	T = hyperparams
-	model = build_cnn_hyperparams(T)
-
-	t = time.time()
-	hist = model.fit_generator(train_generator, steps_per_epoch=T.steps_per_epoch,
-			epochs=num_iters, callbacks=[T.early_stopping], verbose=False, validation=[X_test, Y_test])
-	loss_hist = hist.history['val_loss']
-
-	"""	Y_pred = model.predict(X_train_orig)
-	y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_train_orig])
-	y_pred = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_pred])
-	misclassified_train = list(Z_train_orig[~np.equal(y_pred, y_true)])
-
-	Y_pred = model.predict(X_test)
-	y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_test])
-	y_pred = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_pred])
-	misclassified_test = list(Z_test[~np.equal(y_pred, y_true)])
-	cm = confusion_matrix(y_true, y_pred)
-	f1 = f1_score(y_true, y_pred, average="weighted")
-	acc_6cl = accuracy_score(y_true, y_pred)
-
-	y_true_simp, y_pred_simp, _ = condense_cm(y_true, y_pred, C.classes_to_include)
-	acc_3cl = accuracy_score(y_true_simp, y_pred_simp)
-
-	running_stats.loc[index] = _get_hyperparams_as_list(C, T) + \
-			[acc_6cl, acc_3cl, time.time()-t, loss_hist,
-			num_samples['hcc'], num_samples['cholangio'], num_samples['colorectal'], num_samples['cyst'], num_samples['hemangioma'], num_samples['fnh'],
-			cm, time.time(), misclassified_test, misclassified_train, model_num, y_true, str(Y_pred), list(Z_test)]
-	running_stats.to_csv(C.run_stats_path, index=False)"""
-
-	return loss_hist
-
-def _get_hyperparams_as_list(C=None, T=None):
-	if T is None:
-		T = config.Hyperparams()
-	if C is None:
-		C = config.Config()
-	
-	return [T.n, T.n_art, T.steps_per_epoch, T.epochs,
-			C.test_num, C.aug_factor, C.non_imaging_inputs,
-			T.kernel_size, T.f, T.padding,
-			T.dropout, T.time_dist, T.dilation_rate, T.dense_units, T.pool_sizes]
-
-def get_random_hyperparameter_configuration():
-	T = config.Hyperparams()
-
-	return T
 
 def build_cnn_hyperparams(hyperparams):
 	C = config.Config()
@@ -291,41 +71,27 @@ def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same', 'valid']
 
 	if merge_layer == 1:
 		art_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,0], axis=4))(img)
-		art_x = Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0])(art_x)
-		art_x = BatchNormalization()(art_x)
+		art_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0])(art_x)
 		art_x = ActivationLayer(activation_args)(art_x)
 
 		ven_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,1], axis=4))(img)
-		ven_x = Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0])(ven_x)
-		ven_x = BatchNormalization()(ven_x)
+		ven_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0])(ven_x)
 		ven_x = ActivationLayer(activation_args)(ven_x)
 
 		eq_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,2], axis=4))(img)
-		eq_x = Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0])(eq_x)
-		eq_x = BatchNormalization()(eq_x)
+		eq_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0])(eq_x)
 		eq_x = ActivationLayer(activation_args)(eq_x)
 
 		x = Concatenate(axis=4)([art_x, ven_x, eq_x])
-		x = MaxPooling3D(pool_sizes[0])(x)
+		x = layers.MaxPooling3D(pool_sizes[0])(x)
+		x = BatchNormalization(axis=4)(x)
 		#x = Dropout(dropout[0])(x)
 
-		if time_dist:
-			x = Reshape()
-			x = Permute((4,1,2,3))(x)
-
-			for layer_num in range(1,len(f)):
-				x = TimeDistributed(Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1]))(x)
-				x = TimeDistributed(BatchNormalization())(x)
-				x = TimeDistributed(ActivationLayer(activation_args))(x)
-				x = Dropout(dropout[0])(x)
-			
-			x = Permute((2,3,4,1))(x)
-		else:
-			for layer_num in range(1,len(f)):
-				x = Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1])(x)
-				x = BatchNormalization()(x)
-				x = ActivationLayer(activation_args)(x)
-				x = Dropout(dropout[0])(x)
+		for layer_num in range(1,len(f)):
+			x = layers.Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1])(x)
+			x = ActivationLayer(activation_args)(x)
+			x = BatchNormalization()(x)
+			x = Dropout(dropout[0])(x)
 
 	elif merge_layer == 0:
 		x = img
@@ -336,43 +102,40 @@ def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same', 'valid']
 
 			for layer_num in range(len(f)):
 				if layer_num == 1:
-					x = TimeDistributed(Conv3D(filters=f[layer_num], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[1]))(x) #, kernel_regularizer=l2(.01)
+					x = layers.TimeDistributed(layers.Conv3D(filters=f[layer_num], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[1]))(x) #, kernel_regularizer=l2(.01)
 				#elif layer_num == 0:
-				#	x = TimeDistributed(Conv3D(filters=f[layer_num], kernel_size=kernel_size, strides=stride, padding=padding[1]))(x) #, kernel_regularizer=l2(.01)
+				#	x = TimeDistributed(layers.Conv3D(filters=f[layer_num], kernel_size=kernel_size, strides=stride, padding=padding[1]))(x) #, kernel_regularizer=l2(.01)
 				else:
-					x = TimeDistributed(Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1 * (layer_num > 1)]))(x) #, kernel_regularizer=l2(.01)
-				x = BatchNormalization(axis=5)(x)
-				x = TimeDistributed(Dropout(dropout[0]))(x)
+					x = layers.TimeDistributed(layers.Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1 * (layer_num > 1)]))(x) #, kernel_regularizer=l2(.01)
+				x = layers.TimeDistributed(layers.Dropout(dropout[0]))(x)
 				x = ActivationLayer(activation_args)(x)
+				x = layers.TimeDistributed(layers.BatchNormalization(axis=4))(x)
 				if layer_num == 0:
-					x = TimeDistributed(MaxPooling3D(pool_sizes[0]))(x)
+					x = TimeDistributed(layers.MaxPooling3D(pool_sizes[0]))(x)
 			
 		else:
 			for layer_num in range(len(f)):
-				x = Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1])(x)
-				x = BatchNormalization()(x)
+				x = layers.Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1])(x)
 				x = ActivationLayer(activation_args)(x)
+				x = BatchNormalization()(x)
 				x = Dropout(dropout[0])(x)
-	else:
-		raise ValueError("invalid settings")
 
 	if time_dist:
-		x = TimeDistributed(MaxPooling3D(pool_sizes[1]))(x)
-		x = TimeDistributed(Flatten())(x)
+		x = layers.TimeDistributed(layers.MaxPooling3D(pool_sizes[1]))(x)
+		x = layers.TimeDistributed(Flatten())(x)
 
 		#x = SimpleRNN(128, return_sequences=True)(x)
-		x = SimpleRNN(dense_units)(x)
-		x = BatchNormalization()(x)
-		x = ActivationLayer(activation_args)(x)
-		x = Dropout(dropout[1])(x)
+		x = layers.SimpleRNN(dense_units)(x)
+		x = layers.BatchNormalization()(x)
+		x = layers.Dropout(dropout[1])(x)
 	else:
-		x = MaxPooling3D(pool_sizes[1])(x)
+		x = layers.MaxPooling3D(pool_sizes[1])(x)
 		x = Flatten()(x)
 
 		x = Dense(dense_units)(x)#, kernel_initializer='normal', kernel_regularizer=l2(.01), kernel_constraint=max_norm(3.))(x)
+		x = ActivationLayer(activation_args)(x)
 		x = BatchNormalization()(x)
 		x = Dropout(dropout[1])(x)
-		x = ActivationLayer(activation_args)(x)
 
 	if dual_inputs:
 		non_img_inputs = Input(shape=(C.num_non_image_inputs,))
@@ -382,9 +145,7 @@ def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same', 'valid']
 		#y = ActivationLayer(activation_args)(y)
 		x = Concatenate(axis=1)([x, non_img_inputs])
 
-	x = Dense(nb_classes)(x)
-	x = BatchNormalization()(x)
-	pred_class = Activation('softmax')(x)
+	pred_class = Dense(nb_classes, activation='softmax')(x)
 
 	if not dual_inputs:
 		model = Model(img, pred_class)
@@ -410,39 +171,38 @@ def build_pretrain_model(trained_model, dilation_rate=(1,1,1), padding=['same', 
 	img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 3))
 
 	art_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,0], axis=4))(img)
-	art_x = Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0], trainable=False)(art_x)
-	art_x = BatchNormalization(trainable=False)(art_x)
+	art_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0], trainable=False)(art_x)
 	art_x = ActivationLayer(activation_args)(art_x)
+	art_x = BatchNormalization(trainable=False)(art_x)
 
 	ven_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,1], axis=4))(img)
-	ven_x = Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0], trainable=False)(ven_x)
-	ven_x = BatchNormalization(trainable=False)(ven_x)
+	ven_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0], trainable=False)(ven_x)
 	ven_x = ActivationLayer(activation_args)(ven_x)
+	ven_x = BatchNormalization(trainable=False)(ven_x)
 
 	eq_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,2], axis=4))(img)
-	eq_x = Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0], trainable=False)(eq_x)
-	eq_x = BatchNormalization(trainable=False)(eq_x)
+	eq_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0], trainable=False)(eq_x)
 	eq_x = ActivationLayer(activation_args)(eq_x)
+	eq_x = BatchNormalization(trainable=False)(eq_x)
 
 	x = Concatenate(axis=4)([art_x, ven_x, eq_x])
-	x = MaxPooling3D(pool_sizes[0])(x)
+	x = layers.MaxPooling3D(pool_sizes[0])(x)
 
 	for layer_num in range(1,len(f)):
-		x = Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1], trainable=False)(x)
-		x = BatchNormalization(trainable=False)(x)
+		x = layers.Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1], trainable=False)(x)
 		x = ActivationLayer(activation_args)(x)
+		x = BatchNormalization(trainable=False)(x)
 		x = Dropout(0)(x)
 
-	x = MaxPooling3D(pool_sizes[1])(x)
-	#x = AveragePooling3D((4,4,4))(x)
+	x = layers.MaxPooling3D(pool_sizes[1])(x)
+	#x = layers.AveragePooling3D((4,4,4))(x)
 	#filter_weights = Flatten()(x)
 
 	x = Flatten()(x)
 
 	x = Dense(dense_units, trainable=False)(x)
-	x = BatchNormalization(trainable=False)(x)
-	x = Dropout(0)(x)
-	filter_weights = ActivationLayer(activation_args)(x)
+	x = ActivationLayer(activation_args)(x)
+	filter_weights = BatchNormalization(trainable=False)(x)
 
 	model_pretrain = Model(img, filter_weights)
 	model_pretrain.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
@@ -478,7 +238,7 @@ def get_cnn_data(n=4, n_art=0, run_2d=False, Z_test_fixed=None, verbose=False):
 	if Z_test_fixed is not None:
 		orders = {cls: np.where(np.isin(orig_data_dict[cls][1], Z_test_fixed)) for cls in orig_data_dict}
 		for cls in C.classes_to_include:
-		    orders[cls] = list(set(range(num_samples[cls])).difference(list(orders[cls][0]))) + list(orders[cls][0])
+			orders[cls] = list(set(range(num_samples[cls])).difference(list(orders[cls][0]))) + list(orders[cls][0])
 
 	for cls in orig_data_dict:
 		cls_num = C.classes_to_include.index(cls)
@@ -550,7 +310,7 @@ def load_data_capsnet(n=2, Z_test_fixed=None):
 	if Z_test_fixed is not None:
 		orders = {cls: np.where(np.isin(orig_data_dict[cls][1], Z_test_fixed)) for cls in orig_data_dict}
 		for cls in C.classes_to_include:
-		    orders[cls] = list(set(range(num_samples[cls])).difference(list(orders[cls][0]))) + list(orders[cls][0])
+			orders[cls] = list(set(range(num_samples[cls])).difference(list(orders[cls][0]))) + list(orders[cls][0])
 
 	for cls in orig_data_dict:
 		cls_num = C.classes_to_include.index(cls)
@@ -575,50 +335,6 @@ def load_data_capsnet(n=2, Z_test_fixed=None):
 	Z_test = np.array(Z_test)
 
 	return _train_gen_capsnet(test_ids, n=n), (X_test, Y_test), Z_test
-
-###########################
-### FOR OUTPUTTING IMAGES AFTER TRAINING
-###########################
-
-def save_output(Z, y_pred, y_true, C=None, save_dir=None):
-	"""Saves large and small cropped images of all lesions in Z.
-	Uses y_true and y_pred to separate correct and incorrect predictions.
-	Requires C.classes_to_include, C.output_img_dir, C.crops_dir, C.orig_dir"""
-
-	if C is None:
-		C = config.Config()
-	if save_dir is None:
-		save_dir = C.output_img_dir
-
-	cls_mapping = C.classes_to_include
-
-	for cls in cls_mapping:
-		if not os.path.exists(save_dir + "\\correct\\" + cls):
-			os.makedirs(save_dir + "\\correct\\" + cls)
-		if not os.path.exists(save_dir + "\\incorrect\\" + cls):
-			os.makedirs(save_dir + "\\incorrect\\" + cls)
-
-	for i in range(len(Z)):
-		if y_pred[i] != y_true[i]:
-			vm.save_img_with_bbox(cls=y_true[i], lesion_nums=[Z[i]],
-				fn_suffix = " (bad_pred %s).png" % cls_mapping[y_pred[i]],
-				save_dir=save_dir + "\\incorrect\\" + cls_mapping[y_true[i]])
-		else:
-			vm.save_img_with_bbox(cls=y_true[i], lesion_nums=[Z[i]],
-				fn_suffix = " (good_pred %s).png" % cls_mapping[y_pred[i]],
-				save_dir=save_dir + "\\correct\\" + cls_mapping[y_true[i]])
-
-def merge_classes(y_true, y_pred, cls_mapping=None):
-	"""From lists y_true and y_pred with class numbers, """
-	C = config.Config()
-
-	if cls_mapping is None:
-		cls_mapping = C.classes_to_include
-	
-	y_true_simp = np.array([C.simplify_map[cls_mapping[y]] for y in y_true])
-	y_pred_simp = np.array([C.simplify_map[cls_mapping[y]] for y in y_pred])
-	
-	return y_true_simp, y_pred_simp, ['LR5', 'LR1', 'LRM']
 
 ####################################
 ### Training Submodules
@@ -696,8 +412,13 @@ def _train_generator_func(test_ids, n=12, n_art=0):
 					if C.hard_scale:
 						x1[train_cnt] = vm.scale_intensity(x1[train_cnt], 1, max_int=2, keep_min=False)
 
+					if C.dual_img_inputs:
+						voi_row = voi_df.loc[lesion_id]
+						patient_row = patient_info_df[patient_info_df["AccNum"] == voi_row["acc_num"]]
+						x2[train_cnt] = get_non_img_inputs(voi_row, patient_row)
+
 					if C.non_imaging_inputs:
-						voi_row = voi_df.loc[lesion_num]
+						voi_row = voi_df.loc[lesion_id]
 						patient_row = patient_info_df[patient_info_df["AccNum"] == voi_row["acc_num"]]
 						x2[train_cnt] = get_non_img_inputs(voi_row, patient_row)
 					

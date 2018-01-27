@@ -46,7 +46,7 @@ def CapsNet(input_shape, n_class, routings, T=None):
 	:return: Two Keras Models, the first one used for training, and the second one for evaluation.
 			`eval_model` can also be used for training.
 	"""
-	dense_layers = False
+	dense_layers = True
 	dim_capsule = [8, 8]
 	dense_units = 256 #512
 	n_channels = 16 # 32
@@ -68,9 +68,8 @@ def CapsNet(input_shape, n_class, routings, T=None):
 		conv1 = layers.TimeDistributed(layers.Conv3D(filters=256, kernel_size=8, strides=1,
 			padding='valid', activation='relu', name='conv1'))(conv1)
 	else:
-		conv1 = layers.Conv3D(filters=256, kernel_size=8, strides=1, padding='valid', name='conv1')(x) #[9,9,9]
+		conv1 = layers.Conv3D(filters=256, kernel_size=8, strides=1, activation='relu', padding='valid', name='conv1')(x) #[9,9,9]
 		conv1 = layers.BatchNormalization(axis=4)(conv1)
-		conv1 = layers.Activation('relu')(conv1)
 
 	# Layer 2: Conv3D layer with `squash` activation, then reshape to [None, num_capsule, dim_capsule]
 	primarycaps = PrimaryCap(conv1, dim_capsule=dim_capsule[0], n_channels=n_channels, 
@@ -93,17 +92,17 @@ def CapsNet(input_shape, n_class, routings, T=None):
 	if not dense_layers:
 		decoder.add(layers.Dense(dense_units, activation='relu', input_dim=dim_capsule[1]*n_class))
 		decoder.add(layers.Reshape(target_shape=(1,1,1,dense_units))) #(3,4,4,1,1)
-		decoder.add(layers.Conv3DTranspose(filters=64, kernel_size=[11,11,6], strides=1, padding='valid'))
-		decoder.add(layers.BatchNormalization(axis=4))
-		decoder.add(layers.Activation('relu'))
-		decoder.add(layers.Conv3DTranspose(filters=64, kernel_size=[4,4,2], strides=2, padding='valid'))
-		decoder.add(layers.BatchNormalization(axis=4))
-		decoder.add(layers.Activation('relu'))
+		decoder.add(layers.Conv3DTranspose(filters=128, kernel_size=[11,11,6], strides=1, padding='valid', activation='relu'))
+		#decoder.add(layers.BatchNormalization(axis=4))
+		#decoder.add(layers.Activation('relu'))
+		decoder.add(layers.Conv3DTranspose(filters=128, kernel_size=[4,4,2], strides=2, padding='valid', activation='relu'))
+		#decoder.add(layers.BatchNormalization())
+		#decoder.add(layers.Activation('relu'))
 		#decoder.add(layers.TimeDistributed(layers.Conv3DTranspose(filters=256, kernel_size=[8,8,6], strides=1, padding='valid', activation='relu')))
 		#decoder.add(layers.TimeDistributed(layers.Conv3DTranspose(filters=128, kernel_size=[4,4,2], strides=2, padding='valid', activation='relu')))
 		#decoder.add(layers.TimeDistributed(layers.Conv3DTranspose(filters=256, kernel_size=[14,14,10], strides=1, padding='valid', activation='relu')))
 		#decoder.add(layers.TimeDistributed(layers.Conv3DTranspose(filters=128, kernel_size=[8,8,3], strides=1, padding='valid', activation='relu')))
-		decoder.add(layers.Dense(3, activation='sigmoid', name='out_recon'))
+		decoder.add(layers.Dense(3, name='out_recon'))
 		#decoder.add(layers.Reshape((3, 24, 24, 12)))
 		#decoder.add(layers.Permute((2,3,4,1), name='out_recon'))
 	else:
@@ -111,7 +110,7 @@ def CapsNet(input_shape, n_class, routings, T=None):
 		decoder.add(layers.Dense(dense_units, activation='relu', input_dim=dim_capsule[1]*n_class)) #1024
 		#decoder.add(layers.BatchNormalization())
 		#decoder.add(layers.Activation('relu'))
-		decoder.add(layers.Dense(np.prod(input_shape), activation='sigmoid'))
+		decoder.add(layers.Dense(np.prod(input_shape))) #, activation='sigmoid'
 		decoder.add(layers.Reshape(target_shape=input_shape, name='out_recon'))
 
 	# Models for training and evaluation (prediction)
@@ -220,7 +219,7 @@ def train(model, data, args, T=None):
 	"""
 	# unpacking the data
 	steps_per_epoch=1000
-	epochs=50
+	epochs=args.epochs
 	lr=args.lr
 	if T is not None:
 		steps_per_epoch = T.steps_per_epoch
@@ -283,12 +282,14 @@ def test(model, data, args, T=None):
 	print('-'*30 + 'Begin: test' + '-'*30)
 	print('Test acc:', np.sum(np.argmax(y_pred, 1) == np.argmax(y_test, 1))/y_test.shape[0])
 
-	img = utils.combine_images(np.concatenate([x_test[:50],x_recon[:50]]))
+	nb_classes = 6
+	img = utils.combine_images(np.concatenate([x_test[:48],x_recon[:48]]), height=nb_classes*2, multislice=False)
+
 	for i in range(3):
 		plt.subplot(131+i)
 		plt.imshow(img[:,:,i], cmap='gray')
 	plt.show()
-	img = np.concatenate([img[:,:,0], img[:,:,1], img[:,:,2]], axis=0)
+	img = np.concatenate([img[:,:,0], img[:,:,1], img[:,:,2]], axis=1)
 	image = (img - np.min(img)) * 255 / (np.max(img) - np.min(img))
 	Image.fromarray(image.astype(np.uint8)).save(args.save_dir + "/real_and_recon.png")
 	print()
@@ -297,7 +298,7 @@ def test(model, data, args, T=None):
 	#plt.imshow(plt.imread(args.save_dir + "/real_and_recon.png"), cmap='gray')
 	#plt.show()
 
-def manipulate_latent(model, data, args, cls=None):
+def manipulate_latent(model, data, args, cls=None, multislice=False):
 	C = config.Config()
 	if cls is not None:
 		args.digit = cls
@@ -322,10 +323,10 @@ def manipulate_latent(model, data, args, cls=None):
 
 	x_recons = np.concatenate(x_recons)
 
-	img = utils.combine_images(x_recons, height=dim_capsule, multislice=True)
-	#img = restack(img)
-	img = np.concatenate([img[:,:,:,0], img[:,:,:,1], img[:,:,:,2]], axis=1)
-	img = np.concatenate([img[:,:,0], img[:,:,1], img[:,:,2]], axis=0)
+	img = utils.combine_images(x_recons, height=dim_capsule, multislice=multislice)
+	if multislice:
+		img = np.concatenate([img[:,:,0,:], img[:,:,1,:], img[:,:,2,:]], axis=0)
+	img = np.concatenate([img[:,:,0], img[:,:,1], img[:,:,2]], axis=1)
 	image = (img - np.min(img)) * 255 / (np.max(img) - np.min(img))
 	Image.fromarray(image.astype(np.uint8)).save(args.save_dir + '/manipulate-%s.png' % C.classes_to_include[args.digit])
 	print('manipulated result saved to %s/manipulate-%s.png' % (args.save_dir, C.classes_to_include[args.digit]))

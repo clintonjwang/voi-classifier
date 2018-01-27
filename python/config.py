@@ -22,6 +22,9 @@ class Config:
 		self.train_frac = None#.9
 		self.test_num = 10 # only used if train_frac is None
 
+		self.context_dims = [36,36,12]
+		self.dual_img_inputs = True
+		
 		self.non_imaging_inputs = False # whether non-imaging inputs should be incorporated into the neural network
 		self.num_non_image_inputs = 3
 
@@ -76,14 +79,14 @@ class Hyperparams:
 		self.steps_per_epoch = 750
 		self.epochs = 20
 		self.run_2d = False
-		self.f = [64,64,128,128]
-		self.padding = ['valid','valid']
+		self.f = [128,128,128,128]
+		self.padding = ['same','valid']
 		self.dropout = [0.1,0.1]
 		self.dense_units = 128
 		self.dilation_rate = (1,1,1)
 		#self.stride = (2,2,2)
-		self.kernel_size = (3,3,2)
-		self.pool_sizes = [(2,2,2),(2,2,1)]
+		self.kernel_size = (4,4,2)
+		self.pool_sizes = [(2,2,2),(1,1,1)]
 		self.activation_type = 'relu'
 		self.merge_layer = 0
 		self.time_dist = True
