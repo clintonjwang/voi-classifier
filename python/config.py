@@ -23,8 +23,7 @@ class Config:
 		self.test_num = 10 # only used if train_frac is None
 
 		self.context_dims = [36,36,12]
-		self.dual_img_inputs = True
-		
+		self.dual_img_inputs = False
 		self.non_imaging_inputs = False # whether non-imaging inputs should be incorporated into the neural network
 		self.num_non_image_inputs = 3
 
