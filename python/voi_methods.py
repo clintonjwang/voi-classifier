@@ -151,7 +151,7 @@ def reload_accnum(cls=None, acc_nums=None, augment=True, overwrite=True):
 	extract_vois(cls, acc_nums)
 	save_unaugmented_set(cls, acc_nums)
 	if augment:
-		save_augmented_set(cls, acc_nums)
+		save_augmented_set(cls, acc_nums, overwrite=overwrite)
 
 @drm.autofill_cls_arg
 def save_vois_as_imgs(cls=None, lesion_ids=None, save_dir=None, normalize=None, rescale_factor=3, fn_prefix="", fn_suffix=None, separate_by_cls=True):
@@ -324,6 +324,9 @@ def extract_vois(cls=None, acc_nums=None):
 	if acc_nums is None:
 		acc_nums = [x[:-4] for x in os.listdir(os.path.join(C.full_img_dir, cls))]
 
+	if not os.path.exists(os.path.join(C.crops_dir, cls)):
+		os.makedirs(os.path.join(C.crops_dir, cls))
+
 	for img_num, acc_num in enumerate(acc_nums):
 		try:
 			img = np.load(os.path.join(C.full_img_dir, cls, acc_num+".npy"))
@@ -347,8 +350,8 @@ def extract_vois(cls=None, acc_nums=None):
 				eq_voi = None
 
 			cropped_img, small_voi = _extract_voi(img, copy.deepcopy(voi_row), C.dims, ven_voi=ven_voi, eq_voi=eq_voi)
-			#cropped_img = scale_intensity(cropped_img, 1, max_intensity=1, min_intensity=-1)
-			cropped_img = tr.normalize_intensity(cropped_img, max_intensity=2, min_intensity=None) - 1
+			cropped_img = tr.normalize_intensity(cropped_img, max_intensity=1, min_intensity=-1)
+			#cropped_img = tr.normalize_intensity(cropped_img, max_intensity=2, min_intensity=None) - 1
 			#cropped_img = _scale_intensity_df(cropped_img, intensity_df[intensity_df["acc_num"] == img_fn[:img_fn.find('.')]])
 
 			np.save(os.path.join(C.crops_dir, cls, lesion_id), cropped_img)
@@ -370,7 +373,7 @@ def save_unaugmented_set(cls=None, acc_nums=None):
 	small_voi_df = pd.read_csv(C.small_voi_path)
 
 	if acc_nums is None:
-		lesion_ids = os.listdir(C.crops_dir + cls)
+		lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir + cls)]
 	else:
 		lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir + cls) if x[:x.find('_')] in acc_nums]
 
@@ -382,30 +385,60 @@ def save_unaugmented_set(cls=None, acc_nums=None):
 @drm.autofill_cls_arg
 def save_augmented_set(cls=None, acc_nums=None, num_cores=None, overwrite=True):
 	"""Augment all images in cls using CPU parallelization.
-	[Overwrite behavior?]"""
+	Overwrite can be an int, in which case it will create
+	augmented samples enumerated starting at that number."""
 
 	C = config.Config()
-	small_voi_df = pd.read_csv(C.small_voi_path)
+	voi_df_art, voi_df_ven, voi_df_eq = drm.get_voi_dfs()
+	#intensity_df = pd.read_csv(C.int_df_path)
 
-	if acc_nums is not None:
-		fn_subset = [x for x in os.listdir(C.crops_dir + cls) if x[:x.find('_')] in acc_nums]
-		for fn in fn_subset:
-			_save_augmented_img(fn[:-4], cls, _get_voi_coords(small_voi_df[small_voi_df["id"] == fn[:-4]]))
+	try:
+		small_voi_df = pd.read_csv(C.small_voi_path)
+	except FileNotFoundError:
+		small_voi_df = pd.DataFrame(columns=["id", "acc_num", "cls", "coords"])
 
-	else:
-		t = time.time()
-		if num_cores is None:
-			num_cores = multiprocessing.cpu_count()
+	if acc_nums is None:
+		acc_nums = [x[:-4] for x in os.listdir(os.path.join(C.full_img_dir, cls))]
 
-		if num_cores > 1:
-			Parallel(n_jobs=num_cores)(delayed(_save_augmented_img)(fn, cls,
-				_get_voi_coords(small_voi_df[small_voi_df["id"] == fn[:-4]]),
-				C, overwrite=overwrite) for fn in os.listdir(C.crops_dir + cls))
-		else:
-			for fn in os.listdir(C.crops_dir + cls):
-				_save_augmented_img(fn[:-4], cls, _get_voi_coords(small_voi_df[small_voi_df["id"] == fn[:-4]]), overwrite=overwrite)
+	if not os.path.exists(os.path.join(C.crops_dir, cls)):
+		os.makedirs(os.path.join(C.crops_dir, cls))
 
-		print(cls, time.time()-t)
+	for img_num, acc_num in enumerate(acc_nums):
+		try:
+			img = np.load(os.path.join(C.full_img_dir, cls, acc_num+".npy"))
+		except Exception as e:
+			#raise ValueError(e)
+			continue
+
+		art_vois = voi_df_art[(voi_df_art["acc_num"] == acc_num) & (voi_df_art["cls"] == cls)]
+
+		small_voi_df = _rm_lesion_from_voi_df(small_voi_df, acc_num, cls)
+
+		# iterate over each voi in that image
+		for lesion_id, voi_row in art_vois.iterrows():
+			try:
+				ven_voi = voi_df_ven.loc[lesion_id]
+			except KeyError:
+				ven_voi = None
+			try:
+				eq_voi = voi_df_eq.loc[lesion_id]
+			except KeyError:
+				eq_voi = None
+
+			cropped_img, small_voi = _extract_voi(img, copy.deepcopy(voi_row), C.dims, ven_voi=ven_voi, eq_voi=eq_voi)
+			cropped_img = tr.normalize_intensity(cropped_img, max_intensity=1, min_intensity=-1)
+			#cropped_img = tr.normalize_intensity(cropped_img, max_intensity=2, min_intensity=None) - 1
+			#cropped_img = _scale_intensity_df(cropped_img, intensity_df[intensity_df["acc_num"] == img_fn[:img_fn.find('.')]])
+
+			np.save(os.path.join(C.crops_dir, cls, lesion_id), cropped_img)
+
+			small_voi_df = _add_small_voi(small_voi_df, lesion_id, cls, small_voi)
+
+		if img_num % 20 == 0:
+			print(".", end="")
+			small_voi_df.to_csv(C.small_voi_path, index=False)
+	
+	small_voi_df.to_csv(C.small_voi_path, index=False)
 
 
 #####################################

@@ -12,13 +12,75 @@ import csv
 import niftiutils.helper_fxns as hf
 import importlib
 import matplotlib.pyplot as plt
+from matplotlib.ticker import NullFormatter
 import numpy as np
 import operator
 import os
 import pandas as pd
 import random
 import math
+from sklearn.manifold import TSNE
 
+
+
+###########################
+### Output graphs
+###########################
+
+def tsne(filter_results):
+	C = config.Config()
+
+	X = []
+	z = [0]
+	for i,cls in enumerate(C.classes_to_include):
+	    X.append(filter_results[cls])
+	    z.append(len(filter_results[cls]) + z[-1])
+	z.append(len(X))
+	X = np.concatenate(X, axis=0)
+
+	X_emb = TSNE(n_components=2, init='pca').fit_transform(X)
+
+	fig = plt.figure()
+	ax = fig.add_subplot(111)
+	for i, cls in enumerate(C.classes_to_include):
+	    ax.scatter(X_emb[z[i]:z[i+1], 0], X_emb[z[i]:z[i+1], 1], color=plt.cm.Set1(i/6.), marker='.', alpha=.8)
+
+	ax.legend(C.short_cls_names, framealpha=0.5)
+	ax.set_title("t-SNE")
+	ax.xaxis.set_major_formatter(NullFormatter())
+	ax.yaxis.set_major_formatter(NullFormatter())
+	ax.axis('tight')
+
+	return fig
+
+
+
+###########################
+### Analyze annotations
+###########################
+
+def get_annotated_files(features_by_cls):
+	C = config.Config()
+	feature_sheet = pd.read_excel(C.xls_name, "Descriptions")
+
+	Z_features_by_cls = {cls: {} for cls in features_by_cls}
+	Z_features = {}
+	for cls in C.classes_to_include:
+	    for f in features_by_cls[cls]:
+	        if f not in Z_features:
+	            Z_features[f] = []
+	            
+	        Z_features_by_cls[cls][f] = [x for x in feature_sheet[feature_sheet["evidence1"+cls] == f][cls].values]
+	        Z_features[f] += [x for x in feature_sheet[feature_sheet["evidence1"+cls] == f][cls].values]
+	        if feature_sheet["evidence2"+cls].dropna().size > 0:
+	            Z_features_by_cls[cls][f] = Z_features_by_cls[cls][f] + [x+".npy" for x in feature_sheet[feature_sheet["evidence2"+cls] == f][cls].values]
+	            Z_features[f] += [x for x in feature_sheet[feature_sheet["evidence2"+cls] == f][cls].values]
+
+    return Z_features
+
+###########################
+### Bayesian Modeling
+###########################
 
 def obtain_params(A):
 	"""Returns mu and var for the normal distribution p(A|f) based on the annotated set
@@ -27,7 +89,7 @@ def obtain_params(A):
 	"""
 	return np.linalg.lstsq(A, F)
 
-def obtain_params(A):
+def obtain_params_dnu(A):
 	"""Returns mu and var for the normal distribution p(A|f) based on the annotated set
 	- A (100*10) is the list of annotated image activations for a given feature
 	"""
@@ -55,10 +117,10 @@ def get_distribution(feature, population_activations):
 	"""
 	pass
 
-"""Original code by the Keras Team at https://github.com/keras-team/keras/blob/master/examples/conv_filter_visualization.py"""
-
 def visualize_layer(model, layer_name, save_path, num_f=None):
-	"""Visualize the model inputs that would maximally activate a layer."""
+	"""Visualize the model inputs that would maximally activate a layer.
+	Original code by the Keras Team at
+	https://github.com/keras-team/keras/blob/master/examples/conv_filter_visualization.py"""
 
 	layer_dict = dict([(layer.name, layer) for layer in model.layers[1:]])
 

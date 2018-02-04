@@ -23,7 +23,7 @@ class Config:
 		self.test_num = 10 # only used if train_frac is None
 
 		self.context_dims = [36,36,12]
-		self.dual_img_inputs = False
+		self.dual_img_inputs = False # whether to use both tight and gross image croppings for the network
 		self.non_imaging_inputs = False # whether non-imaging inputs should be incorporated into the neural network
 		self.num_non_image_inputs = 3
 
@@ -33,29 +33,31 @@ class Config:
 		self.hard_scale = False # if True, normalizes all images within the tightly cropped region
 
 		self.base_dir = "C:\\Users\\Clinton\\Documents\\voi-classifier"
-		self.art_voi_path = self.base_dir + "\\data\\voi_art_reformat.csv"
-		self.ven_voi_path = self.base_dir + "\\data\\voi_ven.csv"
-		self.eq_voi_path = self.base_dir + "\\data\\voi_eq.csv"
+		self.art_voi_path = self.base_dir + "\\data\\voi_art_full.csv"
+		self.ven_voi_path = self.base_dir + "\\data\\voi_ven_full.csv"
+		self.eq_voi_path = self.base_dir + "\\data\\voi_eq_full.csv"
 		self.dims_df_path = self.base_dir + "\\data\\img_dims.csv"
 		self.int_df_path = self.base_dir + "\\data\\intensity.csv"
-		self.small_voi_path = self.base_dir + "\\data\\small_vois.csv"
+		self.small_voi_path = self.base_dir + "\\data\\small_vois_full.csv"
 		self.run_stats_path = self.base_dir + "\\data\\overnight_run.csv"
 		self.patient_info_path = self.base_dir + "\\data\\patient_info.csv"
 		self.xls_name = 'Z:\\Prototype1e.xlsx'
 
 		# Information about the abnormality classes
 		self.classes_to_include = ['hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh']
-		self.sheetnames = ['HCC', 'Cholangio', 'Colorectal', 'Cyst', 'Hemangioma', 'FNH', 'Adenoma']
+		#self.classes_to_include = ['hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh', 'net', 'adenoma', 'abscess']
+		self.cls_names = ['hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh', 'net', 'adenoma', 'abscess']
+		self.sheetnames = ['HCC', 'Cholangio', 'Colorectal', 'Cyst', 'Hemangioma', 'FNH', 'NET', 'Adenoma', 'Abscess']
+		self.short_cls_names = ['HCC', 'ICC', 'CRC Met.', 'Cyst', 'Hemang.', 'FNH']#, 'NET', 'Adenoma', 'Abscess']
 		self.patient_sheetname = 'Patient Info'
-		self.cls_names = ['hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh', 'adenoma']
 		self.img_dirs = ["Z:\\DICOMs\\" + fn for fn in self.cls_names]
 		self.simplify_map = {'hcc': 0, 'cyst': 1, 'hemangioma': 1, 'fnh': 1, 'cholangio': 2, 'colorectal': 2}
 
-		self.full_img_dir = "Z:\\INPUT\\full_imgs"
+		self.full_img_dir = "Z:\\Misc\\full_imgs"
 		self.output_img_dir = "Z:\\OUTPUT\\1-14"
-		self.crops_dir = "E:\\imgs\\unscaled_crops_1e\\"
-		self.aug_dir = "E:\\imgs\\aug_imgs_2412_1e\\"
-		self.orig_dir = "E:\\imgs\\orig_imgs_2412_1e\\"
+		self.crops_dir = "E:\\imgs\\unscaled_crops_full\\"
+		self.aug_dir = "E:\\imgs\\aug_imgs_2412_full\\"
+		self.orig_dir = "E:\\imgs\\orig_imgs_2412_full\\"
 		self.artif_dir = "E:\\imgs\\artif_imgs_2412\\"
 		self.model_dir = "E:\\models\\"
 

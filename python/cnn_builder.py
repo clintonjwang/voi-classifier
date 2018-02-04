@@ -281,6 +281,60 @@ def build_pretrain_model(trained_model, dilation_rate=(1,1,1), padding=['same', 
 
 	return model_pretrain
 
+def build_model_forced_dropout(trained_model, dropout, dilation_rate=(1,1,1), padding=['same', 'valid'], pool_sizes = [(2,2,2), (2,2,1)],
+	activation_type='relu', f=[64,128,128], kernel_size=(3,3,2), dense_units=100):
+	"""Sets up CNN with pretrained weights"""
+
+	C = config.Config()
+
+	ActivationLayer = Activation
+	activation_args = 'relu'
+
+	nb_classes = len(C.classes_to_include)
+
+	img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 3))
+
+	art_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,0], axis=4))(img)
+	art_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0], trainable=False)(art_x)
+	art_x = BatchNormalization(trainable=False)(art_x)
+	art_x = ActivationLayer(activation_args)(art_x)
+
+	ven_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,1], axis=4))(img)
+	ven_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0], trainable=False)(ven_x)
+	ven_x = BatchNormalization(trainable=False)(ven_x)
+	ven_x = ActivationLayer(activation_args)(ven_x)
+
+	eq_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,2], axis=4))(img)
+	eq_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0], trainable=False)(eq_x)
+	eq_x = BatchNormalization(trainable=False)(eq_x)
+	eq_x = ActivationLayer(activation_args)(eq_x)
+
+	x = Concatenate(axis=4)([art_x, ven_x, eq_x])
+	x = layers.MaxPooling3D(pool_sizes[0])(x)
+
+	for layer_num in range(1,len(f)):
+		x = layers.Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1], trainable=False)(x)
+		x = BatchNormalization(trainable=False)(x)
+		x = ActivationLayer(activation_args)(x)
+		x = Lambda(lambda x: K.dropout(x, level=dropout))(x)
+
+	x = layers.MaxPooling3D(pool_sizes[1])(x)
+	x = Flatten()(x)
+	x = Dense(dense_units, trainable=False)(x)
+	x = BatchNormalization(trainable=False)(x)
+	x = ActivationLayer(activation_args)(x)
+	x = Lambda(lambda x: K.dropout(x, level=dropout))(x)
+
+	pred_class = Dense(nb_classes, activation='softmax')(x)
+
+	model_pretrain = Model(img, pred_class)
+	model_pretrain.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+
+	for l in range(1,len(model_pretrain.layers)):
+		model_pretrain.layers[l].set_weights(trained_model.layers[l].get_weights())
+
+	return model_pretrain
+
 def get_cnn_data(n=4, n_art=0, run_2d=False, Z_test_fixed=None, verbose=False):
 	"""Subroutine to run CNN
 	n is number of real samples, n_art is number of artificial samples

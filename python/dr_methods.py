@@ -26,6 +26,7 @@ import argparse
 import config
 import datetime
 import niftiutils.helper_fxns as hf
+import niftiutils.registration as reg
 import numpy as np
 import os
 import pandas as pd
@@ -52,7 +53,7 @@ def autofill_cls_arg(func):
 ### QC methods
 ###########################
 
-def plot_check(num, lesion_id=None, cls=None, normalize=[-1,0]):
+def plot_check(num, lesion_id=None, cls=None, normalize=[-.8,.5]):
 	"""Plot the unscaled, cropped or augmented versions of a lesion.
 	Lesion selected at random from cls if lesion_id is None.
 	Either lesion_id or cls must be specified.
@@ -64,7 +65,10 @@ def plot_check(num, lesion_id=None, cls=None, normalize=[-1,0]):
 		fn = random.choice(os.listdir(os.path.join(C.crops_dir, cls)))
 		lesion_id = fn[:fn.find('.')]
 		print(lesion_id)
-	elif cls is None:
+	elif lesion_id.find('_') == -1:
+		lesion_id += '_0'
+	
+	if lesion_id is not None and cls is None:
 		small_voi_df = pd.read_csv(C.small_voi_path)
 		try:
 			cls = small_voi_df.loc[small_voi_df["id"] == lesion_id, "cls"].values[0]
@@ -82,7 +86,7 @@ def plot_check(num, lesion_id=None, cls=None, normalize=[-1,0]):
 		img = np.load(os.path.join(C.aug_dir, cls, lesion_id + "_" + str(random.randint(0,C.aug_factor-1)) + ".npy"))
 	else:
 		raise ValueError(num + " should be 0 (uncropped), 1 (gross cropping), 2 (unaugmented) or 3 (augmented)")
-	hf.plot_section_auto(img, normalize=normalize)
+	hf.draw_slices(img, normalize=normalize)
 
 	return img
 
@@ -128,7 +132,7 @@ def report_missing_folders(cls=None):
 ###########################
 
 @autofill_cls_arg
-def dcm2npy_batch(cls=None, acc_nums=None, update_intensities=False, overwrite=True, verbose=False):
+def dcm2npy_batch(cls=None, acc_nums=None, update_intensities=False, overwrite=False, verbose=False):
 	"""Converts dcms to full-size npy, update dims_df and (optionally) update intensity_df."""
 
 	C = config.Config()
@@ -440,14 +444,17 @@ def _dcm2npy(load_dir, save_path, dims_df, info=None, flip_x=True, overwrite=Tru
 	
 	# register phases if venous was not specified separately
 	ven, _ = hf.dcm_load(os.path.join(load_dir, "T1_VP"), flip_x=flip_x)
-	if not np.isnan(info['x3']):
-		ven, _ = hf.reg_elastix(moving=ven, fixed=art)
+	if np.all([np.isnan(x) for x in info['x3'].values]):
+		ven, _ = reg.reg_elastix(moving=ven, fixed=art)
 
 	eq, _ = hf.dcm_load(os.path.join(load_dir, "T1_EQ"), flip_x=flip_x)
-	if not np.isnan(row['x5']):
-		eq, _ = hf.reg_elastix(moving=eq, fixed=art)
+	if np.all([np.isnan(x) for x in info['x5'].values]):
+		eq, _ = reg.reg_elastix(moving=eq, fixed=art)
 
-	img = np.transpose(np.stack((art, ven, eq)), (1,2,3,0))
+	try:
+		img = np.transpose(np.stack((art, ven, eq)), (1,2,3,0))
+	except ValueError:
+		raise ValueError(acc_num + " has a bad header")
 	
 	np.save(save_path, img)
 
