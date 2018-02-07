@@ -33,8 +33,8 @@ def tsne(filter_results):
 	X = []
 	z = [0]
 	for i,cls in enumerate(C.classes_to_include):
-	    X.append(filter_results[cls])
-	    z.append(len(filter_results[cls]) + z[-1])
+		X.append(filter_results[cls])
+		z.append(len(filter_results[cls]) + z[-1])
 	z.append(len(X))
 	X = np.concatenate(X, axis=0)
 
@@ -43,7 +43,7 @@ def tsne(filter_results):
 	fig = plt.figure()
 	ax = fig.add_subplot(111)
 	for i, cls in enumerate(C.classes_to_include):
-	    ax.scatter(X_emb[z[i]:z[i+1], 0], X_emb[z[i]:z[i+1], 1], color=plt.cm.Set1(i/6.), marker='.', alpha=.8)
+		ax.scatter(X_emb[z[i]:z[i+1], 0], X_emb[z[i]:z[i+1], 1], color=plt.cm.Set1(i/6.), marker='.', alpha=.8)
 
 	ax.legend(C.short_cls_names, framealpha=0.5)
 	ax.set_title("t-SNE")
@@ -59,6 +59,22 @@ def tsne(filter_results):
 ### Analyze annotations
 ###########################
 
+def collect_features():
+	C = config.Config()
+	feature_sheet = pd.read_excel(C.xls_name, "Descriptions")
+
+	features_by_cls = {}
+	feat_count = {}
+	for cls in C.classes_to_include:
+		features_by_cls[cls] = list(feature_sheet["evidence1"+cls].dropna().values)
+		features_by_cls[cls] = features_by_cls[cls] + list(feature_sheet["evidence2"+cls].dropna().values)
+
+	feat_count = dict(zip(*np.unique([f for cls in features_by_cls for f in features_by_cls[cls]], return_counts=True)))
+	for cls in C.classes_to_include:
+		features_by_cls[cls] = list(set(features_by_cls[cls]))
+
+	return features_by_cls, feat_count
+
 def get_annotated_files(features_by_cls):
 	C = config.Config()
 	feature_sheet = pd.read_excel(C.xls_name, "Descriptions")
@@ -66,17 +82,38 @@ def get_annotated_files(features_by_cls):
 	Z_features_by_cls = {cls: {} for cls in features_by_cls}
 	Z_features = {}
 	for cls in C.classes_to_include:
-	    for f in features_by_cls[cls]:
-	        if f not in Z_features:
-	            Z_features[f] = []
-	            
-	        Z_features_by_cls[cls][f] = [x for x in feature_sheet[feature_sheet["evidence1"+cls] == f][cls].values]
-	        Z_features[f] += [x for x in feature_sheet[feature_sheet["evidence1"+cls] == f][cls].values]
-	        if feature_sheet["evidence2"+cls].dropna().size > 0:
-	            Z_features_by_cls[cls][f] = Z_features_by_cls[cls][f] + [x+".npy" for x in feature_sheet[feature_sheet["evidence2"+cls] == f][cls].values]
-	            Z_features[f] += [x for x in feature_sheet[feature_sheet["evidence2"+cls] == f][cls].values]
+		for f in features_by_cls[cls]:
+			if f not in Z_features:
+				Z_features[f] = []
+				
+			Z_features_by_cls[cls][f] = [x for x in feature_sheet[feature_sheet["evidence1"+cls] == f][cls].values]
+			Z_features[f] += [x for x in feature_sheet[feature_sheet["evidence1"+cls] == f][cls].values]
+			if feature_sheet["evidence2"+cls].dropna().size > 0:
+				Z_features_by_cls[cls][f] = Z_features_by_cls[cls][f] + [x+".npy" for x in feature_sheet[feature_sheet["evidence2"+cls] == f][cls].values]
+				Z_features[f] += [x for x in feature_sheet[feature_sheet["evidence2"+cls] == f][cls].values]
 
-    return Z_features
+	return Z_features
+
+def get_feature_distributions():
+	pass
+
+def get_evidence_strength(feature_filters, pred_filters):
+	"""A good pred_filter has high values for all the key (non-zero) features of feature_filter.
+	These values should be unscaled.
+	Returns average percentage of the mean value of the key filters (capped at 100%)"""
+	
+	strength = 0
+	num_key_filters = sum(feature_filters > 0)
+	
+	for i in range(len(pred_filters)):
+		t = feature_filters[i]
+		p = pred_filters[i]
+		
+		if t == 0:
+			continue
+			
+		strength += min(p/t, 1.1)#t*p / filter_avgs[i]**.7
+	return (strength / num_key_filters / 1.1)**.3
 
 ###########################
 ### Bayesian Modeling

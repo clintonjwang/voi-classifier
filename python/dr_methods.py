@@ -176,18 +176,6 @@ def load_vois_batch(cls=None, acc_nums=None, overwrite=True, verbose=False):
 	"""Updates the voi_dfs based on the raw spreadsheet.
 	dcm2npy_batch() must be run first to produce full size npy images."""
 
-	def write_voi_dfs(*args):
-		C = config.Config()
-
-		if len(args) == 1:
-			voi_df_art, voi_df_ven, voi_df_eq = args[0]
-		else:
-			voi_df_art, voi_df_ven, voi_df_eq = args
-
-		voi_df_art.to_csv(C.art_voi_path)
-		voi_df_ven.to_csv(C.ven_voi_path)
-		voi_df_eq.to_csv(C.eq_voi_path)
-
 	C = config.Config()
 
 	dims_df = pd.read_csv(C.dims_df_path)
@@ -217,6 +205,18 @@ def load_vois_batch(cls=None, acc_nums=None, overwrite=True, verbose=False):
 
 	write_voi_dfs(voi_dfs)
 
+def write_voi_dfs(*args):
+	C = config.Config()
+
+	if len(args) == 1:
+		voi_df_art, voi_df_ven, voi_df_eq = args[0]
+	else:
+		voi_df_art, voi_df_ven, voi_df_eq = args
+
+	voi_df_art.to_csv(C.art_voi_path)
+	voi_df_ven.to_csv(C.ven_voi_path)
+	voi_df_eq.to_csv(C.eq_voi_path)
+	
 @autofill_cls_arg
 def load_patient_info(cls=None, acc_nums=None, overwrite=False, verbose=False):
 	"""Loads patient demographic info from metadata files downloaded alongside the dcms."""
@@ -402,9 +402,12 @@ def _add_intensity_df(intensity_df, img, acc_num):
 	
 	return intensity_df
 
-def _remove_accnums_from_vois(voi_df_art, voi_df_ven, voi_df_eq, acc_nums, cls):
+def _remove_accnums_from_vois(voi_df_art, voi_df_ven, voi_df_eq, acc_nums, cls=None):
 	"""Remove voi from the voi csvs"""
-	ids_to_delete = list(voi_df_art[(voi_df_art["acc_num"].isin(acc_nums)) & (voi_df_art["cls"] == cls)].index)
+	if cls is None:
+		ids_to_delete = list(voi_df_art[voi_df_art["acc_num"].isin(acc_nums)].index)
+	else:
+		ids_to_delete = list(voi_df_art[(voi_df_art["acc_num"].isin(acc_nums)) & (voi_df_art["cls"] == cls)].index)
 	voi_df_ven = voi_df_ven[~voi_df_ven.index.isin(ids_to_delete)]
 	voi_df_eq = voi_df_eq[~voi_df_eq.index.isin(ids_to_delete)]
 	voi_df_art = voi_df_art[~voi_df_art.index.isin(ids_to_delete)]

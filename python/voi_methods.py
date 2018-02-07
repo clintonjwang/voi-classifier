@@ -273,32 +273,33 @@ def save_imgs_with_bbox(cls=None, lesion_ids=None, save_dir=None, normalize=None
 		else:
 			imsave("%s\\%s%s%s.png" % (save_dir, fn_prefix, lesion_id, suffix), ret)
 
-def remove_lesion_from_folders(cls=None, acc_num=None, lesion_id=None, include_augment=True):
-	"""Can either specify both cls and acc_num or just lesion_id"""
+def reset_accnum(acc_num):
+	"""Reset numbering on multi-class accession numbers"""
 
 	C = config.Config()
+	small_voi_df = pd.read_csv(C.small_voi_path)
+	classes = set(small_voi_df.loc[small_voi_df["acc_num"] == acc_num, "cls"].values)
+	small_voi_df = small_voi_df[small_voi_df["acc_num"] != acc_num]
+	small_voi_df.to_csv(C.small_voi_path, index=False)
 
-	if lesion_id is None:
+	for cls in classes:
 		for fn in os.listdir(C.crops_dir + cls):
 			if fn.startswith(acc_num):
 				os.remove(C.crops_dir + cls + "\\" + fn)
 		for fn in os.listdir(C.orig_dir + cls):
 			if fn.startswith(acc_num):
 				os.remove(C.orig_dir + cls + "\\" + fn)
-		if include_augment:
-			for fn in os.listdir(C.aug_dir + cls):
-				if fn.startswith(acc_num):
-					os.remove(C.aug_dir + cls + "\\" + fn)
-	else:
-		small_voi_df = pd.read_csv(C.small_voi_path)
-		cls = small_voi_df.loc[small_voi_df["id"] == lesion_id, "cls"].values[0]
+		for fn in os.listdir(C.aug_dir + cls):
+			if fn.startswith(acc_num):
+				os.remove(C.aug_dir + cls + "\\" + fn)
 
-		os.remove(os.path.join(C.crops_dir, cls, lesion_id+".npy"))
-		os.remove(os.path.join(C.orig_dir, cls, lesion_id+".npy"))
-		if include_augment:
-			for fn in os.listdir(C.aug_dir + cls):
-				if fn.startswith(lesion_id):
-					os.remove(C.aug_dir + cls + "\\" + fn)
+	voi_df_art, voi_df_ven, voi_df_eq = drm.get_voi_dfs()
+	voi_df_art, voi_df_ven, voi_df_eq = drm._remove_accnums_from_vois(voi_df_art, voi_df_ven, voi_df_eq, [acc_num])
+	voi_dfs = voi_df_art, voi_df_ven, voi_df_eq
+	drm.write_voi_dfs(voi_dfs)
+
+	for cls in classes:
+		reload_accnum(cls, acc_nums=[acc_num], augment=True, overwrite=True)
 
 #####################################
 ### Data Creation

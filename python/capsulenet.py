@@ -1,5 +1,5 @@
 """
-Keras implementation of CapsNet in Hinton's paper Dynamic Routing Between Capsules.
+Keras implementation of build_capsnet in Hinton's paper Dynamic Routing Between Capsules.
 The current version maybe only works for TensorFlow backend. Actually it will be straightforward to re-write to TF code.
 Adopting to other backends should be easy, but I have not tested this. 
 
@@ -14,7 +14,7 @@ Result:
 	About 110 seconds per epoch on a single GTX1070 GPU card
 	
 Author 1: Clinton Wang, E-mail: `clintonjwang@gmail.com`, Github: `https://github.com/clintonjwang/voi-classifier`
-Author 2: Xifeng Guo, E-mail: `guoxifeng1990@163.com`, Github: `https://github.com/XifengGuo/CapsNet-Keras`
+Author 2: Xifeng Guo, E-mail: `guoxifeng1990@163.com`, Github: `https://github.com/XifengGuo/build_capsnet-Keras`
 """
 
 import os
@@ -36,8 +36,7 @@ import pandas as pd
 
 K.set_image_data_format('channels_last')
 
-
-def CapsNet(input_shape, n_class, routings, T=None):
+def build_capsnet(input_shape, n_class, routings, T=None):
 	"""
 	A Capsule Network on MNIST.
 	:param input_shape: data shape, 4d, [width, height, channels]
@@ -124,6 +123,124 @@ def CapsNet(input_shape, n_class, routings, T=None):
 	manipulate_model = models.Model([x, y, noise], decoder(masked_noised_y))
 	return train_model, eval_model, manipulate_model
 
+def build_capsnet_pretrained(input_shape, n_class, routings, T=None):
+	"""
+	A Capsule Network on MNIST.
+	:param input_shape: data shape, 4d, [width, height, channels]
+	:param n_class: number of classes
+	:param routings: number of routing iterations
+	:return: Two Keras Models, the first one used for training, and the second one for evaluation.
+			`eval_model` can also be used for training.
+	"""
+	dense_layers = True
+	dim_capsule = [8, 8]
+	dense_units = 256 #512
+	n_channels = 16 # 32
+	time_dist = False
+
+	if T is not None:
+		dense_layers = T.dense_layers
+		dim_capsule = T.dim_capsule
+		dense_units = T.dense_units
+		n_channels = T.n_channels
+		time_dist = T.time_dist
+
+	x = layers.Input(shape=input_shape)
+
+	# Layer 1: Just a conventional Conv3D layer
+	if time_dist:
+		conv1 = layers.Reshape(target_shape=(24,24,12,3,1))(x)
+		conv1 = layers.Permute((4,1,2,3,5))(conv1)
+		conv1 = layers.TimeDistributed(layers.Conv3D(filters=256, kernel_size=8, strides=1,
+			padding='valid', activation='relu', name='conv1', trainable=False))(conv1)
+	else:
+		conv1 = layers.Conv3D(filters=256, kernel_size=8, strides=1, activation='relu', padding='valid', trainable=False, name='conv1')(x) #[9,9,9]
+		conv1 = layers.BatchNormalization(axis=4, trainable=False)(conv1)
+
+	# Layer 2: Conv3D layer with `squash` activation, then reshape to [None, num_capsule, dim_capsule]
+	primarycaps = PrimaryCap(conv1, dim_capsule=dim_capsule[0], n_channels=n_channels, 
+		kernel_size=5, strides=2, padding='valid', time_dist=time_dist, trainable=False) #[6,6,3]
+	# Layer 3: Capsule layer. Routing algorithm works here.
+	digitcaps = CapsuleLayer(num_capsule=n_class, dim_capsule=dim_capsule[1], routings=routings,
+							 name='digitcaps')(primarycaps)
+
+	# Layer 4: This is an auxiliary layer to replace each capsule with its length. Just to match the true label's shape.
+	# If using tensorflow, this will not be necessary. :)
+	out_caps = Length(name='capsnet')(digitcaps)
+
+	# Decoder network.
+	y = layers.Input(shape=(n_class,))
+	masked_by_y = Mask()([digitcaps, y])  # The true label is used to mask the output of capsule layer. For training
+	masked = Mask()(digitcaps)  # Mask using the capsule with maximal length. For prediction
+
+	# Shared Decoder model in training and prediction
+	decoder = models.Sequential(name='decoder')
+	decoder.add(layers.Dense(dense_units, activation='relu', input_dim=dim_capsule[1]*n_class)) #1024
+	decoder.add(layers.Dense(np.prod(input_shape))) #, activation='sigmoid'
+	decoder.add(layers.Reshape(target_shape=input_shape, name='out_recon'))
+
+	# Models for training and evaluation (prediction)
+	train_model = models.Model([x, y], [out_caps, decoder(masked_by_y)])
+	eval_model = models.Model(x, [out_caps, decoder(masked)])
+
+	# manipulate model
+	noise = layers.Input(shape=(n_class, dim_capsule[1]))
+	noised_digitcaps = layers.Add()([digitcaps, noise])
+	masked_noised_y = Mask()([noised_digitcaps, y])
+	manipulate_model = models.Model([x, y, noise], decoder(masked_noised_y))
+	
+	return train_model, eval_model, manipulate_model
+
+def build_capsnet_unsupervised(input_shape, n_class, T=None):
+	"""
+	A Capsule Network on MNIST.
+	:param input_shape: data shape, 4d, [width, height, channels]
+	:param n_class: number of classes
+	:return: Two Keras Models, the first one used for training, and the second one for evaluation.
+			`eval_model` can also be used for training.
+	"""
+	dim_capsule = 16
+	dense_units = 256
+	n_channels = 16
+	time_dist = True
+
+	if T is not None:
+		dim_capsule = T.dim_capsule
+		dense_units = T.dense_units
+		n_channels = T.n_channels
+
+	x = layers.Input(shape=input_shape)
+
+	# Layer 1: Just a conventional Conv3D layer
+	if time_dist:
+		conv1 = layers.Reshape(target_shape=(24,24,12,3,1))(x)
+		conv1 = layers.Permute((4,1,2,3,5))(conv1)
+		conv1 = layers.TimeDistributed(layers.Conv3D(filters=256, kernel_size=8, strides=1,
+			padding='valid', activation='relu', name='conv1'))(conv1)
+	else:
+		conv1 = layers.Conv3D(filters=256, kernel_size=8, strides=1, activation='relu', padding='valid', name='conv1')(x) #[9,9,9]
+		conv1 = layers.BatchNormalization(axis=4)(conv1)
+
+	# Layer 2: Conv3D layer with `squash` activation, then reshape to [None, num_capsule, dim_capsule]
+	primarycaps = PrimaryCap(conv1, dim_capsule=dim_capsule, n_channels=n_channels, 
+		kernel_size=5, strides=2, padding='valid', time_dist=time_dist) #[6,6,3]
+
+	# Decoder network.
+	# Make a separate dense layer for each 
+	for i in range(dim_capsule):
+		decoder[i] = layers.Lambda(lambda x : x[:,i,:])(primarycaps)
+		decoder[i] = layers.Dense(dense_units, activation='relu')(decoder[i])
+		decoder[i] = layers.BatchNormalization()(decoder[i])
+		decoder[i] = layers.Dense(np.prod(input_shape), activation='relu')(decoder[i])
+		decoder[i] = layers.Reshape(target_shape=input_shape)(decoder[i])
+
+	out_caps = layers.Average()(decoder)
+
+	# Models for training and evaluation (prediction)
+	relevant_model = models.Model(x, primarycaps)
+	train_model = models.Model(x, out_caps)
+	return train_model, relevant_model
+
 def run_hyperparam_cycle(max_cycles=50, T=None):
 	"""Runs the CNN for max_runs times, saving performance metrics."""
 	T_list = [config.hyperparams()]
@@ -155,7 +272,7 @@ def run_hyperparam_cycle(max_cycles=50, T=None):
 		(x_train, y_train), _ = next(train_generator)
 
 		for T in T_list:
-			model, eval_model, manipulate_model = CapsNet(input_shape=x_train.shape[1:],
+			model, eval_model, manipulate_model = build_capsnet(input_shape=x_train.shape[1:],
 														  n_class=len(np.unique(np.argmax(y_train, 1))),
 														  routings=args.routings, T=T)
 
@@ -354,7 +471,7 @@ def main(args, data=None):
 	(x_train, y_train), _ = next(train_generator)
 
 	# define model
-	model, eval_model, manipulate_model = CapsNet(input_shape=x_train.shape[1:],
+	model, eval_model, manipulate_model = build_capsnet(input_shape=x_train.shape[1:],
 												  n_class=len(np.unique(np.argmax(y_train, 1))),
 												  routings=args.routings)
 	model.summary()
