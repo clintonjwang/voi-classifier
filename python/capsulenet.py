@@ -92,10 +92,10 @@ def build_capsnet(input_shape, n_class, routings, T=None):
 		decoder.add(layers.Dense(dense_units, activation='relu', input_dim=dim_capsule[1]*n_class))
 		decoder.add(layers.Reshape(target_shape=(1,1,1,dense_units))) #(3,4,4,1,1)
 		decoder.add(layers.Conv3DTranspose(filters=128, kernel_size=[11,11,6], strides=1, padding='valid', activation='relu'))
-		#decoder.add(layers.BatchNormalization(axis=4))
+		decoder.add(layers.BatchNormalization(axis=4))
 		#decoder.add(layers.Activation('relu'))
 		decoder.add(layers.Conv3DTranspose(filters=128, kernel_size=[4,4,2], strides=2, padding='valid', activation='relu'))
-		#decoder.add(layers.BatchNormalization())
+		decoder.add(layers.BatchNormalization())
 		#decoder.add(layers.Activation('relu'))
 		#decoder.add(layers.TimeDistributed(layers.Conv3DTranspose(filters=256, kernel_size=[8,8,6], strides=1, padding='valid', activation='relu')))
 		#decoder.add(layers.TimeDistributed(layers.Conv3DTranspose(filters=128, kernel_size=[4,4,2], strides=2, padding='valid', activation='relu')))
@@ -107,7 +107,7 @@ def build_capsnet(input_shape, n_class, routings, T=None):
 	else:
 		#decoder.add(layers.Dense(dense_units, activation='relu', input_dim=dim_capsule*n_class))
 		decoder.add(layers.Dense(dense_units, activation='relu', input_dim=dim_capsule[1]*n_class)) #1024
-		#decoder.add(layers.BatchNormalization())
+		decoder.add(layers.BatchNormalization())
 		#decoder.add(layers.Activation('relu'))
 		decoder.add(layers.Dense(np.prod(input_shape))) #, activation='sigmoid'
 		decoder.add(layers.Reshape(target_shape=input_shape, name='out_recon'))
