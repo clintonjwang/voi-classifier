@@ -45,11 +45,11 @@ def build_capsnet(input_shape, n_class, routings, T=None):
 	:return: Two Keras Models, the first one used for training, and the second one for evaluation.
 			`eval_model` can also be used for training.
 	"""
-	dense_layers = True
+	dense_layers = False
 	dim_capsule = [8, 8]
 	dense_units = 256 #512
 	n_channels = 16 # 32
-	time_dist = False
+	time_dist = True
 
 	if T is not None:
 		dense_layers = T.dense_layers
@@ -64,8 +64,9 @@ def build_capsnet(input_shape, n_class, routings, T=None):
 	if time_dist:
 		conv1 = layers.Reshape(target_shape=(24,24,12,3,1))(x)
 		conv1 = layers.Permute((4,1,2,3,5))(conv1)
-		conv1 = layers.TimeDistributed(layers.Conv3D(filters=256, kernel_size=8, strides=1,
+		conv1 = layers.TimeDistributed(layers.Conv3D(filters=128, kernel_size=8, strides=1,
 			padding='valid', activation='relu', name='conv1'))(conv1)
+		conv1 = layers.TimeDistributed(layers.BatchNormalization(axis=3))(conv1)
 	else:
 		conv1 = layers.Conv3D(filters=256, kernel_size=8, strides=1, activation='relu', padding='valid', name='conv1')(x) #[9,9,9]
 		conv1 = layers.BatchNormalization(axis=4)(conv1)
@@ -89,12 +90,12 @@ def build_capsnet(input_shape, n_class, routings, T=None):
 	# Shared Decoder model in training and prediction
 	decoder = models.Sequential(name='decoder')
 	if not dense_layers:
-		decoder.add(layers.Dense(dense_units, activation='relu', input_dim=dim_capsule[1]*n_class))
-		decoder.add(layers.Reshape(target_shape=(1,1,1,dense_units))) #(3,4,4,1,1)
-		decoder.add(layers.Conv3DTranspose(filters=128, kernel_size=[11,11,6], strides=1, padding='valid', activation='relu'))
+		#decoder.add(layers.Dense(dense_units, activation='relu', input_dim=(dim_capsule[0]*n_channels, dim_capsule[0])))
+		decoder.add(layers.Reshape(target_shape=(7,7,1, n_channels*dim_capsule[0]), input_shape=(784, dim_capsule[0]))) #(3,4,4,1,1)
+		decoder.add(layers.Conv3DTranspose(filters=16, kernel_size=[5,5,6], strides=1, padding='valid', activation='relu'))
 		decoder.add(layers.BatchNormalization(axis=4))
 		#decoder.add(layers.Activation('relu'))
-		decoder.add(layers.Conv3DTranspose(filters=128, kernel_size=[4,4,2], strides=2, padding='valid', activation='relu'))
+		decoder.add(layers.Conv3DTranspose(filters=16, kernel_size=[4,4,2], strides=2, padding='valid', activation='relu'))
 		decoder.add(layers.BatchNormalization())
 		#decoder.add(layers.Activation('relu'))
 		#decoder.add(layers.TimeDistributed(layers.Conv3DTranspose(filters=256, kernel_size=[8,8,6], strides=1, padding='valid', activation='relu')))
@@ -105,23 +106,22 @@ def build_capsnet(input_shape, n_class, routings, T=None):
 		#decoder.add(layers.Reshape((3, 24, 24, 12)))
 		#decoder.add(layers.Permute((2,3,4,1), name='out_recon'))
 	else:
-		#decoder.add(layers.Dense(dense_units, activation='relu', input_dim=dim_capsule*n_class))
-		decoder.add(layers.Dense(dense_units, activation='relu', input_dim=dim_capsule[1]*n_class)) #1024
+		decoder.add(layers.Dense(dense_units, activation='relu', input_dim=dim_capsule[0]*n_channels)) #1024
 		decoder.add(layers.BatchNormalization())
 		#decoder.add(layers.Activation('relu'))
 		decoder.add(layers.Dense(np.prod(input_shape))) #, activation='sigmoid'
 		decoder.add(layers.Reshape(target_shape=input_shape, name='out_recon'))
 
 	# Models for training and evaluation (prediction)
-	train_model = models.Model([x, y], [out_caps, decoder(masked_by_y)])
-	eval_model = models.Model(x, [out_caps, decoder(masked)])
+	train_model = models.Model([x, y], [out_caps, decoder(primarycaps)])
+	eval_model = models.Model(x, [out_caps, decoder(primarycaps)])
 
 	# manipulate model
 	noise = layers.Input(shape=(n_class, dim_capsule[1]))
 	noised_digitcaps = layers.Add()([digitcaps, noise])
 	masked_noised_y = Mask()([noised_digitcaps, y])
-	manipulate_model = models.Model([x, y, noise], decoder(masked_noised_y))
-	return train_model, eval_model, manipulate_model
+	#manipulate_model = models.Model([x, y, noise], decoder(masked_noised_y))
+	return train_model, eval_model#, manipulate_model
 
 def build_capsnet_pretrained(input_shape, n_class, routings, T=None):
 	"""
@@ -189,7 +189,7 @@ def build_capsnet_pretrained(input_shape, n_class, routings, T=None):
 	masked_noised_y = Mask()([noised_digitcaps, y])
 	manipulate_model = models.Model([x, y, noise], decoder(masked_noised_y))
 	
-	return train_model, eval_model, manipulate_model
+	return train_model, eval_model#, manipulate_model
 
 def build_capsnet_unsupervised(input_shape, n_class, T=None):
 	"""
@@ -272,7 +272,7 @@ def run_hyperparam_cycle(max_cycles=50, T=None):
 		(x_train, y_train), _ = next(train_generator)
 
 		for T in T_list:
-			model, eval_model, manipulate_model = build_capsnet(input_shape=x_train.shape[1:],
+			model, eval_model = build_capsnet(input_shape=x_train.shape[1:],
 														  n_class=len(np.unique(np.argmax(y_train, 1))),
 														  routings=args.routings, T=T)
 
@@ -379,7 +379,7 @@ def train(model, data, args, T=None):
 	hist = model.fit_generator(train_generator,
 						steps_per_epoch=steps_per_epoch, #int(y_train.shape[0] / args.batch_size)
 						epochs=epochs, validation_data=[[x_test, y_test], [y_test, x_test]], #args.epochs
-						callbacks=[log, tb, checkpoint, lr_decay])
+						callbacks=[log, tb, checkpoint, lr_decay], verbose=True)
 	# End: Training with data augmentation -----------------------------------------------------------------------#
 
 	model.save_weights(args.save_dir + '/trained_model.h5')
@@ -471,7 +471,7 @@ def main(args, data=None):
 	(x_train, y_train), _ = next(train_generator)
 
 	# define model
-	model, eval_model, manipulate_model = build_capsnet(input_shape=x_train.shape[1:],
+	model, eval_model = build_capsnet(input_shape=x_train.shape[1:],
 												  n_class=len(np.unique(np.argmax(y_train, 1))),
 												  routings=args.routings)
 	model.summary()
@@ -487,7 +487,7 @@ def main(args, data=None):
 		manipulate_latent(manipulate_model, (x_test, y_test), args)
 		test(model=eval_model, data=(x_test, y_test), args=args)
 
-	return model, eval_model, manipulate_model
+	return model, eval_model
 
 if __name__ == "__main__":
 	import win_unicode_console
