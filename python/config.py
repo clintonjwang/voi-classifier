@@ -41,7 +41,7 @@ class Config:
 		self.small_voi_path = self.base_dir + "\\data\\small_vois_full.csv"
 		self.run_stats_path = self.base_dir + "\\data\\overnight_run.csv"
 		self.patient_info_path = self.base_dir + "\\data\\patient_info.csv"
-		self.xls_name = 'Z:\\Prototype1e.xlsx'
+		self.xls_name = 'Z:\\LIRADS\\Prototype1e.xlsx'
 
 		# Information about the abnormality classes
 		self.classes_to_include = ['hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh']
@@ -50,11 +50,11 @@ class Config:
 		self.sheetnames = ['HCC', 'Cholangio', 'Colorectal', 'Cyst', 'Hemangioma', 'FNH', 'NET', 'Adenoma', 'Abscess']
 		self.short_cls_names = ['HCC', 'ICC', 'CRC Met.', 'Cyst', 'Hemang.', 'FNH']#, 'NET', 'Adenoma', 'Abscess']
 		self.patient_sheetname = 'Patient Info'
-		self.img_dirs = ["Z:\\DICOMs\\" + fn for fn in self.cls_names]
+		self.img_dirs = ["Z:\\LIRADS\\DICOMs\\" + fn for fn in self.cls_names]
 		self.simplify_map = {'hcc': 0, 'cyst': 1, 'hemangioma': 1, 'fnh': 1, 'cholangio': 2, 'colorectal': 2}
 
-		self.full_img_dir = "Z:\\Misc\\full_imgs"
-		self.output_img_dir = "Z:\\OUTPUT\\1-14"
+		self.full_img_dir = "Z:\\LIRADS\\full_imgs"
+		self.output_img_dir = "Z:\\LIRADS\\OUTPUT\\1-14"
 		self.crops_dir = "E:\\imgs\\unscaled_crops_full\\"
 		self.aug_dir = "E:\\imgs\\aug_imgs_2412_full\\"
 		self.orig_dir = "E:\\imgs\\orig_imgs_2412_full\\"
