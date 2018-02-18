@@ -271,7 +271,7 @@ def build_pretrain_model(trained_model, dilation_rate=(1,1,1), padding=['same', 
 
 	x = Dense(dense_units, trainable=False)(x)
 	x = BatchNormalization(trainable=False)(x)
-	filter_weights = x#ActivationLayer(activation_args)(x)
+	filter_weights = ActivationLayer(activation_args)(x)
 
 	model_pretrain = Model(img, filter_weights)
 	model_pretrain.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
