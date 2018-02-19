@@ -161,8 +161,9 @@ def update_thetas(p_z_x_sum, z_states_bool, theta_i, theta_ij, alpha):
 	return theta_i, theta_ij
 
 @njit
-def update_mus(mu, m, sigma, s, z_states, filter_results, p_z_x, beta):
-	gamma = 1
+def update_mus(mu, m, sigma, s, z_states, filter_results, p_z_x, fixed_indices, beta):
+	gamma = 2
+	eta = 4
 	num_states = len(z_states)
 	num_features = len(z_states[0])
 	num_units = m.shape[0]
@@ -190,13 +191,19 @@ def update_mus(mu, m, sigma, s, z_states, filter_results, p_z_x, beta):
 				for img_ix in range(num_imgs):
 					num += p_z_x[img_ix, state_ix]/var * (filter_results[img_ix, u_ix] - mean_adj)
 			
+			vec_norm_sq = np.sum(mu[f_ix, :]**2)
+
 			regul = 0
 			for g_ix in range(num_features):
 				if g_ix == f_ix:
 					continue
-				regul += mu[g_ix, u_ix] / sqrt(np.sum(mu[f_ix, :]**2) * np.sum(mu[g_ix, :]**2))
+				regul += mu[g_ix, u_ix] / sqrt(vec_norm_sq * np.sum(mu[g_ix, :]**2))
 
-			mu_est[f_ix, u_ix] = num / den - gamma * regul / num_features
+			regul_annot = 0
+			for img_ix in list(fixed_indices[f_ix, :]):
+				regul_annot += filter_results[img_ix, u_ix] / sqrt(vec_norm_sq * np.sum(filter_results[img_ix, :]**2))
+
+			mu_est[f_ix, u_ix] = num / den - gamma * regul / num_features + eta * regul_annot / len(fixed_indices[f_ix, :])
 
 	return mu + (mu_est - mu) * beta
 
@@ -258,7 +265,7 @@ def update_stdevs_approx(mu, m, sigma, s, z_states, filter_results, p_z_x, beta)
 				tmp[img_ix] *= filter_results[img_ix, u_ix]
 
 			sigma_est[f_ix, u_ix] = np.std(tmp)
-			
+
 	return sigma + (sigma_est - sigma) * beta, s + (s_est - s) * beta
 
 def update_stdevs(mu, m, sigma, s, z_states, filter_results, p_z_x):
