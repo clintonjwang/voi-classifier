@@ -227,7 +227,7 @@ def build_dual_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same', 'va
 	return model
 
 def build_pretrain_model(trained_model, dilation_rate=(1,1,1), padding=['same', 'valid'], pool_sizes = [(2,2,2), (2,2,1)],
-	activation_type='relu', f=[64,128,128], kernel_size=(3,3,2), dense_units=100, include_activation=True):
+	activation_type='relu', f=[64,128,128], kernel_size=(3,3,2), dense_units=100, last_layer="activation"):
 	"""Sets up CNN with pretrained weights"""
 
 	C = config.Config()
@@ -270,15 +270,15 @@ def build_pretrain_model(trained_model, dilation_rate=(1,1,1), padding=['same', 
 	x = Flatten()(x)
 	x = Dense(dense_units, trainable=False)(x)
 	x = BatchNormalization(trainable=False)(x)
-	if include_activation:
-		filter_weights = ActivationLayer(activation_args)(x)
-		#x = Dropout(0)(x)
-		#x = Dense(6, trainable=False)(x)
-		#filter_weights = BatchNormalization(trainable=False)(x)
-	else:
-		filter_weights = x
+	if last_layer == "activation":
+		x = ActivationLayer(activation_args)(x)
+	elif last_layer=="pre-softmax":
+		x = ActivationLayer(activation_args)(x)
+		x = Dropout(0)(x)
+		x = Dense(6, trainable=False)(x)
+		x = BatchNormalization(trainable=False)(x)
 
-	model_pretrain = Model(img, filter_weights)
+	model_pretrain = Model(img, x)
 	model_pretrain.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
 
 	for l in range(1,len(model_pretrain.layers)):

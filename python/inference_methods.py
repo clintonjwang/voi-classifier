@@ -18,36 +18,83 @@ import multiprocessing
 ####################################
 
 @njit
-def get_all_p_x_z(mu, m, sigma, s, z_states, filter_results, fixed_indices):
-	zeta=.1
-	num_imgs = filter_results.shape[0]
-	num_states = len(z_states)
-	num_units = m.shape[0]
-	num_features = len(z_states[0])
+def squash_x(x, a):
+	return 1/(1+exp_parallel(-a*x + 4))
+
+@njit
+def unsquash_u(u, a):
+	return -1
+
+@njit
+def squash_Wz(w, z):
+	z = np.array([float(i) for i in z])
+	return 1/(1+exp(-8*np.dot(w, z) + 4))
+
+@njit
+def exp_parallel(A):
+	return np.array([exp(x) for x in A])
+
+@njit
+def get_all_p_x_z(mu, sigma, a, s_states, X, fixed_indices, z_states):
+	#zeta=.1
+	num_imgs = X.shape[0]
+	num_units = X.shape[1]
+	num_states = s_states.shape[0]
+	num_features = s_states.shape[1]
 	
 	tmp = np.empty(num_units)
 	p_x_z = np.zeros((num_imgs, num_states))
 	
-	for img_ix in range(num_imgs):
-		for state_ix in range(num_states):
-			z = np.array([float(z) for z in z_states[state_ix]])
+	for i_ix in range(num_imgs):
+		for s_ix in range(num_states):
+			tmp = 1/sigma * exp_parallel( -( (squash_x(X[i_ix, :], a) - mu - s_states[s_ix, :]) / sigma )**2 / 2)
+			p_x_z[i_ix, s_ix] = tmp.prod()# ** zeta
 
-			for u_ix in range(num_units):
-				stdev = sqrt(np.dot(sigma[:, u_ix]**2, z) + s[u_ix]**2)
-				tmp[u_ix] = 1/stdev * exp(-((filter_results[img_ix, u_ix] - np.dot(mu[:, u_ix], z) - m[u_ix])/stdev)**2/2)
+		#for f_ix in range(num_features):
+		#	if i_ix in list(fixed_indices[f_ix, :]):
+		#		for t_ix in range(num_states):
+		#			if z_states[t_ix][f_ix] == 0:
+		#				p_x_z[i_ix, t_ix] = 0
 
-			p_x_z[img_ix, state_ix] = tmp.prod() ** zeta
-
-
-		for f_ix in range(num_features):
-			if img_ix in list(fixed_indices[f_ix, :]):
-				for state_ix in range(num_states):
-					if z_states[state_ix][f_ix] == 0:
-						p_x_z[img_ix, state_ix] = 0
-
-		p_x_z[img_ix, :] = p_x_z[img_ix, :] / np.amax(p_x_z[img_ix, :])
+		p_x_z[i_ix, :] = p_x_z[i_ix, :] / np.amax(p_x_z[i_ix, :])
 	
 	return p_x_z
+
+@njit
+def get_p_z(z_states, theta):
+	"""Symmetric Dirichlet prior with concentration ???"""
+
+	#zeta=.03
+	num_states = len(z_states)
+	num_features = len(z_states[0])
+
+	p_z = np.ones(num_states)
+	for s_ix in range(num_states):
+		z = z_states[s_ix]
+
+		for a in range(num_features):
+			for b in range(a, num_features):
+				p_z[s_ix] *= exp(theta[a,b]*z[a]*z[b])
+
+		#p_z[s_ix] = p_z[s_ix] ** zeta
+
+	return p_z / np.sum(p_z)
+
+@njit
+def get_s_states(z_states, W, p_z):
+	"""Symmetric Dirichlet prior with concentration ???"""
+
+	#zeta=.03
+	num_units = W.shape[1]
+	num_states = len(z_states)
+	num_features = len(z_states[0])
+
+	s_states = np.empty((num_states, num_units))
+	for s_ix in range(num_states):
+		for u_ix in range(num_units):
+			s_states[s_ix, u_ix] = squash_Wz(W[:, u_ix], z_states[s_ix])
+
+	return s_states
 
 @njit
 def get_all_p_z_x(p_x_z, p_z):
@@ -57,264 +104,103 @@ def get_all_p_z_x(p_x_z, p_z):
 	for img_ix in range(p_x_z.shape[0]):
 
 		Z = np.dot(p_x_z[img_ix, :], p_z)
-		for state_ix in range(p_x_z.shape[1]):
-			p_z_x[img_ix, state_ix] = p_x_z[img_ix, state_ix] * p_z[state_ix] / Z
+		for s_ix in range(p_x_z.shape[1]):
+			p_z_x[img_ix, s_ix] = p_x_z[img_ix, s_ix] * p_z[s_ix] / Z
 
 	return p_z_x
 
 @njit
-def get_p_z(z_states, theta_i, theta_ij):
-	"""Symmetric Dirichlet prior with concentration ???"""
-
-	zeta=.03
-	num_states = len(z_states)
-	num_features = len(z_states[0])
-
-	p_z = np.ones(num_states)
-	for state_ix in range(num_states):
-		z = z_states[state_ix]
-
-		for a in range(num_features-1):
-			p_z[state_ix] *= exp(theta_i[a]*z[a])
-
-			for b in range(a+1, num_features):
-				p_z[state_ix] *= exp(theta_ij[a,b]*z[a]*z[b])
-
-		p_z[state_ix] = p_z[state_ix] ** zeta
-
-	return p_z / np.sum(p_z)
-
-@njit
-def update_thetas(p_z_x_sum, z_states_bool, theta_i, theta_ij, alpha):
-	yotta = 1
+def update_thetas(p_z_x_sum, z_states_bool, theta, alpha):
+	#yotta = 1
 	num_states = len(z_states_bool)
 	num_features = len(z_states_bool[0])
-	theta_i_est = np.zeros(num_features)
-	theta_ij_est = np.zeros((num_features-1, num_features))
-	
+	theta_est = np.zeros((num_features, num_features))
+
 	for f_ix in range(num_features):
-		p_z_x_rat_i = 0
-		zi_0_sum = 0
-		zi_1_sum = 0
-
-		for state_ix in range(num_states):
-			z = z_states_bool[state_ix]
-			if z[f_ix]:
-				p_z_x_rat_i += p_z_x_sum[state_ix]
-
-				tmp = 0
-				for a in range(num_features):
-					tmp += theta_i[a] * z[a]
-					for b in range(a+1,num_features):
-						tmp += theta_ij[a,b] * (z[a] and z[b])
-
-				zi_1_sum += exp(tmp - theta_i[f_ix])
-
-			else:
-				tmp = 0
-				for a in range(num_features):
-					tmp += theta_i[a] * z[a]
-					for b in range(a+1,num_features):
-						tmp += theta_ij[a,b] * (z[a] and z[b])
-
-				zi_0_sum += exp(tmp)
-
-		p_z_x_rat_i /= np.sum(p_z_x_sum)
-
-		theta_i_est[f_ix] = (log(p_z_x_rat_i) + log(zi_0_sum) - log(zi_1_sum) - log(1-p_z_x_rat_i)) * yotta
-
-
-	for f_ix in range(num_features-1):
-		for g_ix in range(f_ix+1, num_features):
+		for g_ix in range(f_ix, num_features):
 			p_z_x_rat_i = 0
 			zi_0_sum = 0
 			zi_1_sum = 0
 
-			for state_ix in range(num_states):
-				z = z_states_bool[state_ix]
+			for s_ix in range(num_states):
+				z = z_states_bool[s_ix]
 				if z[f_ix] and z[g_ix]:
-					p_z_x_rat_i += p_z_x_sum[state_ix]
+					p_z_x_rat_i += p_z_x_sum[s_ix]
 
 					tmp = 0
 					for a in range(num_features):
-						tmp += theta_i[a] * z[a]
-						for b in range(a+1, num_features):
-							tmp += theta_ij[a,b] * (z[a] and z[b])
+						for b in range(a,num_features):
+							tmp += theta[a,b] * (z[a] and z[b])
 
-					zi_1_sum += exp(tmp - theta_ij[f_ix, g_ix])
+					zi_1_sum += exp(tmp - theta[f_ix, g_ix])
 
 				else:
 					tmp = 0
 					for a in range(num_features):
-						tmp += theta_i[a] * z[a]
-						for b in range(a+1, num_features):
-							tmp += theta_ij[a,b] * (z[a] and z[b])
+						for b in range(a,num_features):
+							tmp += theta[a,b] * (z[a] and z[b])
 
 					zi_0_sum += exp(tmp)
 
 			p_z_x_rat_i /= np.sum(p_z_x_sum)
 
-			theta_ij_est[f_ix, g_ix] = log(p_z_x_rat_i) + log(zi_0_sum) - log(zi_1_sum) - log(1-p_z_x_rat_i)
+			theta_est[f_ix, g_ix] = log(p_z_x_rat_i) + log(zi_0_sum) - log(zi_1_sum) - log(1-p_z_x_rat_i)
 
-	theta_i = theta_i + (theta_i_est - theta_i) * alpha
-	theta_ij = theta_ij + (theta_ij_est - theta_ij) * alpha
-	return theta_i, theta_ij
+	return theta + (theta_est - theta) * alpha
 
-@njit
-def update_mus(mu, m, sigma, s, z_states, filter_results, p_z_x, fixed_indices, beta):
-	gamma = 2
-	eta = 4
+
+def squash_Wz_plain(w, z):
+	return 1/(1+exp(-8*np.dot(w, z) + 4))
+
+def update_W(mu, a, W, z_states, X, p_z_x, alpha):
 	num_states = len(z_states)
 	num_features = len(z_states[0])
-	num_units = m.shape[0]
-	num_imgs = filter_results.shape[0]
-	mu_est = np.empty((num_features, num_units))
+	num_imgs = X.shape[0]
+	num_units = X.shape[1]
+	W_est = np.empty((num_features, num_units))
+	a_i = np.zeros(num_states)
+	b_i = np.zeros(num_states)
 
-	for f_ix in range(num_features):
-		state_indices = [state_ix for state_ix in range(num_states) if z_states[state_ix][f_ix]==1]
+	for u_ix in range(num_units):
+		for s_ix in range(num_states):
+			a_i[s_ix] += np.sum(p_z_x[:, s_ix]**.5 * (squash_x(X[:, u_ix], a) - mu[u_ix]))
+			b_i[s_ix] += np.sum(p_z_x[:, s_ix]**.5)
+
+		W_est[:, u_ix] = scipy.optimize.minimize(lambda w: np.sum([a_i[s_ix] * squash_Wz(w, z_states[s_ix]) - b_i[s_ix] for s_ix in range(num_states)]), W[:, u_ix])['x']
+
+	return W + (W_est - W) * alpha
+
+@njit
+def update_mus(mu, a, W, sigma, s_states, X, p_z_x, fixed_indices, beta):
+	num_states = len(s_states)
+	num_imgs = X.shape[0]
+	num_units = X.shape[1]
+	mu_est = np.empty(num_units)
+
+	for u_ix in range(num_units):
+		num = 0
+
+		for s_ix in range(num_states):
+			num += np.sum(p_z_x[:, s_ix] * (squash_x(X[:, u_ix], a) - s_states[s_ix, u_ix]))
 		
-		for g_ix in range(num_features):
-			np.dot(mu[f_ix, :], mu[g_ix, :])
-
-		for u_ix in range(num_units):
-			num = 0
-			den = 0
-				
-			for state_ix in state_indices:
-				z = np.array([float(z) for z in z_states[state_ix]])
-
-				mean_adj = np.dot(mu[:, u_ix], z) + m[u_ix] - mu[f_ix, u_ix]
-				var = np.dot(sigma[:, u_ix]**2, z) + s[u_ix]**2
-				
-				den += np.sum(p_z_x[:, state_ix])/var
-			
-				for img_ix in range(num_imgs):
-					num += p_z_x[img_ix, state_ix]/var * (filter_results[img_ix, u_ix] - mean_adj)
-			
-			vec_norm_sq = np.sum(mu[f_ix, :]**2)
-
-			regul = 0
-			for g_ix in range(num_features):
-				if g_ix == f_ix:
-					continue
-				regul += mu[g_ix, u_ix] / sqrt(vec_norm_sq * np.sum(mu[g_ix, :]**2))
-
-			regul_annot = 0
-			for img_ix in list(fixed_indices[f_ix, :]):
-				regul_annot += filter_results[img_ix, u_ix] / sqrt(vec_norm_sq * np.sum(filter_results[img_ix, :]**2))
-
-			mu_est[f_ix, u_ix] = num / den - gamma * regul / num_features + eta * regul_annot / len(fixed_indices[f_ix, :])
+		mu_est[u_ix] = num / np.sum(p_z_x)
 
 	return mu + (mu_est - mu) * beta
 
 @njit
-def update_ms(mu, m, sigma, s, z_states, filter_results, p_z_x, beta):
-	num_units = m.shape[0]
-	num_states = len(z_states)
-	num_imgs = filter_results.shape[0]
-	m_est = np.empty(num_units)
+def update_sigma(mu, a, sigma, s_states, X, p_z_x):
+	num_units = X.shape[1]
+	num_states = len(s_states)
+	num = 0
 
 	for u_ix in range(num_units):
-		num = 0
-		den = 0
-			
-		for state_ix in range(num_states):
-			z = np.array([float(z) for z in z_states[state_ix]])
+		for s_ix in range(num_states):
+			num += np.sum(p_z_x[:, s_ix] * (squash_x(X[:, u_ix], a) - mu[u_ix] - s_states[s_ix, u_ix])**2)
 
-			mean_adj = np.dot(mu[:, u_ix], z)
-			var = np.dot(sigma[:, u_ix]**2, z) + s[u_ix]**2
-			
-			den += np.sum(p_z_x[:, state_ix])/var
-		
-			for img_ix in range(num_imgs):
-				num += p_z_x[img_ix, state_ix]/var * (filter_results[img_ix, u_ix] - mean_adj)
-			
-		m_est[u_ix] = num / den
+	sigma_est = sqrt(num / np.sum(p_z_x))
 
-	return m + (m_est - m) * beta
-
-#@vectorize(['f64(f8, f8, f8, f8, f8)'], target='parallel')
-#def Q_S_S(Var, a_i, c_i, z):
-#	return a_i / (np.dot(z, Var[:-1])+Var[-1]) + c_i * log((np.dot(z, Var[:-1])+Var[-1]) * 2*pi) / 2
+	return sigma_est
 
 @njit
-def update_stdevs_approx(mu, m, sigma, s, z_states, filter_results, p_z_x, beta):
-	num_units = m.shape[0]
-	num_states = len(z_states)
-	num_features = len(z_states[0])
-	num_imgs = filter_results.shape[0]
-
-	sigma_est = np.empty((num_features, num_units))
-	s_est = np.empty(num_units)
-	var_adj = np.zeros(num_states)
-	a_i = np.zeros(num_states)
-	c_i = np.zeros(num_states)
-
-	for u_ix in range(num_units):
-		tmp=np.zeros(num_imgs)
-		for img_ix in range(num_imgs):
-			tmp[img_ix] = np.sum(p_z_x[img_ix, :]) * filter_results[img_ix, u_ix]
-		s_est[u_ix] = np.std(tmp)
-
-		for f_ix in range(num_features):
-			tmp=np.zeros(num_imgs)
-			for img_ix in range(num_imgs):
-				for state_ix in range(num_states):
-					if z_states[state_ix][f_ix]==1:
-						tmp[img_ix] += p_z_x[img_ix, state_ix]
-				tmp[img_ix] *= filter_results[img_ix, u_ix]
-
-			sigma_est[f_ix, u_ix] = np.std(tmp)
-
-	return sigma + (sigma_est - sigma) * beta, s + (s_est - s) * beta
-
-def update_stdevs(mu, m, sigma, s, z_states, filter_results, p_z_x):
-	num_units = m.shape[0]
-	num_states = len(z_states)
-	num_features = len(z_states[0])
-	num_imgs = filter_results.shape[0]
-
-	sigma_est = np.empty((num_features, num_units))
-	s_est = np.empty(num_units)
-	var_adj = np.zeros(num_states)
-	a_i = np.zeros(num_states)
-	c_i = np.zeros(num_states)
-
-	#num_cores = multiprocessing.cpu_count() - 1
-	for u_ix in range(num_units):
-		for state_ix in range(num_states):
-			a_i[state_ix] = np.sum([p_z_x[img_ix, state_ix] * (filter_results[img_ix, u_ix] - \
-					   np.dot(mu[:, u_ix], z_states[state_ix]) - m[u_ix])**2 for img_ix in range(num_imgs)]) / 2
-			c_i[state_ix] = np.sum(p_z_x[:, state_ix])
-
-		temp = scipy.optimize.minimize(\
-					lambda Var: np.sum([a_i[state_ix] / (np.dot(z_states[state_ix],
-					   Var[:-1])+Var[-1]) + c_i[state_ix] * log((np.dot(z_states[state_ix],
-					   Var[:-1])+Var[-1]) * 2*pi) / 2 for state_ix in range(num_states)]),
-					  np.concatenate([sigma[:, u_ix]**2, [s[u_ix]**2]]),
-					  bounds=tuple(itertools.repeat((.001, 1),num_features)) + tuple([(.005, 10)]))
-					  #tuple(itertools.repeat((.001, .25),num_features+1)))
-
-		sigma_est[:, u_ix] = [sqrt(i) for i in temp['x'][:-1]]
-		s_est[u_ix] = sqrt(temp['x'][-1])
-	#Parallel(n_jobs=num_cores)(delayed(_update_stdevs)(mu, m, sigma, s, z_states,
-	#		filter_results, p_z_x, sigma_est, s_est, u_ix) for u_ix in range(num_units))
-
-	return sigma_est, s_est
-
-def _update_stdevs(mu, m, sigma, s, z_states, filter_results, p_z_x, sigma_est, s_est, u_ix):
-	for state_ix in range(num_states):
-		a_i[state_ix] = np.sum([p_z_x[img_ix, state_ix] * (filter_results[img_ix, u_ix] - \
-				   np.dot(mu[:, u_ix], z_states[state_ix]) - m[u_ix])**2 for img_ix in range(num_imgs)]) / 2
-		c_i[state_ix] = np.sum(p_z_x[:, state_ix])
-
-	temp = scipy.optimize.minimize(\
-				lambda Var: np.sum([a_i[state_ix] / (np.dot(z_states[state_ix],
-				   Var[:-1])+Var[-1]) + c_i[state_ix] * log((np.dot(z_states[state_ix],
-				   Var[:-1])+Var[-1]) * 2*pi) / 2 for state_ix in range(num_states)]),
-				  np.concatenate([sigma[:, u_ix]**2, [s[u_ix]**2]]),
-				  bounds=tuple(itertools.repeat((.001, 1),num_features)) + tuple([(.005, 10)]))
-				  #tuple(itertools.repeat((.001, .25),num_features+1)))
-
-	sigma_est[:, u_ix] = [sqrt(i) for i in temp['x'][:-1]]
-	s_est[u_ix] = sqrt(temp['x'][-1])
+def update_a(mu, sigma, s_states, X, p_z_x):
+	return None
