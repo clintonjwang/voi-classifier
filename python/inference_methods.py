@@ -19,6 +19,7 @@ import multiprocessing
 
 @njit
 def squash_x(x, a):
+	#return 1-exp_parallel(-a*x)
 	return 1/(1+exp_parallel(-a*x + 4))
 
 @njit
@@ -64,7 +65,7 @@ def get_all_p_x_z(mu, sigma, a, s_states, X, fixed_indices, z_states):
 def get_p_z(z_states, theta):
 	"""Symmetric Dirichlet prior with concentration ???"""
 
-	#zeta=.03
+	zeta=.1
 	num_states = len(z_states)
 	num_features = len(z_states[0])
 
@@ -76,7 +77,7 @@ def get_p_z(z_states, theta):
 			for b in range(a, num_features):
 				p_z[s_ix] *= exp(theta[a,b]*z[a]*z[b])
 
-		#p_z[s_ix] = p_z[s_ix] ** zeta
+		p_z[s_ix] = p_z[s_ix] ** zeta
 
 	return p_z / np.sum(p_z)
 
@@ -148,25 +149,56 @@ def update_thetas(p_z_x_sum, z_states_bool, theta, alpha):
 
 	return theta + (theta_est - theta) * alpha
 
+@njit
+def get_squashed_X(X, a):
+	U = np.empty(X.shape)
+	for img_ix in range(X.shape[0]):
+		U[img_ix] = squash_x(X[img_ix, :], a)
+	return U
 
-def squash_Wz_plain(w, z):
-	return 1/(1+exp(-8*np.dot(w, z) + 4))
+@njit
+def scaled_dot(u,v):
+	return np.dot(u,v) / np.sum(u**2) / np.sum(v**2)
 
-def update_W(mu, a, W, z_states, X, p_z_x, alpha):
+@njit
+def W_opt_func(w, a, b, c, z, W):
+	reg_norm = .1
+	reg_dist = 100 / W.shape[1]
+
+	ret = np.sum((w**2)**.3) * reg_norm
+	for v_ix in range(W.shape[1]):
+		ret += scaled_dot(w, W[:, v_ix]) * reg_dist
+
+	for s_ix in range(len(a)):
+		wz = squash_Wz(w, z[s_ix])
+		ret += a[s_ix] + b[s_ix] * wz + c[s_ix] * wz**2
+
+	return ret
+
+def update_W(mu, a, W, z_states, U, p_z_x, alpha):
 	num_states = len(z_states)
 	num_features = len(z_states[0])
-	num_imgs = X.shape[0]
-	num_units = X.shape[1]
+	num_imgs = U.shape[0]
+	num_units = U.shape[1]
 	W_est = np.empty((num_features, num_units))
-	a_i = np.zeros(num_states)
-	b_i = np.zeros(num_states)
+	a_i = np.empty(num_states)
+	b_i = np.empty(num_states)
+	c_i = np.empty(num_states)
 
 	for u_ix in range(num_units):
 		for s_ix in range(num_states):
-			a_i[s_ix] += np.sum(p_z_x[:, s_ix]**.5 * (squash_x(X[:, u_ix], a) - mu[u_ix]))
-			b_i[s_ix] += np.sum(p_z_x[:, s_ix]**.5)
+			a_i[s_ix] = np.sum(p_z_x[:, s_ix] * (U[:, u_ix] - mu[u_ix])**2)
+			b_i[s_ix] = -2 * np.sum(p_z_x[:, s_ix] * (U[:, u_ix] - mu[u_ix]))
+			c_i[s_ix] = np.sum(p_z_x[:, s_ix])
 
-		W_est[:, u_ix] = scipy.optimize.minimize(lambda w: np.sum([a_i[s_ix] * squash_Wz(w, z_states[s_ix]) - b_i[s_ix] for s_ix in range(num_states)]), W[:, u_ix])['x']
+		W_est[:, u_ix] = scipy.optimize.minimize(lambda w: W_opt_func(w, a_i, b_i, c_i, z_states, W), W[:, u_ix])['x']
+		#print(W_opt_func(W[:, u_ix], a_i, b_i, c_i, z_states), np.sum(abs(W[:, u_ix])))
+		#W_est[:, u_ix] = scipy.optimize.minimize(lambda w: np.sum([a_i[s_ix] + \
+		#	b_i[s_ix] * squash_Wz(w, z_states[s_ix]) + c_i[s_ix] * \
+		#	squash_Wz(w, z_states[s_ix])**2 for s_ix in range(num_states)]), W[:, u_ix])['x']
+
+		if u_ix % 20 == 19:
+			print(str(u_ix)+".", end="")
 
 	return W + (W_est - W) * alpha
 
@@ -179,7 +211,6 @@ def update_mus(mu, a, W, sigma, s_states, X, p_z_x, fixed_indices, beta):
 
 	for u_ix in range(num_units):
 		num = 0
-
 		for s_ix in range(num_states):
 			num += np.sum(p_z_x[:, s_ix] * (squash_x(X[:, u_ix], a) - s_states[s_ix, u_ix]))
 		
@@ -201,6 +232,22 @@ def update_sigma(mu, a, sigma, s_states, X, p_z_x):
 
 	return sigma_est
 
-@njit
-def update_a(mu, sigma, s_states, X, p_z_x):
-	return None
+def update_a(mu, a, sigma, s_states, X, p_z_x, alpha):
+	num_states = s_states.shape[0]
+	num_imgs = p_z_x.shape[0]
+	num_units = X.shape[1]
+	relevant_states = []
+
+	for i_ix in range(num_imgs):
+		relevant_states.append([])
+		for s_ix in range(num_states):
+			if p_z_x[i_ix, s_ix] > np.amax(p_z_x[i_ix, :]) / 10:
+				relevant_states[i_ix].append(s_ix)
+
+
+	#a_est, b_est = scipy.optimize.minimize(lambda w: W_opt_func(w, a_i, b_i, c_i, z_states, W), W[:, u_ix])['x']
+	a_est = scipy.optimize.minimize_scalar(lambda aa: np.sum([np.sum([p_z_x[i_ix, s_ix] * \
+			(squash_x(X[i_ix, :], aa) - mu - s_states[s_ix, :])**2 for s_ix in relevant_states[i_ix]])\
+			for i_ix in range(num_imgs)]), bounds=(.1, 10), method='bounded')['x']
+
+	return a + (a_est - a) * alpha#, b + (b_est - b) * alpha
