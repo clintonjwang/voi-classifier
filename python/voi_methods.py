@@ -464,18 +464,21 @@ def _draw_bbox(img_slice, voi):
 	y2 = -crop[1]//2
 
 	img_slice[x1:x2, y2, 2, :] = 1
-	img_slice[x1:x2, y2, :2, :] = -1
+	img_slice[x1:x2, y2, :2, :] = 1
 
 	img_slice[x1:x2, y1, 2, :] = 1
-	img_slice[x1:x2, y1, :2, :] = -1
+	img_slice[x1:x2, y1, :2, :] = 1
 
 	img_slice[x1, y1:y2, 2, :] = 1
-	img_slice[x1, y1:y2, :2, :] = -1
+	img_slice[x1, y1:y2, :2, :] = 1
 
 	img_slice[x2, y1:y2, 2, :] = 1
-	img_slice[x2, y1:y2, :2, :] = -1
+	img_slice[x2, y1:y2, :2, :] = 1
+
+	dx = int(5/4*x1 - img_slice.shape[0]/4)
+	dy = int(5/4*y1 - img_slice.shape[1]/4)
 	
-	return img_slice
+	return img_slice[dx:-dx,dy:-dy,:,:]
 
 def _augment_img(img, voi, num_samples, add_reflections=False, save_name=None, overwrite=True):
 	"""For rescaling an img to final_dims while scaling to make sure the image contains the voi.

@@ -5,7 +5,7 @@ Author: Clinton Wang, E-mail: `clintonjwang@gmail.com`, Github: `https://github.
 """
 
 import itertools
-from numba import jit, njit, prange, vectorize, guvectorize, float64
+from numba import jit, njit, prange, vectorize, guvectorize, float64, cuda
 import numpy as np
 from math import sqrt, log, pi, exp
 import time
@@ -14,7 +14,7 @@ from joblib import Parallel, delayed
 import multiprocessing
 
 ####################################
-### Expectation-maximization
+### Helper Fxns
 ####################################
 
 @njit
@@ -28,8 +28,28 @@ def squash_Wz(w, z):
 	return 1/(1+exp(-8*np.dot(w, z) + 4))
 
 @njit
+def get_squashed_X(X, a, b):
+	U = np.empty(X.shape)
+	for img_ix in range(X.shape[0]):
+		U[img_ix] = squash_x(X[img_ix, :], a, b)
+	return U
+
+@njit
+def scaled_dot(u,v):
+	return (np.dot(u,v)**2)**.5 / np.sum(u**2) / np.sum(v**2)
+
+#@guvectorize([(float64[:], int64[:], float64[:])], '(n),(n)->(n)')
+def squash_Wz_vec(w, z, res):
+	for i in range(len(w)):
+		res[i] = 1/(1+exp(-8*w[i]*z[i] + 4))
+
+@njit
 def exp_parallel(A):
 	return np.array([exp(x) for x in A])
+
+####################################
+### Expectation-maximization
+####################################
 
 @njit
 def get_all_p_x_z(mu, sigma, s_states, U, fixed_indices, z_states):
@@ -145,68 +165,44 @@ def update_thetas(p_z_x_sum, z_states_bool, theta, alpha):
 
 	return theta + (theta_est - theta) * alpha
 
-@njit
-def get_squashed_X(X, a, b):
-	U = np.empty(X.shape)
-	for img_ix in range(X.shape[0]):
-		U[img_ix] = squash_x(X[img_ix, :], a, b)
-	return U
-
-@njit
-def scaled_dot(u,v):
-	return (np.dot(u,v)**2)**.5 / np.sum(u**2) / np.sum(v**2)
-
-@njit
-def W_opt_func(w, a, b, c, z, W, u_ix, fixed_indices, U):
-	reg_norm = .1
-	reg_dist = 500 / W.shape[1]
-	#reg_anno = 500 / W.shape[1]
-
-	ret = np.sum((w**2)**.25) * reg_norm
-	for v_ix in range(W.shape[1]):
-		if v_ix != u_ix:
-			ret += scaled_dot(w, W[:, v_ix]) * reg_dist
-
-	#for f_ix in range(fixed_indices.shape[0]):
-	#	for i_ix in fixed_indices[f_ix]:
-	#		ret += scaled_dot(w, U[i_ix, :]) * reg_dist
-
-	for s_ix in range(len(a)):
-		wz = squash_Wz(w, z[s_ix])
-		ret += a[s_ix] + b[s_ix] * wz + c[s_ix] * wz**2
-
-	return ret
-
-def update_W(mu, W, z_states, U, p_z_x, alpha, view_weights=False):
-	num_states = len(z_states)
-	num_features = len(z_states[0])
+def update_W(mu, W, z_states, U, p_z_x, fixed_indices, alpha, view_weights=False):
+	num_states = z_states.shape[0]
+	num_features = z_states.shape[1]
 	num_imgs = U.shape[0]
 	num_units = U.shape[1]
-	W_est = np.empty((num_features, num_units))
-	a_i = np.empty(num_states)
-	b_i = np.empty(num_states)
-	c_i = np.empty(num_states)
+	W_est = np.zeros((num_features, num_units))
+	a_i = np.zeros((num_units, num_states))
+	b_i = np.zeros((num_units, num_states))
+	c_i = np.zeros(num_states)
 
-	for u_ix in range(num_units):
-		for s_ix in range(num_states):
-			a_i[s_ix] = np.sum(p_z_x[:, s_ix] * (U[:, u_ix] - mu[u_ix])**2)
-			b_i[s_ix] = -2 * np.sum(p_z_x[:, s_ix] * (U[:, u_ix] - mu[u_ix]))
-			c_i[s_ix] = np.sum(p_z_x[:, s_ix])
+	relevant_states = []
+	for s_ix in range(num_states):
+		if np.sum(p_z_x[:, s_ix]) > .01:
+			relevant_states.append(s_ix)
 
-		W_est[:, u_ix] = scipy.optimize.minimize(lambda w: W_opt_func(w, a_i, b_i, c_i, z_states, W, u_ix, fixed_indices, U), W[:, u_ix])['x']
+	for s_ix in relevant_states:
+		for u_ix in range(num_units):
+			a_i[u_ix, s_ix] = np.sum(p_z_x[:, s_ix] * (U[:, u_ix] - mu[u_ix])**2)
+			b_i[u_ix, s_ix] = np.sum(p_z_x[:, s_ix] * (U[:, u_ix] - mu[u_ix]))
+		c_i[s_ix] = np.sum(p_z_x[:, s_ix])
 
-		if view_weights:
-			tmp=0
-			for v_ix in range(W.shape[1]):
-				if v_ix != u_ix:
-					tmp += scaled_dot(W_est[:, u_ix], W[:, v_ix])
-			print(W_opt_func(W_est[:, u_ix], a_i, b_i, c_i, z_states, W, u_ix), np.sum((W_est[:, u_ix]**2)**.3) * .1, tmp * 500 / W.shape[1])
+	#t = time.time()
+	W_est = scipy.optimize.minimize(lambda w_opt: W_opt_func(w_opt, a_i, b_i, c_i,
+			z_states, relevant_states, W, fixed_indices, U), np.ravel(W),
+			jac=True)['x'] #, lower=-100., upper=500.
+	W_est = W_est.reshape((num_features, num_units))
 
-		if u_ix % 20 == 19:
-			print(str(u_ix)+".", end="")
+	if view_weights:
+		tmp=0
+		for v_ix in range(W.shape[1]):
+			if v_ix != u_ix:
+				tmp += scaled_dot(W_est[:, u_ix], W[:, v_ix])
+		print(W_opt_func(W_est[:, u_ix], a_i, b_i, c_i, z_states, W, u_ix), np.sum((W_est[:, u_ix]**2)**.3) * .1, tmp * 500 / W.shape[1])
 
-	for f_ix in range(num_features):
-		W_est[f_ix][abs(W_est[f_ix]) < np.amax(abs(W_est[f_ix])) / 50] = 0
+	#print(time.time()-t, end="")
+
+	#for f_ix in range(num_features):
+	#	W_est[f_ix][abs(W_est[f_ix]) < np.amax(abs(W_est[f_ix])) / 50] = 0
 
 	return W_est #W + (W_est - W) * alpha
 
@@ -240,16 +236,6 @@ def update_sigma(mu, sigma, s_states, U, p_z_x):
 
 	return sigma_est
 
-@njit
-def ab_opt_func(a, b, X, p_z_x, mu, s_states):
-	ret = 0
-	for i_ix in range(p_z_x.shape[0]):
-		for s_ix in range(p_z_x.shape[1]):
-			if p_z_x[i_ix, s_ix] > np.amax(p_z_x[i_ix, :]) / 10:
-				ret += np.sum(p_z_x[i_ix, s_ix] * (squash_x(X[i_ix, :], a, b) - mu - s_states[s_ix, :])**2)
-
-	return ret
-
 def update_ab(mu, a, b, sigma, s_states, X, p_z_x, alpha):
 	num_states = s_states.shape[0]
 	num_imgs = p_z_x.shape[0]
@@ -262,8 +248,100 @@ def update_ab(mu, a, b, sigma, s_states, X, p_z_x, alpha):
 	#		if p_z_x[i_ix, s_ix] > np.amax(p_z_x[i_ix, :]) / 10:
 	#			relevant_states[i_ix].append(s_ix)
 
-	temp = scipy.optimize.minimize(lambda ab: ab_opt_func(ab[0], ab[1], X, p_z_x, mu, s_states), (a,b), bounds=((.1, 10), (0, 10)))['x']
+	temp = scipy.optimize.minimize(lambda ab: ab_opt_func(ab[0], ab[1], X, p_z_x, mu, s_states), (a,b), bounds=((.1, 10), (1, 10)))['x']
 
 	a_est, b_est = temp[0], temp[1]
 
 	return a + (a_est - a) * alpha, b + (b_est - b) * alpha
+
+####################################
+### Objective fxns
+####################################
+
+@njit
+def ab_opt_func(a, b, X, p_z_x, mu, s_states):
+	ret = 0
+	for i_ix in range(p_z_x.shape[0]):
+		for s_ix in range(p_z_x.shape[1]):
+			if p_z_x[i_ix, s_ix] > np.amax(p_z_x[i_ix, :]) / 10:
+				ret += np.sum(p_z_x[i_ix, s_ix] * (squash_x(X[i_ix, :], a, b) - mu - s_states[s_ix, :])**2)
+
+	return ret
+
+@njit
+def W_opt_func(w, a, b, c, z_states, relevant_states, W, fixed_indices, U):
+	num_features = W.shape[0]
+	num_units = W.shape[1]
+	num_states = len(relevant_states)
+
+	reg_norm = .1
+	reg_dist = 10 / num_features
+	reg_anno = 500 / W.shape[1]
+
+	ret = 0
+	#w[f_ix,:] = w[f_ix*num_units:(f_ix+1)*num_units]
+	#w[:,u_ix] = w[u_ix::num_units]
+	#for f_ix in num_features:
+	#	ret += np.sum((w[f_ix*num_units:(f_ix+1)*num_units]**2)**.3) * reg_norm
+		
+		#for g_ix in num_features:
+		#	if g_ix != f_ix:
+		#		ret += scaled_dot(w[f_ix], W[g_ix]) * reg_dist
+
+		#for i_ix in fixed_indices[f_ix]:
+		#	ret += scaled_dot(w, U[i_ix, :]) * reg_anno
+
+	jac = np.zeros((num_features, num_units))
+	for u_ix in range(num_units):
+		for s_ix in relevant_states:
+			z = np.array([float(i) for i in z_states[s_ix]])
+			wz = exp(-8*np.dot(w[u_ix::num_units], z) + 4)
+			fwz = 1/(1+wz)
+			#wz = squash_Wz(w[u_ix::num_units], z[s_ix])
+			ret += a[u_ix, s_ix] - 2*b[u_ix, s_ix] * fwz + c[s_ix] * fwz**2
+
+			for f_ix in range(num_features):
+				if z_states[s_ix, f_ix]:
+					jac[f_ix, u_ix] += -16*wz*(b[u_ix, s_ix] - c[s_ix]*fwz) / (wz + 1)**2
+
+	return ret, np.ravel(jac)
+
+@njit
+def W_opt_func_gpu(w, a, b, c, z, relevant_states, W, fixed_indices, U):
+	#num_features = W.shape[0]
+	num_units = W.shape[1]
+	num_states = len(relevant_states) #len(z)
+
+	ret = np.array(num_units, num_states)
+	threadsperblock = (16, 16)
+	blockspergrid_x = math.ceil(num_units / threadsperblock[0])
+	blockspergrid_y = math.ceil(num_states / threadsperblock[1])
+	blockspergrid = (blockspergrid_x, blockspergrid_y)
+	W_kernel[blockspergrid, threadsperblock](W, z, a, b, c, ret)
+
+	#for u_ix in range(num_units):
+	#	for s_ix in relevant_states:
+	#		wz = squash_Wz(w[u_ix::num_units], z[s_ix])
+	#		ret += a[u_ix, s_ix] + b[u_ix, s_ix] * wz + c[s_ix] * wz**2
+
+	return ret
+
+#@cuda.jit
+"""def W_kernel(W, z, a, b, c, ret):
+	sA = cuda.shared.array(shape=(TPB, TPB), dtype=float32)
+	sB = cuda.shared.array(shape=(TPB, TPB), dtype=float32)
+	sC = cuda.shared.array(shape=(TPB, TPB), dtype=float32)
+	sW = cuda.shared.array(shape=(TPB, TPB), dtype=float32)
+	sZ = cuda.shared.array(shape=(TPB, TPB), dtype=float32)
+
+	u_ix, s_ix = cuda.grid(2)
+
+	if u_ix < ret.shape[0] and s_ix < ret.shape[1]:
+		wz = 0
+		for f_ix in range(len(z[0])):
+			if z[s_ix, f_ix]==1:
+				wz += W[u_ix+f_ix*num_units]
+		wz = 1/(1+exp(-8*wz + 4))
+		#wz = squash_Wz(W[u_ix::num_units], z[s_ix])
+		ret[u_ix, s_ix] = a[u_ix, s_ix] + b[u_ix, s_ix] * wz + c[s_ix] * wz**2
+"""
