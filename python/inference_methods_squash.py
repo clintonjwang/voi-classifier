@@ -25,7 +25,7 @@ def squash_x(x, a, b):
 @njit
 def squash_Wz(w, z):
 	z = np.array([float(i) for i in z])
-	return 1/(1+exp(-8*np.dot(w, z) + 4))
+	return 1/(1+exp(-np.dot(w, z)))
 
 @njit
 def get_squashed_X(X, a, b):
@@ -171,25 +171,31 @@ def update_W(mu, W, z_states, U, p_z_x, fixed_indices, alpha, view_weights=False
 	num_imgs = U.shape[0]
 	num_units = U.shape[1]
 	W_est = np.zeros((num_features, num_units))
-	a_i = np.zeros((num_units, num_states))
-	b_i = np.zeros((num_units, num_states))
-	c_i = np.zeros(num_states)
+	pu2_i = np.zeros((num_units, num_states))
+	pu_i = np.zeros((num_units, num_states))
+	p_i = np.zeros(num_states)
 
-	relevant_states = []
+	#relevant_states = []
+	#for s_ix in range(num_states):
+	#	if np.sum(p_z_x[:, s_ix]) > .01:
+	#		relevant_states.append(s_ix)
+
 	for s_ix in range(num_states):
-		if np.sum(p_z_x[:, s_ix]) > .01:
-			relevant_states.append(s_ix)
-
-	for s_ix in relevant_states:
 		for u_ix in range(num_units):
-			a_i[u_ix, s_ix] = np.sum(p_z_x[:, s_ix] * (U[:, u_ix] - mu[u_ix])**2)
-			b_i[u_ix, s_ix] = np.sum(p_z_x[:, s_ix] * (U[:, u_ix] - mu[u_ix]))
-		c_i[s_ix] = np.sum(p_z_x[:, s_ix])
+			pu2_i[u_ix, s_ix] = np.sum(p_z_x[:, s_ix] * (U[:, u_ix] - mu[u_ix])**2)
+			pu_i[u_ix, s_ix] = np.sum(p_z_x[:, s_ix] * (U[:, u_ix] - mu[u_ix]))
+		p_i[s_ix] = np.sum(p_z_x[:, s_ix])
+
+	#print(np.amax(pu2_i), np.amin(pu2_i))
+
+	#print(np.amax(pu_i), np.amin(pu_i))
+
+	#print(np.amax(p_i), np.amin(p_i))
 
 	#t = time.time()
-	W_est = scipy.optimize.minimize(lambda w_opt: W_opt_func(w_opt, a_i, b_i, c_i,
-			z_states, relevant_states, W, fixed_indices, U), np.ravel(W),
-			jac=True)['x'] #, lower=-100., upper=500.
+	W_est = scipy.optimize.minimize(lambda w_opt: W_opt_func(w_opt, pu2_i, pu_i, p_i,
+			z_states, W, fixed_indices, U), np.ravel(W),
+			jac=True, bounds=tuple(itertools.repeat((-2, 10),num_features*num_units)))['x'] #, lower=-100., upper=500.
 	W_est = W_est.reshape((num_features, num_units))
 
 	if view_weights:
@@ -197,7 +203,7 @@ def update_W(mu, W, z_states, U, p_z_x, fixed_indices, alpha, view_weights=False
 		for v_ix in range(W.shape[1]):
 			if v_ix != u_ix:
 				tmp += scaled_dot(W_est[:, u_ix], W[:, v_ix])
-		print(W_opt_func(W_est[:, u_ix], a_i, b_i, c_i, z_states, W, u_ix), np.sum((W_est[:, u_ix]**2)**.3) * .1, tmp * 500 / W.shape[1])
+		print(W_opt_func(np.ravel(W_est), pu2_i, pu_i, p_i, z_states, W, fixed_indices, U)[0])#, np.sum((W_est[:, u_ix]**2)**.3) * .1, tmp * 500 / W.shape[1])
 
 	#print(time.time()-t, end="")
 
@@ -248,7 +254,7 @@ def update_ab(mu, a, b, sigma, s_states, X, p_z_x, alpha):
 	#		if p_z_x[i_ix, s_ix] > np.amax(p_z_x[i_ix, :]) / 10:
 	#			relevant_states[i_ix].append(s_ix)
 
-	temp = scipy.optimize.minimize(lambda ab: ab_opt_func(ab[0], ab[1], X, p_z_x, mu, s_states), (a,b), bounds=((.1, 10), (1, 10)))['x']
+	temp = scipy.optimize.minimize(lambda ab: ab_opt_func(ab[0], ab[1], X, p_z_x, mu, s_states), (a,b), bounds=((1, 10), (2, 10)))['x']
 
 	a_est, b_est = temp[0], temp[1]
 
@@ -269,10 +275,10 @@ def ab_opt_func(a, b, X, p_z_x, mu, s_states):
 	return ret
 
 @njit
-def W_opt_func(w, a, b, c, z_states, relevant_states, W, fixed_indices, U):
+def W_opt_func(w, a, b, c, z_states, W, fixed_indices, U):
 	num_features = W.shape[0]
 	num_units = W.shape[1]
-	num_states = len(relevant_states)
+	num_states = len(z_states)
 
 	reg_norm = .1
 	reg_dist = 10 / num_features
@@ -293,21 +299,21 @@ def W_opt_func(w, a, b, c, z_states, relevant_states, W, fixed_indices, U):
 
 	jac = np.zeros((num_features, num_units))
 	for u_ix in range(num_units):
-		for s_ix in relevant_states:
+		for s_ix in range(num_states):
 			z = np.array([float(i) for i in z_states[s_ix]])
-			wz = exp(-8*np.dot(w[u_ix::num_units], z) + 4)
+			wz = exp(-np.dot(w[u_ix::num_units], z))
 			fwz = 1/(1+wz)
 			#wz = squash_Wz(w[u_ix::num_units], z[s_ix])
 			ret += a[u_ix, s_ix] - 2*b[u_ix, s_ix] * fwz + c[s_ix] * fwz**2
 
 			for f_ix in range(num_features):
 				if z_states[s_ix, f_ix]:
-					jac[f_ix, u_ix] += -16*wz*(b[u_ix, s_ix] - c[s_ix]*fwz) / (wz + 1)**2
+					jac[f_ix, u_ix] += -wz*(b[u_ix, s_ix] - c[s_ix]*fwz) / (wz + 1)**2
 
 	return ret, np.ravel(jac)
 
 @njit
-def W_opt_func_gpu(w, a, b, c, z, relevant_states, W, fixed_indices, U):
+def opt_func_gpu(w, a, b, c, z, relevant_states, W, fixed_indices, U):
 	#num_features = W.shape[0]
 	num_units = W.shape[1]
 	num_states = len(relevant_states) #len(z)
