@@ -287,8 +287,10 @@ def W_opt_func(w, a, b, c, z_states, W, fixed_indices, U):
 	ret = 0
 	#w[f_ix,:] = w[f_ix*num_units:(f_ix+1)*num_units]
 	#w[:,u_ix] = w[u_ix::num_units]
-	#for f_ix in num_features:
-	#	ret += np.sum((w[f_ix*num_units:(f_ix+1)*num_units]**2)**.3) * reg_norm
+	for f_ix in num_features:
+		ret += np.sum((w[f_ix*num_units:(f_ix+1)*num_units]**2)**.3) * reg_norm
+
+		jac[f_ix, :] += .6*reg_norm*w[f_ix*num_units:(f_ix+1)*num_units]**.6/abs(w[f_ix*num_units:(f_ix+1)*num_units])
 		
 		#for g_ix in num_features:
 		#	if g_ix != f_ix:

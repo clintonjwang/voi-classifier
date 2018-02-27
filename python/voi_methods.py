@@ -366,22 +366,33 @@ def extract_vois(cls=None, acc_nums=None):
 	small_voi_df.to_csv(C.small_voi_path, index=False)
 
 @drm.autofill_cls_arg
-def save_unaugmented_set(cls=None, acc_nums=None):
+def save_unaugmented_set(cls=None, acc_nums=None, lesion_ids=None, custom_vois=None, return_img_only=False, lesion_ratio=None):
 	"""Save unaugmented lesion images. Overwrites without checking."""
 
 	C = config.Config()
 
 	small_voi_df = pd.read_csv(C.small_voi_path)
 
-	if acc_nums is None:
-		lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir + cls)]
-	else:
-		lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir + cls) if x[:x.find('_')] in acc_nums]
+	if lesion_ids is None:
+		if acc_nums is None:
+			lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir + cls)]
+		else:
+			lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir + cls) if x[:x.find('_')] in acc_nums]
 
-	for lesion_id in lesion_ids:
-		unaug_img = _resize_img(os.path.join(C.crops_dir, cls, lesion_id + ".npy"),
-					_get_voi_coords(small_voi_df[small_voi_df["id"] == lesion_id]))
-		np.save(os.path.join(C.orig_dir, cls, lesion_id), unaug_img)
+	ret = []
+	for ix, lesion_id in enumerate(lesion_ids):
+		if custom_vois is None:
+			unaug_img = _resize_img(os.path.join(C.crops_dir, cls, lesion_id + ".npy"),
+						_get_voi_coords(small_voi_df[small_voi_df["id"] == lesion_id]))
+		else:
+			unaug_img = _resize_img(os.path.join(C.crops_dir, cls, lesion_id + ".npy"), custom_vois[ix], lesion_ratio)
+
+		if return_img_only:
+			ret.append(unaug_img)
+		else:
+			np.save(os.path.join(C.orig_dir, cls, lesion_id), unaug_img)
+
+	return ret
 
 @drm.autofill_cls_arg
 def save_augmented_set(cls=None, acc_nums=None, num_cores=None, overwrite=True):
@@ -567,12 +578,12 @@ def _get_voi_coords(small_voi_df_row):
 	except:
 		return small_voi_df_row["coords"].values[0]
 
-def _resize_img(img_path, voi):
+def _resize_img(img_path, voi, lesion_ratio):
 	"""For rescaling an img to final_dims while scaling to make sure the image contains the voi.
 	Do not reuse img
 	"""
 	C = config.Config()
-	scale_ratios = get_scale_ratios(voi)
+	scale_ratios = get_scale_ratios(voi, lesion_ratio=lesion_ratio)
 
 	img = np.load(img_path)
 	img = tr.scale3d(img, scale_ratios)
