@@ -91,9 +91,9 @@ def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same', 'valid']
 		eq_x = ActivationLayer(activation_args)(eq_x)
 
 		x = Concatenate(axis=4)([art_x, ven_x, eq_x])
+		x = Dropout(dropout[0])(x)
 		x = layers.MaxPooling3D(pool_sizes[0])(x)
 		x = BatchNormalization(axis=4)(x)
-		#x = Dropout(dropout[0])(x)
 
 		for layer_num in range(1,len(f)):
 			x = layers.Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1])(x)
@@ -255,6 +255,7 @@ def build_pretrain_model(trained_model, dilation_rate=(1,1,1), padding=['same', 
 	eq_x = ActivationLayer(activation_args)(eq_x)
 
 	x = Concatenate(axis=4)([art_x, ven_x, eq_x])
+	#x = Dropout(0)(x)
 	x = layers.MaxPooling3D(pool_sizes[0])(x)
 
 	for layer_num in range(1,len(f)):
@@ -346,7 +347,7 @@ def build_autoencoder(trained_model, dilation_rate=(1,1,1), padding=['same', 'va
 
 	return model_pretrain
 
-def build_model_forced_dropout(trained_model, dropout, dilation_rate=(1,1,1), padding=['same', 'valid'], pool_sizes = [(2,2,2), (2,2,1)],
+def build_model_dropout(trained_model, dropout, last_layer="final", dilation_rate=(1,1,1), padding=['same', 'valid'], pool_sizes = [(2,2,2), (2,2,1)],
 	activation_type='relu', f=[64,128,128], kernel_size=(3,3,2), dense_units=100):
 	"""Sets up CNN with pretrained weights"""
 
@@ -375,6 +376,7 @@ def build_model_forced_dropout(trained_model, dropout, dilation_rate=(1,1,1), pa
 	eq_x = ActivationLayer(activation_args)(eq_x)
 
 	x = Concatenate(axis=4)([art_x, ven_x, eq_x])
+	#x = Lambda(lambda x: K.dropout(x, level=dropout))(x)
 	x = layers.MaxPooling3D(pool_sizes[0])(x)
 
 	for layer_num in range(1,len(f)):
@@ -388,15 +390,19 @@ def build_model_forced_dropout(trained_model, dropout, dilation_rate=(1,1,1), pa
 	x = Dense(dense_units, trainable=False)(x)
 	x = BatchNormalization(trainable=False)(x)
 	x = ActivationLayer(activation_args)(x)
-	x = Lambda(lambda x: K.dropout(x, level=dropout))(x)
 
-	pred_class = Dense(nb_classes, activation='softmax')(x)
+	if last_layer == "final":
+		x = Lambda(lambda x: K.dropout(x, level=dropout))(x)
+		x = Dense(nb_classes, activation='softmax')(x)
 
-	model_pretrain = Model(img, pred_class)
+	model_pretrain = Model(img, x)
 	model_pretrain.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
 
 	for l in range(1,len(model_pretrain.layers)):
-		model_pretrain.layers[l].set_weights(trained_model.layers[l].get_weights())
+		if type(model_pretrain.layers[l]) == type(trained_model.layers[l]):
+			model_pretrain.layers[l].set_weights(trained_model.layers[l].get_weights())
+		else:
+			model_pretrain.layers[l].set_weights(trained_model.layers[l-1].get_weights())
 
 	return model_pretrain
 
