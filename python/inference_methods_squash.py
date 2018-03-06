@@ -64,14 +64,14 @@ def get_all_p_x_z(mu, sigma, s_states, U, fixed_indices, z_states):
 	
 	for i_ix in range(num_imgs):
 		for s_ix in range(num_states):
-			tmp = 1/sigma * exp_parallel( -( (U[i_ix, :] - mu - s_states[s_ix, :]) / sigma )**2 / 2)
-			p_x_z[i_ix, s_ix] = tmp.prod()# ** zeta
+			tmp = exp_parallel( -( (U[i_ix, :] - mu - s_states[s_ix, :]) / sigma )**2 / 2) #/sigma
+			p_x_z[i_ix, s_ix] = tmp.prod() * 100# ** zeta
 
-		#for f_ix in range(num_features):
-		#	if i_ix in list(fixed_indices[f_ix, :]):
-		#		for s_ix in range(num_states):
-		#			if z_states[s_ix, f_ix] == 0:
-		#				p_x_z[i_ix, s_ix] = 0
+		for f_ix in range(num_features):
+			if i_ix in list(fixed_indices[f_ix, :]):
+				for s_ix in range(num_states):
+					if z_states[s_ix, f_ix] == 0:
+						p_x_z[i_ix, s_ix] = 0
 
 		p_x_z[i_ix, :] = p_x_z[i_ix, :] / np.amax(p_x_z[i_ix, :])
 	
