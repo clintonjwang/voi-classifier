@@ -578,7 +578,7 @@ def _get_voi_coords(small_voi_df_row):
 	except:
 		return small_voi_df_row["coords"].values[0]
 
-def _resize_img(img_path, voi, lesion_ratio):
+def _resize_img(img_path, voi, lesion_ratio=None):
 	"""For rescaling an img to final_dims while scaling to make sure the image contains the voi.
 	Do not reuse img
 	"""
