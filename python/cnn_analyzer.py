@@ -10,7 +10,9 @@ import cnn_builder as cbuild
 import config
 import csv
 import niftiutils.helper_fxns as hf
+import niftiutils.transforms as tr
 import importlib
+from math import pi
 import matplotlib.pyplot as plt
 from matplotlib.ticker import NullFormatter
 import numpy as np
@@ -54,7 +56,6 @@ def tsne(filter_results):
 	return fig
 
 
-
 ###########################
 ### Analyze annotations
 ###########################
@@ -93,9 +94,6 @@ def get_annotated_files(features_by_cls):
 				Z_features[f] += [x for x in feature_sheet[feature_sheet["evidence2"+cls] == f][cls].values]
 
 	return Z_features
-
-def get_feature_distributions():
-	pass
 
 def get_evidence_strength(feature_filters, pred_filters):
 	"""A good pred_filter has high values for all the key (non-zero) features of feature_filter.
@@ -154,19 +152,65 @@ def get_distribution(feature, population_activations):
 	"""
 	pass
 
-def visualize_layer(model, layer_name, save_path, num_f=None):
+def visualize_layer(model, layer_name, save_path, filter_ixs=None):
 	"""Visualize the model inputs that would maximally activate a layer.
+	num_f is the number of channels to optimize over; keep as None to use the whole layer
 	Original code by the Keras Team at
 	https://github.com/keras-team/keras/blob/master/examples/conv_filter_visualization.py"""
+	C = config.Config()
 
 	layer_dict = dict([(layer.name, layer) for layer in model.layers[1:]])
 
 	input_img = model.input
 
-	if num_f is None:
-		num_f = layer_dict[layer_name].output.shape[-1]
+	if filter_ixs is None:
+		filter_ixs = list(range(layer_dict[layer_name].output.shape[-1]))
 
-	for filter_index in range(num_f):
+		# build a loss function that maximizes the activation
+	# of the nth filter of the layer considered
+	layer_output = layer_dict[layer_name].output
+	loss = K.mean(layer_output[:, :, :, :, filter_ixs])
+
+	# compute the gradient of the input picture wrt this loss
+	grads = K.gradients(loss, input_img)[0]
+
+	# normalization trick: we normalize the gradient
+	grads /= (K.sqrt(K.mean(K.square(grads))) + 1e-5)
+
+	# this function returns the loss and grads given the input picture
+	iterate = K.function([input_img], [loss, grads])
+
+	input_img_data = np.random.random((1, C.dims[0], C.dims[1], C.dims[2], 3)) * 2.
+
+	# run gradient ascent for 20 steps
+	step = 1.
+	for i in range(20):
+		loss_value, grads_value = iterate([input_img_data])
+		input_img_data += grads_value * step
+		input_img_data = np.pad(input_img_data[0], ((5,5),(5,5),(0,0),(0,0)), 'constant')
+		input_img_data = tr.rotate(input_img_data, random.uniform(-5,5)*pi/180)
+		input_img_data = np.expand_dims(input_img_data[5:-5, 5:-5, :, :], 0)
+		#random rotations for transformation robustness, see https://distill.pub/2017/feature-visualization/#enemy-of-feature-vis
+
+	img = input_img_data[0]
+	img = deprocess_image(img)
+	hf.save_slices(img, save_path=os.path.join(save_path, "%s_filter.png" % layer_name))
+
+def visualize_channel(model, layer_name, save_path, num_ch=None):
+	"""Visualize the model inputs that would maximally activate a layer.
+	num_ch is the number of channels to optimize over; keep as None to use the whole layer
+	Original code by the Keras Team at
+	https://github.com/keras-team/keras/blob/master/examples/conv_filter_visualization.py"""
+	C = config.Config()
+
+	layer_dict = dict([(layer.name, layer) for layer in model.layers[1:]])
+
+	input_img = model.input
+
+	if num_ch is None:
+		num_ch = layer_dict[layer_name].output.shape[-1]
+
+	for filter_index in range(num_ch):
 		# build a loss function that maximizes the activation
 		# of the nth filter of the layer considered
 		layer_output = layer_dict[layer_name].output
@@ -182,15 +226,20 @@ def visualize_layer(model, layer_name, save_path, num_f=None):
 		iterate = K.function([input_img], [loss, grads])
 
 		input_img_data = np.random.random((1, C.dims[0], C.dims[1], C.dims[2], 3)) * 2.
+
 		# run gradient ascent for 20 steps
 		step = 1.
 		for i in range(20):
 			loss_value, grads_value = iterate([input_img_data])
 			input_img_data += grads_value * step
+			input_img_data = np.pad(input_img_data[0], ((5,5),(5,5),(0,0),(0,0)), 'constant')
+			input_img_data = tr.rotate(input_img_data, random.uniform(-5,5)*pi/180)
+			input_img_data = np.expand_dims(input_img_data[5:-5, 5:-5, :, :], 0)
+			#random rotations for transformation robustness, see https://distill.pub/2017/feature-visualization/#enemy-of-feature-vis
 
 		img = input_img_data[0]
 		img = deprocess_image(img)
-		hf.plot_section_auto(img, save_path=os.path.join(save_path, "%s_filter_%d.png" % (layer_name, filter_index)))
+		hf.save_slices(img, save_path=os.path.join(save_path, "%s_filter_%d.png" % (layer_name, filter_index)))
 
 ###########################
 ### FOR OUTPUTTING IMAGES AFTER TRAINING

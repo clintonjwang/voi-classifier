@@ -80,17 +80,18 @@ def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same', 'valid']
 	if merge_layer == 1:
 		art_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,0], axis=4))(img)
 		art_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0])(art_x)
-		art_x = ActivationLayer(activation_args)(art_x)
+		#art_x = ActivationLayer(activation_args)(art_x)
 
 		ven_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,1], axis=4))(img)
 		ven_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0])(ven_x)
-		ven_x = ActivationLayer(activation_args)(ven_x)
+		#ven_x = ActivationLayer(activation_args)(ven_x)
 
 		eq_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,2], axis=4))(img)
 		eq_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0])(eq_x)
-		eq_x = ActivationLayer(activation_args)(eq_x)
+		#eq_x = ActivationLayer(activation_args)(eq_x)
 
 		x = Concatenate(axis=4)([art_x, ven_x, eq_x])
+		x = ActivationLayer(activation_args)(x)
 		x = Dropout(dropout[0])(x)
 		x = layers.MaxPooling3D(pool_sizes[0])(x)
 		x = BatchNormalization(axis=4)(x)
@@ -242,44 +243,49 @@ def build_pretrain_model(trained_model, dilation_rate=(1,1,1), padding=['same', 
 	art_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,0], axis=4))(img)
 	art_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0], trainable=False)(art_x)
 	art_x = BatchNormalization(trainable=False)(art_x)
-	art_x = ActivationLayer(activation_args)(art_x)
 
 	ven_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,1], axis=4))(img)
 	ven_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0], trainable=False)(ven_x)
 	ven_x = BatchNormalization(trainable=False)(ven_x)
-	ven_x = ActivationLayer(activation_args)(ven_x)
 
 	eq_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,2], axis=4))(img)
 	eq_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0], trainable=False)(eq_x)
 	eq_x = BatchNormalization(trainable=False)(eq_x)
-	eq_x = ActivationLayer(activation_args)(eq_x)
 
-	x = Concatenate(axis=4)([art_x, ven_x, eq_x])
-	#x = Dropout(0)(x)
-	x = layers.MaxPooling3D(pool_sizes[0])(x)
+	if last_layer >= -5:
+		art_x = ActivationLayer(activation_args)(art_x)
+		ven_x = ActivationLayer(activation_args)(ven_x)
+		eq_x = ActivationLayer(activation_args)(eq_x)
 
-	for layer_num in range(1,len(f)):
-		x = layers.Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1], trainable=False)(x)
-		x = BatchNormalization(trainable=False)(x)
-		if last_layer - layer_num <= -6:
-			break
-		x = ActivationLayer(activation_args)(x)
-		x = Dropout(0)(x)
+		x = Concatenate(axis=4)([art_x, ven_x, eq_x])
+		#x = ActivationLayer(activation_args)(x)
+		#x = Dropout(0)(x)
+		x = layers.MaxPooling3D(pool_sizes[0])(x)
 
-	if last_layer >= -3:
-		x = layers.MaxPooling3D(pool_sizes[1])(x)
-		#x = layers.AveragePooling3D((4,4,4))(x)
-		#filter_weights = Flatten()(x)
-
-		x = Flatten()(x)
-		x = Dense(dense_units, trainable=False)(x)
-		x = BatchNormalization(trainable=False)(x)
-		if last_layer >= -2:
+		for layer_num in range(1,len(f)):
+			x = layers.Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1], trainable=False)(x)
+			x = BatchNormalization(trainable=False)(x)
+			if last_layer - layer_num <= -6:
+				break
 			x = ActivationLayer(activation_args)(x)
-			if last_layer == -1:
-				x = Dropout(0)(x)
-				x = Dense(6, trainable=False)(x)
-				x = BatchNormalization(trainable=False)(x)
+			x = Dropout(0)(x)
+
+		if last_layer >= -3:
+			x = layers.MaxPooling3D(pool_sizes[1])(x)
+			#x = layers.AveragePooling3D((4,4,4))(x)
+			#filter_weights = Flatten()(x)
+
+			x = Flatten()(x)
+			x = Dense(dense_units, trainable=False)(x)
+			x = BatchNormalization(trainable=False)(x)
+			if last_layer >= -2:
+				x = ActivationLayer(activation_args)(x)
+				if last_layer == -1:
+					x = Dropout(0)(x)
+					x = Dense(6, trainable=False)(x)
+					x = BatchNormalization(trainable=False)(x)
+	else:
+		x = Concatenate(axis=4)([art_x, ven_x, eq_x])
 
 	model_pretrain = Model(img, x)
 	model_pretrain.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
