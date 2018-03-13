@@ -152,9 +152,9 @@ def get_distribution(feature, population_activations):
 	"""
 	pass
 
-def visualize_layer(model, layer_name, save_path, filter_ixs=None):
+def visualize_layer_weighted(model, layer_name, save_path, channel_weights=None, init_img=None):
 	"""Visualize the model inputs that would maximally activate a layer.
-	num_f is the number of channels to optimize over; keep as None to use the whole layer
+	channel_ixs is the set of channels to optimize over; keep as None to use the whole layer
 	Original code by the Keras Team at
 	https://github.com/keras-team/keras/blob/master/examples/conv_filter_visualization.py"""
 	C = config.Config()
@@ -163,13 +163,11 @@ def visualize_layer(model, layer_name, save_path, filter_ixs=None):
 
 	input_img = model.input
 
-	if filter_ixs is None:
-		filter_ixs = list(range(layer_dict[layer_name].output.shape[-1]))
-
-		# build a loss function that maximizes the activation
+	# build a loss function that maximizes the activation
 	# of the nth filter of the layer considered
 	layer_output = layer_dict[layer_name].output
-	loss = K.mean(layer_output[:, :, :, :, filter_ixs])
+	layer_output = K.mean(layer_output, (0,1,2,3))
+	loss = K.dot(K.expand_dims(layer_output,0), K.expand_dims(channel_weights))
 
 	# compute the gradient of the input picture wrt this loss
 	grads = K.gradients(loss, input_img)[0]
@@ -180,21 +178,82 @@ def visualize_layer(model, layer_name, save_path, filter_ixs=None):
 	# this function returns the loss and grads given the input picture
 	iterate = K.function([input_img], [loss, grads])
 
-	input_img_data = np.random.random((1, C.dims[0], C.dims[1], C.dims[2], 3)) * 2.
+	if init_img is None:
+		input_img_data = np.random.random((1, C.dims[0], C.dims[1], C.dims[2], 3))
+	else:
+		input_img_data = np.expand_dims(init_img, 0)
 
 	# run gradient ascent for 20 steps
-	step = 1.
-	for i in range(20):
+	step = 5.
+	for i in range(250):
 		loss_value, grads_value = iterate([input_img_data])
 		input_img_data += grads_value * step
-		input_img_data = np.pad(input_img_data[0], ((5,5),(5,5),(0,0),(0,0)), 'constant')
-		input_img_data = tr.rotate(input_img_data, random.uniform(-5,5)*pi/180)
-		input_img_data = np.expand_dims(input_img_data[5:-5, 5:-5, :, :], 0)
-		#random rotations for transformation robustness, see https://distill.pub/2017/feature-visualization/#enemy-of-feature-vis
+		if i % 2 == 0:
+			step *= .98
+		if i % 5 == 0:
+			#random rotations for transformation robustness, see https://distill.pub/2017/feature-visualization/#enemy-of-feature-vis
+			input_img_data = np.pad(input_img_data[0], ((5,5),(5,5),(0,0),(0,0)), 'constant')
+			input_img_data = tr.rotate(input_img_data, random.uniform(-5,5)*pi/180)
+			input_img_data = np.expand_dims(input_img_data[5:-5, 5:-5, :, :], 0)
 
 	img = input_img_data[0]
 	img = deprocess_image(img)
-	hf.save_slices(img, save_path=os.path.join(save_path, "%s_filter.png" % layer_name))
+	hf.draw_slices(img, save_path=os.path.join(save_path, "%s_filter.png" % layer_name))
+
+def visualize_layer(model, layer_name, save_path, channel_ixs=None, init_img=None):
+	"""Visualize the model inputs that would maximally activate a layer.
+	channel_ixs is the set of channels to optimize over; keep as None to use the whole layer
+	Original code by the Keras Team at
+	https://github.com/keras-team/keras/blob/master/examples/conv_filter_visualization.py"""
+	from keras import backend as K
+	K.set_learning_phase(0)
+
+	C = config.Config()
+
+	layer_dict = dict([(layer.name, layer) for layer in model.layers[1:]])
+
+	input_img = model.input
+
+	if channel_ixs is None:
+		channel_ixs = list(range(layer_dict[layer_name].output.shape[-1]))
+
+	# build a loss function that maximizes the activation
+	# of the nth filter of the layer considered
+	layer_output = layer_dict[layer_name].output
+	layer_output = K.permute_dimensions(layer_output, (4,0,1,2,3))
+	layer_output = K.gather(layer_output, channel_ixs)
+	loss = K.mean(layer_output)#[:, :, :, :, channel_ixs])
+
+	# compute the gradient of the input picture wrt this loss
+	grads = K.gradients(loss, input_img)[0]
+
+	# normalization trick: we normalize the gradient
+	grads /= (K.sqrt(K.mean(K.square(grads))) + 1e-5)
+
+	# this function returns the loss and grads given the input picture
+	iterate = K.function([input_img], [loss, grads])
+
+	if init_img is None:
+		input_img_data = np.random.random((1, C.dims[0], C.dims[1], C.dims[2], 3))
+	else:
+		input_img_data = np.expand_dims(init_img, 0)
+
+	# run gradient ascent for 20 steps
+	step = 1.
+	for i in range(250):
+		loss_value, grads_value = iterate([input_img_data])
+		input_img_data += grads_value * step
+		if i % 2 == 0:
+			step *= .99
+		if i % 5 == 0:
+			#random rotations for transformation robustness, see https://distill.pub/2017/feature-visualization/#enemy-of-feature-vis
+			input_img_data = np.pad(input_img_data[0], ((5,5),(5,5),(0,0),(0,0)), 'constant')
+			input_img_data = tr.rotate(input_img_data, random.uniform(-5,5)*pi/180)
+			input_img_data = np.expand_dims(input_img_data[5:-5, 5:-5, :, :], 0)
+
+	img = input_img_data[0]
+	img = deprocess_image(img)
+	hf.draw_slices(img, save_path=os.path.join(save_path, "%s_filter.png" % layer_name))
 
 def visualize_channel(model, layer_name, save_path, num_ch=None):
 	"""Visualize the model inputs that would maximally activate a layer.
