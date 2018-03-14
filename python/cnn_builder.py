@@ -243,25 +243,32 @@ def build_pretrain_model(trained_model, dilation_rate=(1,1,1), padding=['same', 
 
 	art_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,0], axis=4))(img)
 	art_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0], trainable=False)(art_x)
-	art_x = BatchNormalization(trainable=False)(art_x, training=training)
 
 	ven_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,1], axis=4))(img)
 	ven_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0], trainable=False)(ven_x)
-	ven_x = BatchNormalization(trainable=False)(ven_x, training=training)
 
 	eq_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,2], axis=4))(img)
 	eq_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0], trainable=False)(eq_x)
-	eq_x = BatchNormalization(trainable=False)(eq_x, training=training)
+
+	if padding!=['same', 'same']:
+		art_x = BatchNormalization(trainable=False)(art_x, training=training)
+		ven_x = BatchNormalization(trainable=False)(ven_x, training=training)
+		eq_x = BatchNormalization(trainable=False)(eq_x, training=training)
 
 	if last_layer >= -5:
-		art_x = ActivationLayer(activation_args)(art_x)
-		ven_x = ActivationLayer(activation_args)(ven_x)
-		eq_x = ActivationLayer(activation_args)(eq_x)
+		if padding!=['same', 'same']:
+			art_x = ActivationLayer(activation_args)(art_x)
+			ven_x = ActivationLayer(activation_args)(ven_x)
+			eq_x = ActivationLayer(activation_args)(eq_x)
 
 		x = Concatenate(axis=4)([art_x, ven_x, eq_x])
-		#x = ActivationLayer(activation_args)(x)
-		#x = Dropout(0)(x)
-		x = layers.MaxPooling3D(pool_sizes[0])(x)
+		if padding==['same', 'same']:
+			x = ActivationLayer(activation_args)(x)
+			x = Dropout(0)(x)
+			x = layers.MaxPooling3D(pool_sizes[0])(x)
+			x = BatchNormalization(axis=4)(x)
+		else:
+			x = layers.MaxPooling3D(pool_sizes[0])(x)
 
 		for layer_num in range(1,len(f)):
 			x = layers.Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1], trainable=False)(x)
