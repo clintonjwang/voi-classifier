@@ -306,6 +306,54 @@ def build_pretrain_model(trained_model, dilation_rate=(1,1,1), padding=['same', 
 
 	return model_pretrain
 
+def build_pretrain_model_back(trained_model, dilation_rate=(1,1,1), padding=['same', 'same'], pool_sizes = [(2,2,2), (2,2,1)],
+	activation_type='relu', f=[64,128,128], kernel_size=(3,3,2), dense_units=100, first_layer=-3):
+	"""Sets up CNN with pretrained weights"""
+
+	C = config.Config()
+
+	ActivationLayer = Activation
+	activation_args = 'relu'
+
+	nb_classes = len(C.classes_to_include)
+
+	if first_layer <= -5:
+		img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], f[0]*3))
+		x = ActivationLayer(activation_args)(img)
+		x = Dropout(0)(x)
+		x = layers.MaxPooling3D(pool_sizes[0])(x)
+		x = BatchNormalization(axis=4, trainable=False)(x)
+
+	else:
+		img = Input(shape=(C.dims[0]//2, C.dims[1]//2, C.dims[2]//2, f[1]))
+		x = ActivationLayer(activation_args)(img)
+		x = Dropout(0)(x)
+
+	for layer_num in range(-3-first_layer):
+		x = layers.Conv3D(filters=f[len(f)-layer_num-1], kernel_size=kernel_size, padding=padding[1], trainable=False)(x)
+		x = BatchNormalization(trainable=False)(x)
+		x = ActivationLayer(activation_args)(x)
+		x = Dropout(0)(x)
+
+	x = layers.MaxPooling3D(pool_sizes[1])(x)
+	x = Flatten()(x)
+	x = Dense(dense_units, trainable=False)(x)
+	x = BatchNormalization(trainable=False)(x)
+	x = Dropout(0)(x)
+	x = ActivationLayer(activation_args)(x)
+	x = Dense(nb_classes, trainable=False)(x)
+
+	model_pretrain = Model(img, x)
+	model_pretrain.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+
+	num_l = len(model_pretrain.layers)
+	dl = len(trained_model.layers)-num_l
+
+	for l in range(num_l-1, 0, -1):
+	    model_pretrain.layers[l].set_weights(trained_model.layers[l+dl].get_weights())
+
+	return model_pretrain
+
 def build_autoencoder(trained_model, dilation_rate=(1,1,1), padding=['same', 'valid'], pool_sizes = [(2,2,2), (2,2,1)],
 	activation_type='relu', f=[64,128,128], kernel_size=(3,3,2), dense_units=100):
 	"""Sets up CNN with pretrained weights"""
