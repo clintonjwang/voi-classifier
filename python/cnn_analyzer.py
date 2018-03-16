@@ -8,6 +8,7 @@ from keras import backend as K
 
 import cnn_builder as cbuild
 import config
+import copy
 import csv
 import niftiutils.helper_fxns as hf
 import niftiutils.transforms as tr
@@ -151,6 +152,53 @@ def get_distribution(feature, population_activations):
 	"""Returns the set of feature labels f that minimizes -log( p(A|f;mu,var) )
 	"""
 	pass
+
+def visualize_activations(model, save_path, target_values, init_img=None, rotate=True, stepsize=.01, num_steps=25):
+	"""Visualize the model inputs that would match an activation pattern.
+	channel_ixs is the set of channels to optimize over; keep as None to use the whole layer
+	Original code by the Keras Team at
+	https://github.com/keras-team/keras/blob/master/examples/conv_filter_visualization.py"""
+	C = config.Config()
+
+	layer_dict = dict([(layer.name, layer) for layer in model.layers[1:]])
+
+	input_img = model.input
+
+	# build a loss function that maximizes the activation
+	# of the nth filter of the layer considered
+	#layer_output = layer_dict[layer_name].output
+	loss = K.sum(K.square(model.output - target_values))
+
+	# compute the gradient of the input picture wrt this loss
+	grads = K.gradients(loss, input_img)[0]
+
+	# normalization trick: we normalize the gradient
+	grads /= (K.sqrt(K.mean(K.square(grads))) + 1e-5)
+
+	# this function returns the loss and grads given the input picture
+	iterate = K.function([input_img, K.learning_phase()], [loss, grads])
+
+	if init_img is None:
+		input_img_data = np.random.random((1, C.dims[0], C.dims[1], C.dims[2], 3))
+	else:
+		input_img_data = np.expand_dims(copy.deepcopy(init_img), 0)
+
+	# run gradient ascent for 20 steps
+	step = stepsize
+	for i in range(num_steps):
+		loss_value, grads_value = iterate([input_img_data, 1])
+		input_img_data += grads_value * step
+		if i % 2 == 0:
+			step *= .98
+		if rotate and i % 5 == 0:
+			#random rotations for transformation robustness, see https://distill.pub/2017/feature-visualization/#enemy-of-feature-vis
+			input_img_data = np.pad(input_img_data[0], ((5,5),(5,5),(0,0),(0,0)), 'constant')
+			input_img_data = tr.rotate(input_img_data, random.uniform(-5,5)*pi/180)
+			input_img_data = np.expand_dims(input_img_data[5:-5, 5:-5, :, :], 0)
+
+	img = input_img_data[0]
+	img = deprocess_image(img)
+	hf.draw_slices(img, save_path=save_path)
 
 def visualize_layer_weighted(model, layer_name, save_path, channel_weights=None, init_img=None):
 	"""Visualize the model inputs that would maximally activate a layer.
