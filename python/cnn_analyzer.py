@@ -168,15 +168,18 @@ def visualize_activations(model, save_path, target_values, init_img=None, rotate
 	# of the nth filter of the layer considered
 	#layer_output = layer_dict[layer_name].output
 	loss = K.sum(K.square(model.output - target_values))
-
 	# compute the gradient of the input picture wrt this loss
 	grads = K.gradients(loss, input_img)[0]
-
 	# normalization trick: we normalize the gradient
 	grads /= (K.sqrt(K.mean(K.square(grads))) + 1e-5)
-
 	# this function returns the loss and grads given the input picture
 	iterate = K.function([input_img, K.learning_phase()], [loss, grads])
+
+	#loss2 = K.sum(K.square(grads))
+	#grads2 = K.gradients(loss, target_values)[0]
+	#grads2 /= (K.sqrt(K.mean(K.square(grads2))) + 1e-5)
+	#iterate2 = K.function([target_values, K.learning_phase()], [loss, grads2])
+
 
 	if init_img is None:
 		input_img_data = np.random.random((1, C.dims[0], C.dims[1], C.dims[2], 3))
@@ -184,21 +187,37 @@ def visualize_activations(model, save_path, target_values, init_img=None, rotate
 		input_img_data = np.expand_dims(copy.deepcopy(init_img), 0)
 
 	# run gradient ascent for 20 steps
-	step = stepsize
-	for i in range(num_steps):
-		loss_value, grads_value = iterate([input_img_data, 1])
-		input_img_data += grads_value * step
-		if i % 2 == 0:
-			step *= .98
-		if rotate and i % 5 == 0:
-			#random rotations for transformation robustness, see https://distill.pub/2017/feature-visualization/#enemy-of-feature-vis
-			input_img_data = np.pad(input_img_data[0], ((5,5),(5,5),(0,0),(0,0)), 'constant')
-			input_img_data = tr.rotate(input_img_data, random.uniform(-5,5)*pi/180)
-			input_img_data = np.expand_dims(input_img_data[5:-5, 5:-5, :, :], 0)
+	if True:
+		step = stepsize
+		for i in range(num_steps):
+			loss_value, grads_value = iterate([input_img_data, 0])
+			input_img_data += grads_value * step
+			if i % 2 == 0:
+				step *= .98
+			if rotate and i % 5 == 0:
+				#random rotations for transformation robustness, see https://distill.pub/2017/feature-visualization/#enemy-of-feature-vis
+				input_img_data = np.pad(input_img_data[0], ((5,5),(5,5),(0,0),(0,0)), 'constant')
+				input_img_data = tr.rotate(input_img_data, random.uniform(-5,5)*pi/180)
+				input_img_data = np.expand_dims(input_img_data[5:-5, 5:-5, :, :], 0)
+
+
+	if False:
+		step = stepsize
+		#input_img_data = np.expand_dims(copy.deepcopy(init_img), 0)
+		for i in range(num_steps):
+			# run gradient ascent for 20 steps
+			step = stepsize
+			for i in range(num_steps):
+				loss_value, grads_value = iterate2([target_values, 1])
+				target_values += grads_value * step
+				if i % 2 == 0:
+					step *= .98
 
 	img = input_img_data[0]
-	img = deprocess_image(img)
+	#img = deprocess_image(img)
 	hf.draw_slices(img, save_path=save_path)
+
+	return img
 
 def visualize_layer_weighted(model, layer_name, save_path, channel_weights=None, init_img=None):
 	"""Visualize the model inputs that would maximally activate a layer.
@@ -411,4 +430,4 @@ def deprocess_image(x):
 	#x = x.transpose((1, 2, 3, 0))
 	x = np.clip(x, 0, 255).astype('uint8')
 	
-	return x[:,:,x.shape[2]//2,:]
+	return x#x[:,:,x.shape[2]//2,:]
