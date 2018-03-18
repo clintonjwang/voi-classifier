@@ -23,8 +23,44 @@ import pandas as pd
 import random
 import math
 from sklearn.manifold import TSNE
+import scipy.stats
 
 
+def kl_div_norm(m1, sig1, m2, sig2, one_sided="none"):
+    #returns kl(p,q) where p~N(m1,s1), q~N(m2,s2)
+    ret = np.log(sig2/sig1) + (sig1**2+(m1-m2)**2)/(2*sig2**2) - .5
+    if one_sided=="less":
+        return ret * (m1 < m2)
+    elif one_sided=="greater":
+        return ret * (m1 > m2)
+    else:
+        return ret
+
+def get_shells(activ, D):
+    if D is None:
+        D = np.empty((8,8,4))
+        for x in range(D.shape[0]):
+            for y in range(D.shape[1]):
+                for z in range(D.shape[2]):
+                    D[x,y,z] = (D.shape[0]-.5-x)**2 + (D.shape[1]-.5-y)**2 + 4*(D.shape[2]-.5-z)**2
+
+    shell4 = activ[D > 85, :].mean(axis=0)
+    shell3 = activ[(D <= 85) & (D > 62), :].mean(axis=0)
+    shell2 = activ[(D <= 62) & (D > 39), :].mean(axis=0)
+    shell1 = activ[D <= 39, :].mean(axis=0)
+    return np.expand_dims(np.concatenate([shell1, shell2, shell3, shell4]), 0)
+
+def get_gaussian_mask(divisor=3):
+	gauss = np.zeros((12,12))
+
+	for i in range(gauss.shape[0]):
+	    for j in range(gauss.shape[1]):
+	        dx = abs(i - gauss.shape[0]/2+.5)
+	        dy = abs(j - gauss.shape[1]/2+.5)
+	        gauss[i,j] = scipy.stats.norm.pdf((dx**2 + dy**2)**.5, 0, gauss.shape[0]//divisor)
+	gauss = np.transpose(np.tile(gauss, (6,1,1)), (1,2,0))
+
+	return gauss
 
 ###########################
 ### Output graphs

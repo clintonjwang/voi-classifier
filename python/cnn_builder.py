@@ -54,11 +54,12 @@ def build_cnn_hyperparams(hyperparams):
 			padding=hyperparams.padding, pool_sizes=hyperparams.pool_sizes, dropout=hyperparams.dropout,
 			activation_type=hyperparams.activation_type, f=hyperparams.f, dense_units=hyperparams.dense_units,
 			kernel_size=hyperparams.kernel_size, merge_layer=hyperparams.merge_layer,
-			dual_inputs=C.non_imaging_inputs, run_2d=hyperparams.run_2d, time_dist=hyperparams.time_dist)
+			dual_inputs=C.non_imaging_inputs, run_2d=hyperparams.run_2d, time_dist=hyperparams.time_dist,
+			skip_con=hyperparams.skip_con)
 
 def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same', 'valid'], pool_sizes = [(2,2,2), (2,2,2)],
 	dropout=[0.1,0.1], activation_type='relu', f=[64,128,128], dense_units=100, kernel_size=(3,3,2), merge_layer=1,
-	dual_inputs=False, run_2d=False, time_dist=True, stride=(1,1,1)):
+	dual_inputs=False, run_2d=False, time_dist=True, stride=(1,1,1), skip_con=False):
 	"""Main class for setting up a CNN. Returns the compiled model."""
 
 	C = config.Config()
@@ -98,7 +99,14 @@ def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same', 'valid']
 		x = BatchNormalization(axis=4)(x)
 
 		for layer_num in range(1,len(f)):
+
 			x = layers.Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1])(x)
+
+			if skip_con and layer_num==1:
+				skip_layer = x
+			elif skip_con and layer_num==5:
+				x = Concatenate(axis=4)([x, skip_layer])
+
 			x = BatchNormalization()(x)
 			x = ActivationLayer(activation_args)(x)
 			x = Dropout(dropout[0])(x)
@@ -229,7 +237,8 @@ def build_dual_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same', 'va
 	return model
 
 def build_pretrain_model(trained_model, dilation_rate=(1,1,1), padding=['same', 'valid'], pool_sizes = [(2,2,2), (2,2,1)],
-	activation_type='relu', f=[64,128,128], kernel_size=(3,3,2), dense_units=100, last_layer=-2, add_activ=False, training=True):
+	activation_type='relu', f=[64,128,128], kernel_size=(3,3,2), dense_units=100, skip_con=False,
+	last_layer=-2, add_activ=False, training=True):
 	"""Sets up CNN with pretrained weights"""
 
 	C = config.Config()
@@ -266,15 +275,22 @@ def build_pretrain_model(trained_model, dilation_rate=(1,1,1), padding=['same', 
 			x = ActivationLayer(activation_args)(x)
 			x = Dropout(0)(x)
 			x = layers.MaxPooling3D(pool_sizes[0])(x)
-			x = BatchNormalization(axis=4)(x)
+			x = BatchNormalization(axis=4, trainable=False)(x)
 		else:
 			x = layers.MaxPooling3D(pool_sizes[0])(x)
 
-		for layer_num in range(1,len(f)):
+		for layer_num in range(1, len(f)+last_layer+4):
 			x = layers.Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1], trainable=False)(x)
-			x = BatchNormalization(trainable=False)(x, training=training)
-			if last_layer - layer_num <= -6:
-				break
+
+			if skip_con and layer_num==1:
+				skip_layer = x
+			elif skip_con and layer_num==5:
+				x = Concatenate(axis=4)([x, skip_layer])
+
+
+			x = BatchNormalization(trainable=False)(x)
+			#if last_layer - layer_num <= -6:
+			#	break
 			x = ActivationLayer(activation_args)(x)
 			x = Dropout(0)(x)
 
@@ -285,13 +301,13 @@ def build_pretrain_model(trained_model, dilation_rate=(1,1,1), padding=['same', 
 
 			x = Flatten()(x)
 			x = Dense(dense_units, trainable=False)(x)
-			x = BatchNormalization(trainable=False)(x, training=training)
+			x = BatchNormalization(trainable=False)(x)
 			if last_layer >= -2:
 				x = ActivationLayer(activation_args)(x)
 				x = Dropout(0)(x)
 				x = Dense(6, trainable=False)(x)
 				if last_layer == -1:
-					x = BatchNormalization(trainable=False)(x, training=training)
+					x = BatchNormalization(trainable=False)(x)
 	else:
 		x = Concatenate(axis=4)([art_x, ven_x, eq_x])
 

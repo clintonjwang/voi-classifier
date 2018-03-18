@@ -81,7 +81,7 @@ class Hyperparams:
 		self.epochs = 20
 		self.run_2d = False
 		self.f = [128,128,128,128]
-		self.padding = ['same','valid']
+		self.padding = ['same','same']
 		self.dropout = [0.1,0.1]
 		self.dense_units = 128
 		self.dilation_rate = (1,1,1)
@@ -93,6 +93,7 @@ class Hyperparams:
 		self.time_dist = True
 		self.optimizer = 'adam'
 		self.early_stopping = EarlyStopping(monitor='loss', min_delta=0.002, patience=3)
+		self.skip_con = False
 		#self.non_imaging_inputs = C.non_imaging_inputs
 
 	def get_best_hyperparams(self):
