@@ -154,7 +154,7 @@ def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same', 'valid']
 		x = layers.MaxPooling3D(pool_sizes[1])(x)
 		x = Flatten()(x)
 
-		x = Dense(dense_units)(x)#, kernel_initializer='normal', kernel_regularizer=l2(.01), kernel_constraint=max_norm(3.))(x)
+		x = Dense(dense_units)(x)
 		x = BatchNormalization()(x)
 		x = Dropout(dropout[1])(x)
 		x = ActivationLayer(activation_args)(x)
@@ -167,15 +167,24 @@ def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same', 'valid']
 		#y = ActivationLayer(activation_args)(y)
 		x = Concatenate(axis=1)([x, non_img_inputs])
 
-	pred_class = Dense(nb_classes, activation='softmax')(x)
+	if joke:
+		pred_gender = Dense(2, activation='softmax')(x)
+		pred_age = Dense(1)(x)
+		preds = Concatenate()([pred_gender, pred_age])
+		model = Model(img, preds)
 
-	if not dual_inputs:
-		model = Model(img, pred_class)
+		model.compile(optimizer=optimizer, loss='categorical_crossentropy', metrics=['accuracy'])
+		
 	else:
-		model = Model([img, non_img_inputs], pred_class)
-	
-	#optim = Adam(lr=0.01)#5, decay=0.001)
-	model.compile(optimizer=optimizer, loss='categorical_crossentropy', metrics=['accuracy'])
+		pred_class = Dense(nb_classes, activation='softmax')(x)
+
+		if not dual_inputs:
+			model = Model(img, pred_class)
+		else:
+			model = Model([img, non_img_inputs], pred_class)
+
+		#optim = Adam(lr=0.01)#5, decay=0.001)
+		model.compile(optimizer=optimizer, loss='categorical_crossentropy', metrics=['accuracy'])
 
 	return model
 
@@ -301,7 +310,7 @@ def build_pretrain_rcnn(trained_model, dilation_rate=(1,1,1), padding=['same', '
 
 def build_pretrain_model(trained_model, dilation_rate=(1,1,1), padding=['same', 'valid'], pool_sizes = [(2,2,2), (2,2,1)],
 	activation_type='relu', f=[64,128,128], kernel_size=(3,3,2), dense_units=100, skip_con=False,
-	last_layer=-2, add_activ=False, training=True):
+	last_layer=-2, add_activ=False, training=True, debug=False):
 	"""Sets up CNN with pretrained weights"""
 
 	C = config.Config()
@@ -342,7 +351,7 @@ def build_pretrain_model(trained_model, dilation_rate=(1,1,1), padding=['same', 
 		else:
 			x = layers.MaxPooling3D(pool_sizes[0])(x)
 
-		for layer_num in range(1, len(f)+last_layer+4):
+		for layer_num in range(1, len(f)+last_layer+3):
 			x = layers.Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1], trainable=False)(x)
 
 			if skip_con and layer_num==1:
@@ -352,12 +361,12 @@ def build_pretrain_model(trained_model, dilation_rate=(1,1,1), padding=['same', 
 
 
 			x = BatchNormalization(trainable=False)(x)
-			#if last_layer - layer_num <= -6:
-			#	break
+			if layer_num == len(f)+last_layer+2:
+				break
 			x = ActivationLayer(activation_args)(x)
 			x = Dropout(0)(x)
 
-		if last_layer >= -3:
+		if last_layer >= -2:
 			x = layers.MaxPooling3D(pool_sizes[1])(x)
 			#x = layers.AveragePooling3D((4,4,4))(x)
 			#filter_weights = Flatten()(x)
@@ -365,12 +374,11 @@ def build_pretrain_model(trained_model, dilation_rate=(1,1,1), padding=['same', 
 			x = Flatten()(x)
 			x = Dense(dense_units, trainable=False)(x)
 			x = BatchNormalization(trainable=False)(x)
-			if last_layer >= -2:
+			if last_layer >= -1:
 				x = ActivationLayer(activation_args)(x)
 				x = Dropout(0)(x)
 				x = Dense(6, trainable=False)(x)
-				if last_layer == -1:
-					x = BatchNormalization(trainable=False)(x)
+				x = BatchNormalization(trainable=False)(x)
 	else:
 		x = Concatenate(axis=4)([art_x, ven_x, eq_x])
 
@@ -380,8 +388,9 @@ def build_pretrain_model(trained_model, dilation_rate=(1,1,1), padding=['same', 
 	model_pretrain = Model(img, x)
 	model_pretrain.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
 
-	for l in range(1,len(model_pretrain.layers)):
-		model_pretrain.layers[l].set_weights(trained_model.layers[l].get_weights())
+	if not debug:
+		for l in range(1,len(model_pretrain.layers)-add_activ):
+			model_pretrain.layers[l].set_weights(trained_model.layers[l].get_weights())
 
 	return model_pretrain
 
