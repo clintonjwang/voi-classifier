@@ -199,11 +199,23 @@ def visualize_activations(model, save_path, target_values, init_img=None, rotate
 	layer_dict = dict([(layer.name, layer) for layer in model.layers[1:]])
 
 	input_img = model.input
+	init_img0 = K.constant(copy.deepcopy(np.expand_dims(init_img,0)), 'float32')
+	init_img1 = tr.rotate(copy.deepcopy(init_img), 10*pi/180)
+	init_img1 = K.constant(np.expand_dims(init_img1,0), 'float32')
+	init_img2 = tr.rotate(copy.deepcopy(init_img), -10*pi/180)
+	init_img2 = K.constant(np.expand_dims(init_img2,0), 'float32')
+
+	gauss = get_gaussian_mask(2)
 
 	# build a loss function that maximizes the activation
 	# of the nth filter of the layer considered
 	#layer_output = layer_dict[layer_name].output
-	loss = K.sum(K.square(model.output - target_values))
+	loss = K.sum(K.square(model.output - target_values)) + \
+			K.sum(K.abs(input_img - init_img0))/2 + \
+			K.sum(K.abs(input_img - init_img1))/5 + \
+			K.sum(K.abs(input_img - init_img2))/5
+			#10*K.sum(K.std(input_img,(3,4)) - K.std(init_img0,(3,4)))
+
 	# compute the gradient of the input picture wrt this loss
 	grads = K.gradients(loss, input_img)[0]
 	# normalization trick: we normalize the gradient
@@ -230,24 +242,11 @@ def visualize_activations(model, save_path, target_values, init_img=None, rotate
 			input_img_data += grads_value * step
 			if i % 2 == 0:
 				step *= .98
-			if rotate and i % 5 == 0:
+			if rotate and i % 2 == 0:
 				#random rotations for transformation robustness, see https://distill.pub/2017/feature-visualization/#enemy-of-feature-vis
 				input_img_data = np.pad(input_img_data[0], ((5,5),(5,5),(0,0),(0,0)), 'constant')
 				input_img_data = tr.rotate(input_img_data, random.uniform(-5,5)*pi/180)
 				input_img_data = np.expand_dims(input_img_data[5:-5, 5:-5, :, :], 0)
-
-
-	if False:
-		step = stepsize
-		#input_img_data = np.expand_dims(copy.deepcopy(init_img), 0)
-		for i in range(num_steps):
-			# run gradient ascent for 20 steps
-			step = stepsize
-			for i in range(num_steps):
-				loss_value, grads_value = iterate2([target_values, 1])
-				target_values += grads_value * step
-				if i % 2 == 0:
-					step *= .98
 
 	img = input_img_data[0]
 	#img = deprocess_image(img)

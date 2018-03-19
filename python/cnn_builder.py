@@ -105,7 +105,7 @@ def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same', 'valid']
 			if skip_con and layer_num==1:
 				skip_layer = x
 			elif skip_con and layer_num==5:
-				x = Concatenate(axis=4)([x, skip_layer])
+				x = layers.Add()([x, skip_layer])
 
 			x = BatchNormalization()(x)
 			x = ActivationLayer(activation_args)(x)
@@ -146,6 +146,10 @@ def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same', 'valid']
 		x = layers.SimpleRNN(dense_units)(x)
 		x = layers.BatchNormalization()(x)
 		x = layers.Dropout(dropout[1])(x)
+		x = Dense(dense_units)(x)
+		x = BatchNormalization()(x)
+		x = Dropout(dropout[1])(x)
+		x = ActivationLayer(activation_args)(x)
 	else:
 		x = layers.MaxPooling3D(pool_sizes[1])(x)
 		x = Flatten()(x)
@@ -175,7 +179,7 @@ def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same', 'valid']
 
 	return model
 
-def build_dual_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same', 'valid'], pool_sizes = [(2,2,2), (2,2,2)],
+def build_dual_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same', 'same'], pool_sizes = [(2,2,2), (2,2,2)],
 	dropout=[0.1,0.1], activation_type='relu', f=[64,128,128], dense_units=100, kernel_size=(3,3,2), stride=(1,1,1)):
 	"""Main class for setting up a CNN. Returns the compiled model."""
 
@@ -188,44 +192,44 @@ def build_dual_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same', 'va
 	context_img = layers.Input(shape=(C.context_dims[0], C.context_dims[1], C.context_dims[2], 3))
 	cx = context_img
 
-	cx = InstanceNormalization(axis=4)(cx)
+	#cx = InstanceNormalization(axis=4)(cx)
 	cx = layers.Reshape((*C.context_dims, 3, 1))(context_img)
 	cx = layers.Permute((4,1,2,3,5))(cx)
-	cx = layers.TimeDistributed(layers.Conv3D(filters=128, kernel_size=(8,8,3), dilation_rate=(2,2,2), padding='valid', activation='relu'))(cx)
+	cx = layers.TimeDistributed(layers.Conv3D(filters=64, kernel_size=(4,4,1), padding='valid', activation='relu'))(cx)
 	cx = layers.TimeDistributed(layers.MaxPooling3D((2,2,2)))(cx)
-	cx = layers.TimeDistributed(BatchNormalization(axis=4))(cx)
-	cx = layers.TimeDistributed(layers.Conv3D(filters=128, kernel_size=(6,6,3), padding='valid', activation='relu'))(cx)
-	cx = layers.TimeDistributed(BatchNormalization(axis=4))(cx)
-	cx = layers.TimeDistributed(Dropout(dropout[0]))(cx)
-	cx = layers.TimeDistributed(layers.Flatten())(cx)
+	cx = layers.TimeDistributed(layers.BatchNormalization(axis=4))(cx)
+	cx = layers.TimeDistributed(layers.Conv3D(filters=64, kernel_size=(3,3,1), padding='valid', activation='relu'))(cx)
+	cx = layers.TimeDistributed(layers.BatchNormalization(axis=4))(cx)
+	cx = layers.TimeDistributed(layers.Conv3D(filters=64, kernel_size=(3,3,1), padding='valid', activation='relu'))(cx)
+	cx = layers.TimeDistributed(layers.BatchNormalization(axis=4))(cx)
+	cx = layers.TimeDistributed(layers.Conv3D(filters=64, kernel_size=(3,3,1), padding='same', activation='relu'))(cx)
+	cx = layers.TimeDistributed(layers.BatchNormalization(axis=4))(cx)
+
 
 	img = layers.Input(shape=(C.dims[0], C.dims[1], C.dims[2], 3))
-
 	x = img
-
 	x = layers.Reshape((C.dims[0], C.dims[1], C.dims[2], 3, 1))(x)
 	x = layers.Permute((4,1,2,3,5))(x)
 
 	for layer_num in range(len(f)):
-		if layer_num == 1:
-			x = layers.TimeDistributed(layers.Conv3D(filters=f[layer_num], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[1]))(x) #, kernel_regularizer=l2(.01)
-		#elif layer_num == 0:
-		#   x = TimeDistributed(Conv3D(filters=f[layer_num], kernel_size=kernel_size, strides=stride, padding=padding[1]))(x) #, kernel_regularizer=l2(.01)
-		else:
-			x = layers.TimeDistributed(layers.Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1 * (layer_num > 1)]))(x) #, kernel_regularizer=l2(.01)
+		if layer_num == 3:
+			x = layers.Concatenate(axis=5)([x, cx])
+		x = layers.TimeDistributed(layers.Conv3D(filters=f[layer_num], kernel_size=kernel_size,
+			padding='same', activation='relu'))(x)
 		x = layers.TimeDistributed(Dropout(dropout[0]))(x)
-		x = ActivationLayer(activation_args)(x)
 		x = layers.TimeDistributed(BatchNormalization(axis=4))(x)
 		if layer_num == 0:
 			x = layers.TimeDistributed(layers.MaxPooling3D(pool_sizes[0]))(x)
 
 	x = layers.TimeDistributed(layers.MaxPooling3D(pool_sizes[1]))(x)
-
+	x = layers.TimeDistributed(layers.Conv3D(filters=128, kernel_size=(1,1,1), padding='same', activation='relu'))(x)
+	x = layers.TimeDistributed(layers.BatchNormalization(axis=4))(x)
+	x = layers.TimeDistributed(layers.Conv3D(filters=64, kernel_size=(3,3,2), padding='same', activation='relu'))(x)
+	x = layers.TimeDistributed(layers.BatchNormalization(axis=4))(x)
 	x = layers.TimeDistributed(layers.Flatten())(x)
-	x = layers.Concatenate(axis=2)([x, cx])
 
-	#x = SimpleRNN(128, return_sequences=True)(x)
-	x = layers.SimpleRNN(dense_units)(x)
+	x = SimpleRNN(128)(x)
+	x = layers.Dense(dense_units, activation='relu')(x)
 	x = layers.BatchNormalization()(x)
 	x = layers.Dropout(dropout[1])(x)
 
@@ -235,6 +239,65 @@ def build_dual_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same', 'va
 	model.compile(optimizer=optimizer, loss='categorical_crossentropy', metrics=['accuracy'])
 
 	return model
+
+def build_pretrain_rcnn(trained_model, dilation_rate=(1,1,1), padding=['same', 'valid'], pool_sizes = [(2,2,2), (2,2,1)],
+	activation_type='relu', f=[64,128,128], kernel_size=(3,3,2), dense_units=100, skip_con=False,
+	last_layer=-2, add_activ=False):
+	"""Sets up CNN with pretrained weights"""
+
+	C = config.Config()
+
+	ActivationLayer = Activation
+	activation_args = 'relu'
+
+	nb_classes = len(C.classes_to_include)
+
+	img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 3))
+	x = Reshape((C.dims[0], C.dims[1], C.dims[2], 3, 1))(img)
+	x = Permute((4,1,2,3,5))(x)
+
+	for layer_num in range(len(f)+last_layer+3):
+		if layer_num == 1:
+			x = layers.TimeDistributed(layers.Conv3D(filters=f[layer_num],
+			kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[1], trainable=False))(x) #, kernel_regularizer=l2(.01)
+		else:
+			x = layers.TimeDistributed(layers.Conv3D(filters=f[layer_num],
+			kernel_size=kernel_size, padding=padding[1 * (layer_num > 1)], trainable=False))(x) #, kernel_regularizer=l2(.01)
+
+		if layer_num == len(f)+last_layer+2:
+			break
+		x = layers.TimeDistributed(layers.Dropout(0))(x)
+		x = ActivationLayer(activation_args)(x)
+		x = layers.TimeDistributed(layers.BatchNormalization(axis=4, trainable=False))(x)
+
+		if layer_num == 0:
+			x = TimeDistributed(layers.MaxPooling3D(pool_sizes[0]))(x)
+
+		if skip_con and layer_num==1:
+			skip_layer = x
+		elif skip_con and layer_num==5:
+			x = Concatenate(axis=4)([x, skip_layer])
+
+
+	if last_layer >= -2:
+		x = layers.TimeDistributed(layers.MaxPooling3D(pool_sizes[1]))(x)
+		x = layers.TimeDistributed(Flatten())(x)
+
+		#x = SimpleRNN(128, return_sequences=True, trainable=False)(x)
+		x = layers.SimpleRNN(dense_units, trainable=False)(x)
+		x = layers.BatchNormalization()(x)
+		x = layers.Dropout(0)(x)
+
+	if add_activ:
+		x = ActivationLayer(activation_args)(x)
+
+	model_pretrain = Model(img, x)
+	model_pretrain.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+
+	for l in range(1,len(model_pretrain.layers)):
+		model_pretrain.layers[l].set_weights(trained_model.layers[l].get_weights())
+
+	return model_pretrain
 
 def build_pretrain_model(trained_model, dilation_rate=(1,1,1), padding=['same', 'valid'], pool_sizes = [(2,2,2), (2,2,1)],
 	activation_type='relu', f=[64,128,128], kernel_size=(3,3,2), dense_units=100, skip_con=False,
@@ -285,7 +348,7 @@ def build_pretrain_model(trained_model, dilation_rate=(1,1,1), padding=['same', 
 			if skip_con and layer_num==1:
 				skip_layer = x
 			elif skip_con and layer_num==5:
-				x = Concatenate(axis=4)([x, skip_layer])
+				x = layers.Add()([x, skip_layer])
 
 
 			x = BatchNormalization(trainable=False)(x)
@@ -319,6 +382,59 @@ def build_pretrain_model(trained_model, dilation_rate=(1,1,1), padding=['same', 
 
 	for l in range(1,len(model_pretrain.layers)):
 		model_pretrain.layers[l].set_weights(trained_model.layers[l].get_weights())
+
+	return model_pretrain
+
+def build_pretrain_rcnn_back(trained_model, dilation_rate=(1,1,1), padding=['same', 'same'], pool_sizes = [(2,2,2), (2,2,1)],
+	activation_type='relu', f=[64,128,128], kernel_size=(3,3,2), dense_units=100, first_layer=-3):
+	"""Sets up CNN with pretrained weights"""
+
+	C = config.Config()
+
+	ActivationLayer = Activation
+	activation_args = 'relu'
+
+	nb_classes = len(C.classes_to_include)
+
+	if first_layer <= -5:
+		img = Input(shape=(3, C.dims[0], C.dims[1], C.dims[2], f[0]))
+		x = ActivationLayer(activation_args)(img)
+		x = Dropout(0)(x)
+		x = layers.MaxPooling3D(pool_sizes[0])(x)
+		x = BatchNormalization(axis=4, trainable=False)(x)
+
+	else:
+		img = Input(shape=(3, C.dims[0]//2, C.dims[1]//2, C.dims[2]//2, f[1]))
+		x = img
+
+	for layer_num in range(-3-first_layer):
+		x = layers.TimeDistributed(layers.Conv3D(filters=f[len(f)-layer_num-1],
+		kernel_size=kernel_size, padding='same', trainable=False))(x)
+		x = layers.TimeDistributed(layers.Dropout(0))(x)
+		x = ActivationLayer(activation_args)(x)
+		x = layers.TimeDistributed(layers.BatchNormalization(axis=4, trainable=False))(x)
+
+	x = layers.TimeDistributed(layers.MaxPooling3D(pool_sizes[1]))(x)
+	x = layers.TimeDistributed(Flatten())(x)
+
+	#x = SimpleRNN(128, return_sequences=True)(x)
+	x = layers.SimpleRNN(dense_units, trainable=False)(x)
+	x = layers.BatchNormalization(trainable=False)(x)
+	x = layers.Dropout(0)(x)
+	x = Dense(dense_units, trainable=False)(x)
+	x = BatchNormalization(trainable=False)(x)
+	x = Dropout(0)(x)
+	x = ActivationLayer(activation_args)(x)
+	x = Dense(nb_classes, trainable=False)(x)
+
+	model_pretrain = Model(img, x)
+	model_pretrain.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+
+	num_l = len(model_pretrain.layers)
+	dl = len(trained_model.layers)-num_l
+
+	for l in range(num_l-1, 0, -1):
+	    model_pretrain.layers[l].set_weights(trained_model.layers[l+dl].get_weights())
 
 	return model_pretrain
 
