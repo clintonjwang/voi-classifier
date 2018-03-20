@@ -14,7 +14,7 @@ Result:
 	About 110 seconds per epoch on a single GTX1070 GPU card
 	
 Author 1: Clinton Wang, E-mail: `clintonjwang@gmail.com`, Github: `https://github.com/clintonjwang/voi-classifier`
-Author 2: Xifeng Guo, E-mail: `guoxifeng1990@163.com`, Github: `https://github.com/XifengGuo/build_capsnet-Keras`
+Author 2: Xifeng Guo, E-mail: `guoxifeng1990@163.com`, Github: `https://github.com/XifengGuo/CapsNet-Keras`
 """
 
 import os

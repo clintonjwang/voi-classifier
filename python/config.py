@@ -20,7 +20,7 @@ class Config:
 		self.nb_channels = 3
 		self.aug_factor = 100
 		self.train_frac = None#.9
-		self.test_num = 10 # only used if train_frac is None
+		self.test_num = 1 # only used if train_frac is None
 
 		self.context_dims = [36,36,12]
 		self.dual_img_inputs = False # whether to use both tight and gross image croppings for the network
@@ -45,8 +45,9 @@ class Config:
 
 		# Information about the abnormality classes
 		self.classes_to_include = ['hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh']
+		self.nb_classes = len(self.classes_to_include)
 		#self.classes_to_include = ['hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh', 'net', 'adenoma', 'abscess']
-		self.cls_names = ['hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh', 'net', 'adenoma', 'abscess']
+		self.cls_names = ['hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh']#, 'net', 'adenoma', 'abscess']
 		self.sheetnames = ['HCC', 'Cholangio', 'Colorectal', 'Cyst', 'Hemangioma', 'FNH', 'NET', 'Adenoma', 'Abscess']
 		self.short_cls_names = ['HCC', 'ICC', 'CRC Met.', 'Cyst', 'Hemang.', 'FNH']#, 'NET', 'Adenoma', 'Abscess']
 		self.patient_sheetname = 'Patient Info'
@@ -80,7 +81,7 @@ class Hyperparams:
 		self.steps_per_epoch = 750
 		self.epochs = 20
 		self.run_2d = False
-		self.f = [64,64,64,64]
+		self.f = [64,64,64,64,64]
 		self.padding = ['same','same']
 		self.dropout = [0.1,0.1]
 		self.dense_units = 100
@@ -89,8 +90,7 @@ class Hyperparams:
 		self.kernel_size = (3,3,2)
 		self.pool_sizes = [(2,2,2),(2,2,2)]
 		self.activation_type = 'relu'
-		self.merge_layer = 0
-		self.time_dist = True
+		self.rcnn = True
 		self.optimizer = 'adam'
 		self.early_stopping = EarlyStopping(monitor='loss', min_delta=0.002, patience=3)
 		self.skip_con = False
@@ -109,8 +109,7 @@ class Hyperparams:
 		self.kernel_size = (3,3,2)
 		self.pool_sizes = [(2,2,2),(2,2,1)]
 		self.activation_type = 'relu'
-		self.merge_layer = 1
-		self.time_dist = False
+		self.rcnn = False
 
 	def get_capsnet_params(self):
 		self.lr = 4
@@ -122,7 +121,7 @@ class Hyperparams:
 		self.dim_capsule = [8, 16]
 		self.dense_units = 256 #512
 		self.n_channels = 16 # 32
-		self.time_dist = False
+		self.rcnn = False
 
 	def get_random_hyperparams(self):
 		self.f = random.choice([[64,128,128], [64,64,128,128], [64,64,64,128], [64,64,128,128], [64,128,128,128], [64,128,128,128,128]])
@@ -133,5 +132,4 @@ class Hyperparams:
 		self.kernel_size = (3,3,2)
 		self.pool_sizes = [(2,2,2),(2,2,1)]
 		self.activation_type = 'relu'
-		self.merge_layer = 1
-		self.time_dist = False
+		self.rcnn = False

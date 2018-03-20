@@ -262,7 +262,6 @@ def load_patient_info(cls=None, acc_nums=None, overwrite=False, verbose=False):
 		return [mrn, sex, acc_num, age, ethnicity, cls]
 
 	C = config.Config()
-
 	i = C.cls_names.index(cls)
 	df = pd.read_excel(C.xls_name, C.sheetnames[i])
 	df = _filter_voi_df(df, C)
@@ -276,9 +275,9 @@ def load_patient_info(cls=None, acc_nums=None, overwrite=False, verbose=False):
 		patient_info_df = pd.DataFrame(columns = ["MRN", "Sex", "AccNum", "AgeAtImaging", "Ethnicity", "cls"])
 
 	if not overwrite:
-		acc_nums = acc_nums.difference(patient_info_df[patient_info_df["cls"] == cls]["AccNum"].values)
+		acc_nums = set(acc_nums).difference(patient_info_df[patient_info_df["cls"] == cls]["AccNum"].values)
 
-	i = len(patient_info_df)
+	length = len(patient_info_df)
 	print(cls)
 	for cnt, acc_num in enumerate(acc_nums):
 		df_subset = df.loc[df['Patient E Number'].astype(str) == acc_num]
@@ -300,7 +299,7 @@ def load_patient_info(cls=None, acc_nums=None, overwrite=False, verbose=False):
 				print(acc_num, end=",")
 				continue
 
-		patient_info_df.loc[cnt+i] = get_patient_info(''.join(f.readlines()))
+		patient_info_df.loc[cnt+length] = get_patient_info(''.join(f.readlines()))
 
 		if cnt % 20 == 2:
 			patient_info_df.to_csv(C.patient_info_path, index=False)

@@ -1,3 +1,7 @@
+"""
+Author: Clinton Wang, E-mail: `clintonjwang@gmail.com`, Github: `https://github.com/clintonjwang/voi-classifier`
+"""
+
 from keras.models import Model
 import keras.models
 from keras.optimizers import Adam
