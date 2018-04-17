@@ -73,13 +73,13 @@ def get_run_stats_csv():
 		running_stats = pd.read_csv(C.run_stats_path)
 		index = len(running_stats)
 	except FileNotFoundError:
-		running_stats = pd.DataFrame(columns = ["n", "n_art", "steps_per_epoch", "epochs",
-			"num_phases", "input_res", "training_fraction", "test_num", "augment_factor", "non_imaging_inputs",
+		running_stats = pd.DataFrame(columns = ["n", "steps_per_epoch", "epochs",
+			"test_num", "augment_factor", "non_imaging_inputs",
 			"kernel_size", "conv_filters", "conv_padding",
-			"dropout", "time_dist", "dilation", "dense_units",
-			"acc6cls", "acc3cls", "time_elapsed(s)", "loss_hist",
-			'hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh',
-			'confusion_matrix', 'f1', 'timestamp', 'run_num',
+			"dropout", "dense_units", "pooling",
+			"acc6cls", "acc3cls", "time_elapsed(s)", "loss_hist"] + \
+			C.classes_to_include + \
+			['confusion_matrix', 'timestamp',
 			'misclassified_test', 'misclassified_train', 'model_num',
 			'y_true', 'y_pred_raw', 'z_test'])
 
@@ -101,20 +101,20 @@ def run_fixed_hyperparams(overwrite=False, max_runs=999, hyperparams=None):
 	running_acc_6 = []
 	running_acc_3 = []
 	"""n = [4]
-				n_art = [0]
-				steps_per_epoch = [750]
-				epochs = [25]
-				run_2d = False
-				f = [[64,128,128]]
-				padding = [['valid','valid']]
-				dropout = [[0.1,0.1]]
-				dense_units = [128]
-				dilation_rate = [(1,1,1)]
-				kernel_size = [(3,3,2)]
-				pool_sizes = [(2,2,1),(1,1,2)]
-				activation_type = ['elu']
-				merge_layer = [0]
-				cycle_len = 1"""
+			n_art = [0]
+			steps_per_epoch = [750]
+			epochs = [25]
+			run_2d = False
+			f = [[64,128,128]]
+			padding = [['valid','valid']]
+			dropout = [[0.1,0.1]]
+			dense_units = [128]
+			dilation_rate = [(1,1,1)]
+			kernel_size = [(3,3,2)]
+			pool_sizes = [(2,2,1),(1,1,2)]
+			activation_type = ['elu']
+			merge_layer = [0]
+			cycle_len = 1"""
 	early_stopping = EarlyStopping(monitor='loss', min_delta=0.002, patience=3)
 	time_dist = True
 
@@ -147,10 +147,10 @@ def run_fixed_hyperparams(overwrite=False, max_runs=999, hyperparams=None):
 			X_train_orig, Y_train_orig = train_orig
 		#for _ in range(cycle_len):
 			model = cbuild.build_cnn('adam', activation_type=activation_type[index % len(activation_type)],
-					dilation_rate=dilation_rate[index % len(dilation_rate)], f=f[index % len(f)], pool_sizes=pool_sizes,
+					f=f[index % len(f)], pool_sizes=pool_sizes,
 					padding=padding[index % len(padding)], dropout=dropout[index % len(dropout)],
 					dense_units=dense_units[index % len(dense_units)], kernel_size=kernel_size[index % len(kernel_size)],
-					merge_layer=merge_layer[index % len(merge_layer)], dual_inputs=C.non_imaging_inputs, time_dist=time_dist)
+					merge_layer=merge_layer[index % len(merge_layer)], dual_inputs=C.non_imaging_inputs)
 		
 			t = time.time()
 			hist = model.fit_generator(train_generator, steps_per_epoch=steps_per_epoch[index % len(steps_per_epoch)],
@@ -177,19 +177,19 @@ def run_fixed_hyperparams(overwrite=False, max_runs=999, hyperparams=None):
 		#print("3cls accuracy:", running_acc_3[-1], " - average:", np.mean(running_acc_3))
 
 		if hyperparams is not None:
-			running_stats.loc[index] = _get_hyperparams_as_list(C, T) + [running_acc_6[-1], running_acc_3[-1], time.time()-t, loss_hist,
-								num_samples['hcc'], num_samples['cholangio'], num_samples['colorectal'], num_samples['cyst'], num_samples['hemangioma'], num_samples['fnh'],
-								cm, time.time(), #C.run_num,
+			running_stats.loc[index] = _get_hyperparams_as_list(C, T) + [running_acc_6[-1], running_acc_3[-1], time.time()-t, loss_hist] +\
+								[num_samples[k] for k in C.classes_to_include] + \
+								[cm, time.time(), #C.run_num,
 								misclassified_test, misclassified_train, model_num, y_true, str(Y_pred), list(Z_test)]
 
 		else:
-			running_stats.loc[index] = [n[C_index % len(n)], n_art[C_index % len(n_art)], steps_per_epoch[index % len(steps_per_epoch)], epochs[index % len(epochs)],
+			running_stats.loc[index] = [n[C_index % len(n)], steps_per_epoch[index % len(steps_per_epoch)], epochs[index % len(epochs)],
 								C.train_frac, C.test_num, C.aug_factor, C.non_imaging_inputs,
 								kernel_size[index % len(kernel_size)], f[index % len(f)], padding[index % len(padding)],
-								dropout[index % len(dropout)], time_dist, dilation_rate[index % len(dilation_rate)], dense_units[index % len(dense_units)],
-								running_acc_6[-1], running_acc_3[-1], time.time()-t, loss_hist,
-								num_samples['hcc'], num_samples['cholangio'], num_samples['colorectal'], num_samples['cyst'], num_samples['hemangioma'], num_samples['fnh'],
-								cm, time.time(), #C.run_num,
+								dropout[index % len(dropout)], dense_units[index % len(dense_units)],
+								running_acc_6[-1], running_acc_3[-1], time.time()-t, loss_hist] +\
+								[num_samples[k] for k in C.classes_to_include] + \
+								[cm, time.time(), #C.run_num,
 								misclassified_test, misclassified_train, model_num, y_true, str(Y_pred), list(Z_test)]
 		running_stats.to_csv(C.run_stats_path, index=False)
 
@@ -252,10 +252,10 @@ def _get_hyperparams_as_list(C=None, T=None):
 	if C is None:
 		C = config.Config()
 	
-	return [T.n, T.n_art, T.steps_per_epoch, T.epochs,
+	return [T.n, T.steps_per_epoch, T.epochs,
 			C.test_num, C.aug_factor, C.non_imaging_inputs,
 			T.kernel_size, T.f, T.padding,
-			T.dropout, T.time_dist, T.dilation_rate, T.dense_units, T.pool_sizes]
+			T.dropout, T.dense_units, T.pool_sizes]
 
 def get_random_hyperparameter_configuration():
 	T = config.Hyperparams()

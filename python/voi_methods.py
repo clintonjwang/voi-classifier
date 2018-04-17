@@ -23,6 +23,7 @@ import niftiutils.helper_fxns as hf
 import niftiutils.transforms as tr
 import numpy as np
 import os
+from os.path import *
 import pandas as pd
 import random
 from scipy.misc import imsave
@@ -50,14 +51,14 @@ def xref_dirs_with_excel(cls=None, fix_inplace=True):
 	acc_num_df = C.sheetnames[index]
 	df = pd.read_excel(C.xls_name, C.sheetnames[index])
 	voi_df = drm.get_voi_dfs()[0]
-	xls_accnums = list(df[df['Run'] <= C.run_num]['Patient E Number'].astype(str))
+	xls_accnums = list(df[df['Run'] <= C.run_num]['acc #'].astype(str))
 	unique, counts = np.unique(xls_accnums, return_counts=True)
 	xls_set = set(unique)
 	xls_cnts = dict(zip(unique, counts))
 
 	# Check for loaded images
 	for acc_num in xls_set:
-		if not os.path.exists(C.full_img_dir + "\\" + cls + "\\" + acc_num + ".npy"):
+		if not exists(C.full_img_dir + "\\" + cls + "\\" + acc_num + ".npy"):
 			print(acc_num, "is contained in the spreadsheet but has no loaded image in", C.full_img_dir)
 
 			bad_acc_nums.append(acc_num)
@@ -137,16 +138,16 @@ def xref_dirs_with_excel(cls=None, fix_inplace=True):
 	if fix_inplace and len(bad_acc_nums) > 0:
 		print("Reloading", set(bad_acc_nums))
 		for acc_num in set(bad_acc_nums):
-			reload_accnum(cls, acc_num)
+			reload_accnum(cls, [acc_num])
 
 def reload_accnum(cls=None, acc_nums=None, augment=True, overwrite=True):
-	"""Reloads cropped, scaled and augmented images. Updates voi_dfs and small_vois accordingly."""
+	#Reloads cropped, scaled and augmented images. Updates voi_dfs and small_vois accordingly.
 	C = config.Config()
 	drm.load_vois_batch(cls, acc_nums=acc_nums, overwrite=overwrite)
 
 	for base_dir in [C.crops_dir, C.orig_dir, C.aug_dir]:
-		if not os.path.exists(os.path.join(base_dir, cls)):
-			os.makedirs(os.path.join(base_dir, cls))
+		if not exists(join(base_dir, cls)):
+			os.makedirs(join(base_dir, cls))
 
 	extract_vois(cls, acc_nums)
 	save_unaugmented_set(cls, acc_nums)
@@ -161,14 +162,14 @@ def save_vois_as_imgs(cls=None, lesion_ids=None, save_dir=None, normalize=None, 
 	if save_dir is None:
 		save_dir = C.output_img_dir
 	if separate_by_cls:
-		save_dir = os.path.join(save_dir, cls)
-	if not os.path.exists(save_dir):
+		save_dir = join(save_dir, cls)
+	if not exists(save_dir):
 		os.makedirs(save_dir)
 
 	if lesion_ids is not None:
-		fns = [lesion_id+".npy" for lesion_id in lesion_ids if lesion_id+".npy" in os.listdir(os.path.join(C.orig_dir, cls))]
+		fns = [lesion_id+".npy" for lesion_id in lesion_ids if lesion_id+".npy" in os.listdir(join(C.orig_dir, cls))]
 	else:
-		fns = os.listdir(os.path.join(C.orig_dir, cls))
+		fns = os.listdir(join(C.orig_dir, cls))
 
 	for fn in fns:
 		img = np.load(C.orig_dir + cls + "\\" + fn)
@@ -215,24 +216,24 @@ def save_imgs_with_bbox(cls=None, lesion_ids=None, save_dir=None, normalize=None
 	if save_dir is None:
 		save_dir = C.output_img_dir
 	if separate_by_cls:
-		save_dir = os.path.join(save_dir, cls)
+		save_dir = join(save_dir, cls)
 		if fn_suffix is None:
 			fn_suffix = ""
 
-	if not os.path.exists(save_dir):
+	if not exists(save_dir):
 		os.makedirs(save_dir)
 		
 	if lesion_ids is None:
-		lesion_ids = [x[:-4] for x in os.listdir(os.path.join(C.crops_dir, cls))]
+		lesion_ids = [x[:-4] for x in os.listdir(join(C.crops_dir, cls))]
 	else:
-		lesion_ids = [lesion_id for lesion_id in lesion_ids if lesion_id+".npy" in os.listdir(os.path.join(C.crops_dir, cls))]
+		lesion_ids = [lesion_id for lesion_id in lesion_ids if lesion_id+".npy" in os.listdir(join(C.crops_dir, cls))]
 
 	#voi_df = drm.get_voi_dfs()[0]
 	#lesion_ids = set(lesion_ids).intersection(voi_df[voi_df["run_num"] > 2].index)
 	
 	for lesion_id in lesion_ids:
 		#cls = small_voi_df.loc[small_voi_df["id"] == lesion_id, "cls"].values[0]
-		img = np.load(os.path.join(C.crops_dir, cls, lesion_id + ".npy"))
+		img = np.load(join(C.crops_dir, cls, lesion_id + ".npy"))
 		img_slice = img[:,:, img.shape[2]//2, :].astype(float)
 		#for ch in range(img_slice.shape[-1]):
 		#	img_slice[:, :, ch] *= 255/np.amax(img_slice[:, :, ch])
@@ -323,16 +324,16 @@ def extract_vois(cls=None, acc_nums=None):
 		small_voi_df = pd.DataFrame(columns=["id", "acc_num", "cls", "coords"])
 
 	if acc_nums is None:
-		acc_nums = [x[:-4] for x in os.listdir(os.path.join(C.full_img_dir, cls))]
+		acc_nums = [x[:-4] for x in os.listdir(join(C.full_img_dir, cls))]
 
-	if not os.path.exists(os.path.join(C.crops_dir, cls)):
-		os.makedirs(os.path.join(C.crops_dir, cls))
+	if not exists(join(C.crops_dir, cls)):
+		os.makedirs(join(C.crops_dir, cls))
 
 	for img_num, acc_num in enumerate(acc_nums):
 		try:
-			img = np.load(os.path.join(C.full_img_dir, cls, acc_num+".npy"))
+			img = np.load(join(C.full_img_dir, cls, acc_num+".npy"))
 		except Exception as e:
-			#raise ValueError(e)
+			raise ValueError(e)
 			continue
 
 		art_vois = voi_df_art[(voi_df_art["acc_num"] == acc_num) & (voi_df_art["cls"] == cls)]
@@ -355,7 +356,7 @@ def extract_vois(cls=None, acc_nums=None):
 			#cropped_img = tr.normalize_intensity(cropped_img, max_intensity=2, min_intensity=None) - 1
 			#cropped_img = _scale_intensity_df(cropped_img, intensity_df[intensity_df["acc_num"] == img_fn[:img_fn.find('.')]])
 
-			np.save(os.path.join(C.crops_dir, cls, lesion_id), cropped_img)
+			np.save(join(C.crops_dir, cls, lesion_id), cropped_img)
 
 			small_voi_df = _add_small_voi(small_voi_df, lesion_id, cls, small_voi)
 
@@ -370,8 +371,10 @@ def save_unaugmented_set(cls=None, acc_nums=None, lesion_ids=None, custom_vois=N
 	"""Save unaugmented lesion images. Overwrites without checking."""
 
 	C = config.Config()
-
 	small_voi_df = pd.read_csv(C.small_voi_path)
+
+	if not exists(join(C.orig_dir, cls)):
+		os.makedirs(join(C.orig_dir, cls))
 
 	if lesion_ids is None:
 		if acc_nums is None:
@@ -382,15 +385,15 @@ def save_unaugmented_set(cls=None, acc_nums=None, lesion_ids=None, custom_vois=N
 	ret = []
 	for ix, lesion_id in enumerate(lesion_ids):
 		if custom_vois is None:
-			unaug_img = _resize_img(os.path.join(C.crops_dir, cls, lesion_id + ".npy"),
+			unaug_img = _resize_img(join(C.crops_dir, cls, lesion_id + ".npy"),
 						_get_voi_coords(small_voi_df[small_voi_df["id"] == lesion_id]))
 		else:
-			unaug_img = _resize_img(os.path.join(C.crops_dir, cls, lesion_id + ".npy"), custom_vois[ix], lesion_ratio)
+			unaug_img = _resize_img(join(C.crops_dir, cls, lesion_id + ".npy"), custom_vois[ix], lesion_ratio)
 
 		if return_img_only:
 			ret.append(unaug_img)
 		else:
-			np.save(os.path.join(C.orig_dir, cls, lesion_id), unaug_img)
+			np.save(join(C.orig_dir, cls, lesion_id), unaug_img)
 
 	return ret
 
@@ -403,6 +406,9 @@ def save_augmented_set(cls=None, acc_nums=None, num_cores=None, overwrite=True):
 	C = config.Config()
 	small_voi_df = pd.read_csv(C.small_voi_path)
 
+	if not exists(join(C.aug_dir, cls)):
+		os.makedirs(join(C.aug_dir, cls))
+
 	if acc_nums is not None:
 		fn_subset = [x for x in os.listdir(C.crops_dir + cls) if x[:x.find('_')] in acc_nums]
 		for fn in fn_subset:
@@ -411,10 +417,10 @@ def save_augmented_set(cls=None, acc_nums=None, num_cores=None, overwrite=True):
 	else:
 		t = time.time()
 		if num_cores is None:
-			num_cores = multiprocessing.cpu_count()
+			num_cores = multiprocessing.cpu_count() - 1
 
 		if num_cores > 1:
-			Parallel(n_jobs=num_cores)(delayed(_save_augmented_img)(fn, cls,
+			Parallel(n_jobs=num_cores)(delayed(_save_augmented_img)(fn[:-4], cls,
 				_get_voi_coords(small_voi_df[small_voi_df["id"] == fn[:-4]]),
 				overwrite=overwrite) for fn in os.listdir(C.crops_dir + cls))
 		else:
@@ -554,11 +560,12 @@ def _augment_img(img, voi, num_samples, add_reflections=False, save_name=None, o
 def _save_augmented_img(lesion_id, cls, voi_coords, overwrite=True):
 	"""Written in a way to allow partial overwriting"""
 	C = config.Config()
-	if not overwrite and os.path.exists(os.path.join(C.aug_dir, cls, lesion_id + "_0.npy")):
+
+	if not overwrite and exists(join(C.aug_dir, cls, lesion_id + "_0.npy")):
 		return
 
-	img = np.load(os.path.join(C.crops_dir, cls, lesion_id + ".npy"))
-	_augment_img(img, voi_coords, num_samples=C.aug_factor, save_name=os.path.join(C.aug_dir, cls, lesion_id), overwrite=overwrite)
+	img = np.load(join(C.crops_dir, cls, lesion_id + ".npy"))
+	_augment_img(img, voi_coords, num_samples=C.aug_factor, save_name=join(C.aug_dir, cls, lesion_id), overwrite=overwrite)
 
 def _scale_intensity_df(img, intensity_row, min_int=1):
 	"""Rescale intensities in img such that the max intensity of the original image has a value of 1. Min intensity is -1."""

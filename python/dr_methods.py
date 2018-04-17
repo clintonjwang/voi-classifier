@@ -29,6 +29,7 @@ import niftiutils.helper_fxns as hf
 import niftiutils.registration as reg
 import numpy as np
 import os
+from os.path import *
 import pandas as pd
 import random
 import time
@@ -62,7 +63,7 @@ def plot_check(num, lesion_id=None, cls=None, normalize=[-.8,.5]):
 	C = config.Config()
 
 	if lesion_id is None:
-		fn = random.choice(os.listdir(os.path.join(C.crops_dir, cls)))
+		fn = random.choice(os.listdir(join(C.crops_dir, cls)))
 		lesion_id = fn[:fn.find('.')]
 		print(lesion_id)
 	elif lesion_id.find('_') == -1:
@@ -77,13 +78,13 @@ def plot_check(num, lesion_id=None, cls=None, normalize=[-.8,.5]):
 			cls = small_voi_df.loc[small_voi_df["id"] == lesion_id, "cls"].values[0]
 		
 	if num == 0:
-		img = np.load(os.path.join(C.full_img_dir, cls, lesion_id[:lesion_id.find('_')] + ".npy"))
+		img = np.load(join(C.full_img_dir, cls, lesion_id[:lesion_id.find('_')] + ".npy"))
 	elif num == 1:
-		img = np.load(os.path.join(C.crops_dir, cls, lesion_id + ".npy"))
+		img = np.load(join(C.crops_dir, cls, lesion_id + ".npy"))
 	elif num == 2:
-		img = np.load(os.path.join(C.orig_dir, cls, lesion_id + ".npy"))
+		img = np.load(join(C.orig_dir, cls, lesion_id + ".npy"))
 	elif num == 3:
-		img = np.load(os.path.join(C.aug_dir, cls, lesion_id + "_" + str(random.randint(0,C.aug_factor-1)) + ".npy"))
+		img = np.load(join(C.aug_dir, cls, lesion_id + "_" + str(random.randint(0,C.aug_factor-1)) + ".npy"))
 	else:
 		raise ValueError(num + " should be 0 (uncropped), 1 (gross cropping), 2 (unaugmented) or 3 (augmented)")
 	hf.draw_slices(img, normalize=normalize)
@@ -99,7 +100,7 @@ def check_dims_df(cls=None):
 	sheetname = C.sheetnames[i]
 	df = pd.read_excel(C.xls_name, sheetname)
 	df = _filter_voi_df(df, C)
-	acc_nums = set(df['Patient E Number'].astype(str).tolist())
+	acc_nums = set(df['acc #'].astype(str).tolist())
 	dims_df = pd.read_csv(C.dims_df_path)
 	missing = acc_nums.difference(dims_df["AccNum"])
 	if len(missing) > 0:
@@ -109,23 +110,28 @@ def check_dims_df(cls=None):
 def report_missing_folders(cls=None):
 	"""Checks to see if any image phases are missing from the DICOM directories"""
 
+	import importlib
+	importlib.reload(config)
 	C = config.Config()
 	i = C.cls_names.index(cls)
 
 	df = pd.read_excel(C.xls_name, C.sheetnames[i])
 	df = _filter_voi_df(df, C)
-	acc_nums = list(set(df['Patient E Number'].tolist()))
+	acc_nums = list(set(df['acc #'].tolist()))
 
 	for cnt, acc_num in enumerate(acc_nums):
-		df_subset = df.loc[df['Patient E Number'].astype(str) == acc_num]
+		df_subset = df.loc[df['acc #'].astype(str) == acc_num]
 		subfolder = C.img_dirs[i] + "\\" + acc_num
 
-		if not os.path.exists(subfolder + "\\T1_AP"):
-			print(subfolder + "\\T1_AP is missing")
-		if not os.path.exists(subfolder + "\\T1_VP"):
-			print(subfolder + "\\T1_VP is missing")
-		if not os.path.exists(subfolder + "\\T1_EQ"):
-			print(subfolder + "\\T1_EQ is missing")
+		if not exists(subfolder + "\\T1_multiphase"):
+			if not exists(subfolder + "\\T1_AP"):
+				print(subfolder)
+				continue
+				print(subfolder + "\\T1_AP is missing")
+			if not exists(subfolder + "\\T1_VP"):
+				print(subfolder + "\\T1_VP is missing")
+			if not exists(subfolder + "\\T1_EQ"):
+				print(subfolder + "\\T1_EQ is missing")
 
 ###########################
 ### METHODS FOR EXTRACTING VOIS FROM THE SPREADSHEET
@@ -135,6 +141,8 @@ def report_missing_folders(cls=None):
 def dcm2npy_batch(cls=None, acc_nums=None, update_intensities=False, overwrite=False, verbose=False):
 	"""Converts dcms to full-size npy, update dims_df and (optionally) update intensity_df."""
 
+	import importlib
+	importlib.reload(config)
 	C = config.Config()
 
 	try:
@@ -147,18 +155,18 @@ def dcm2npy_batch(cls=None, acc_nums=None, update_intensities=False, overwrite=F
 	src_data_df = pd.read_excel(C.xls_name, C.sheetnames[i])
 	src_data_df = _filter_voi_df(src_data_df, C)
 
-	if not os.path.exists(os.path.join(C.full_img_dir, cls)):
-		os.makedirs(os.path.join(C.full_img_dir, cls))
+	if not exists(join(C.full_img_dir, cls)):
+		os.makedirs(join(C.full_img_dir, cls))
 
 	if acc_nums is None:
-		acc_nums = list(set(src_data_df['Patient E Number'].values))
+		acc_nums = list(set(src_data_df['acc #'].values))
 	else:
-		acc_nums = set(acc_nums).intersection(src_data_df['Patient E Number'].values)
+		acc_nums = set(acc_nums).intersection(src_data_df['acc #'].values)
 
 	for cnt, acc_num in enumerate(acc_nums):
-		dims_df = _dcm2npy(load_dir=os.path.join(C.img_dirs[i], acc_num),
-			save_path=os.path.join(C.full_img_dir, cls, str(acc_num) + ".npy"), dims_df=dims_df,
-			info=src_data_df.loc[src_data_df['Patient E Number'].astype(str) == acc_num],
+		dims_df = _dcm2npy(load_dir=join(C.img_dirs[i], acc_num),
+			save_path=join(C.full_img_dir, cls, str(acc_num) + ".npy"), dims_df=dims_df,
+			info=src_data_df.loc[src_data_df['acc #'].astype(str) == acc_num],
 			overwrite=overwrite, verbose=verbose)
 		
 		if update_intensities:
@@ -169,10 +177,10 @@ def dcm2npy_batch(cls=None, acc_nums=None, update_intensities=False, overwrite=F
 		elif cnt % 5 == 2:
 			print(".", end="")
 	
-	dims_df.to_csv(C.dims_df_path, index=False)
+		dims_df.to_csv(C.dims_df_path, index=False)
 
 @autofill_cls_arg
-def load_vois_batch(cls=None, acc_nums=None, overwrite=True, verbose=False):
+def load_vois_batch(cls=None, acc_nums=None, overwrite=False, verbose=False):
 	"""Updates the voi_dfs based on the raw spreadsheet.
 	dcm2npy_batch() must be run first to produce full size npy images."""
 
@@ -184,9 +192,9 @@ def load_vois_batch(cls=None, acc_nums=None, overwrite=True, verbose=False):
 	src_data_df = pd.read_excel(C.xls_name, C.sheetnames[i])
 	src_data_df = _filter_voi_df(src_data_df, C)
 	if acc_nums is None:
-		acc_nums = list(set(src_data_df['Patient E Number'].values))
+		acc_nums = list(set(src_data_df['acc #'].values))
 	else:
-		acc_nums = set(acc_nums).intersection(src_data_df['Patient E Number'].values)
+		acc_nums = set(acc_nums).intersection(src_data_df['acc #'].values)
 	
 	voi_df_art, voi_df_ven, voi_df_eq = get_voi_dfs()
 
@@ -267,7 +275,7 @@ def load_patient_info(cls=None, acc_nums=None, overwrite=False, verbose=False):
 	df = _filter_voi_df(df, C)
 
 	if acc_nums is None:
-		acc_nums = set(df['Patient E Number'].astype(str).values)
+		acc_nums = set(df['acc #'].astype(str).values)
 
 	try:
 		patient_info_df = pd.read_csv(C.patient_info_path)
@@ -280,9 +288,9 @@ def load_patient_info(cls=None, acc_nums=None, overwrite=False, verbose=False):
 	length = len(patient_info_df)
 	print(cls)
 	for cnt, acc_num in enumerate(acc_nums):
-		df_subset = df.loc[df['Patient E Number'].astype(str) == acc_num]
-		subdir = os.path.join(C.img_dirs[i], acc_num)
-		fn = os.path.join(subdir, "T1_AP", "metadata.xml")
+		df_subset = df.loc[df['acc #'].astype(str) == acc_num]
+		subdir = join(C.img_dirs[i], acc_num)
+		fn = join(subdir, "T1_AP", "metadata.xml")
 
 		try:
 			f = open(fn, 'r')
@@ -290,8 +298,8 @@ def load_patient_info(cls=None, acc_nums=None, overwrite=False, verbose=False):
 			missing_metadata = True
 			foldernames = [x for x in os.listdir(subdir) if 'T1' in x or 'post' in x or 'post' in x]
 			for folder in foldernames:
-				fn = os.path.join(subdir, folder, "metadata.xml")
-				if os.path.exists(fn):
+				fn = join(subdir, folder, "metadata.xml")
+				if exists(fn):
 					f = open(fn, 'r')
 					missing_metadata = False
 					break
@@ -417,9 +425,9 @@ def _filter_voi_df(df, filters):
 	"""Select only rows for this run. Collect acc_nums and voi coordinates."""
 	
 	df = df[df['Run'] <= filters.run_num].dropna(subset=["x1"])
-	df['Patient E Number'] = df['Patient E Number'].astype(str)
+	df['acc #'] = df['acc #'].astype(str)
 	
-	return df.drop(set(df.columns).difference(['Patient E Number', 
+	return df.drop(set(df.columns).difference(['acc #', 
 		  'x1', 'x2', 'y1', 'y2', 'z1', 'z2', 'Flipped',
 		  'x3', 'x4', 'y3', 'y4', 'z3', 'z4',
 		  'x5', 'x6', 'y5', 'y6', 'z5', 'z6', 'Run']), axis=1)
@@ -428,9 +436,9 @@ def _dcm2npy(load_dir, save_path, dims_df, info=None, flip_x=True, overwrite=Tru
 	"""Assumes save_path's folder has already been created."""
 
 	C = config.Config()
-	acc_num = info.iloc[0]["Patient E Number"]
+	acc_num = info.iloc[0]["acc #"]
 
-	if os.path.exists(save_path) and not overwrite:
+	if exists(save_path) and not overwrite:
 		if verbose:
 			print(acc_num, "has already been saved. Skipping.")
 		return dims_df
@@ -439,19 +447,28 @@ def _dcm2npy(load_dir, save_path, dims_df, info=None, flip_x=True, overwrite=Tru
 		print(acc_num, "not properly marked in the spreadsheet")
 		return dims_df
 
-	try:
-		art, cur_dims = hf.dcm_load(os.path.join(load_dir, "T1_AP"), flip_x=flip_x)
-	except ValueError:
-		raise ValueError(load_dir + " cannot be loaded")
-	
-	# register phases if venous was not specified separately
-	ven, _ = hf.dcm_load(os.path.join(load_dir, "T1_VP"), flip_x=flip_x)
-	if np.all([np.isnan(x) for x in info['x3'].values]):
-		ven, _ = reg.reg_elastix(moving=ven, fixed=art)
+	if exists(join(load_dir, "T1_AP")):
+		try:
+			art, cur_dims = hf.dcm_load(join(load_dir, "T1_AP"), flip_x=flip_x)
+		except ValueError:
+			raise ValueError(load_dir + " cannot be loaded")
+		
+		# register phases if venous was not specified separately
+		ven, _ = hf.dcm_load(join(load_dir, "T1_VP"), flip_x=flip_x)
+		if np.all([np.isnan(x) for x in info['x3'].values]):
+			ven, _ = reg.reg_elastix(moving=ven, fixed=art)
 
-	eq, _ = hf.dcm_load(os.path.join(load_dir, "T1_EQ"), flip_x=flip_x)
-	if np.all([np.isnan(x) for x in info['x5'].values]):
-		eq, _ = reg.reg_elastix(moving=eq, fixed=art)
+		eq, _ = hf.dcm_load(join(load_dir, "T1_EQ"), flip_x=flip_x)
+		if np.all([np.isnan(x) for x in info['x5'].values]):
+			eq, _ = reg.reg_elastix(moving=eq, fixed=art)
+
+	else:
+		target_dirs = [join(load_dir, "T1_multiphase")]*3
+		try:
+			art, cur_dims = hf.dcm_load(join(load_dir, "T1_multiphase"), flip_x=flip_x)
+		except ValueError:
+			raise ValueError(load_dir + " cannot be loaded")
+		ven = eq = art
 
 	try:
 		img = np.transpose(np.stack((art, ven, eq)), (1,2,3,0))
@@ -479,9 +496,9 @@ def _load_vois(cls, acc_num, voi_dfs=None):
 			else:
 			    index = acc_num + "_0"
 
-			real_dx = (x[1] - x[0])*vox_dims[0]
-			real_dy = (y[1] - y[0])*vox_dims[1]
-			real_dz = (z[1] - z[0])*vox_dims[2]
+			real_dx = abs(x[1] - x[0])*vox_dims[0]
+			real_dy = abs(y[1] - y[0])*vox_dims[1]
+			real_dz = abs(z[1] - z[0])*vox_dims[2]
 
 			voi_df.loc[index] = [str(acc_num), x[0], x[1], y[0], y[1], z[0], z[1], cls, real_dx, real_dy, real_dz, run_num]
 			return voi_df, index
@@ -502,8 +519,8 @@ def _load_vois(cls, acc_num, voi_dfs=None):
 	src_data_df = pd.read_excel(C.xls_name, C.sheetnames[C.cls_names.index(cls)])
 	src_data_df = _filter_voi_df(src_data_df, C)
 
-	df_subset = src_data_df.loc[src_data_df['Patient E Number'].astype(str) == acc_num]
-	img = np.load(os.path.join(C.full_img_dir, cls, str(acc_num) + ".npy"))
+	df_subset = src_data_df.loc[src_data_df['acc #'].astype(str) == acc_num]
+	img = np.load(join(C.full_img_dir, cls, str(acc_num) + ".npy"))
 
 	for _, row in df_subset.iterrows():
 		x = (int(row['x1']), int(row['x2']))
