@@ -21,7 +21,7 @@ class Config:
 		self.nb_channels = 3
 		self.aug_factor = 100
 		self.train_frac = None#.9
-		self.test_num = 5 # only used if train_frac is None
+		self.test_num = 10 # only used if train_frac is None
 
 		self.context_dims = [36,36,12]
 		self.dual_img_inputs = False # whether to use both tight and gross image croppings for the network
@@ -78,6 +78,8 @@ class Config:
 		self.short_cls_names = ['HCC', 'ICC', 'CRC Met.', 'Cyst', 'Hemang.', 'FNH', 'NET', 'Adenoma', 'Abscess']
 		
 	def use_paula_dataset(self):
+		self.test_num = 5
+
 		self.classes_to_include = ['hcc', 'non-hcc']
 		self.nb_classes = len(self.classes_to_include)
 		self.cls_names = self.classes_to_include
