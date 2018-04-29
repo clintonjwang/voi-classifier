@@ -38,10 +38,8 @@ import voi_methods as vm
 ###########################
 
 def feature_id_bulk(model_nums):
+	importlib.reload(cbuild)
 	C = config.Config()
-	data_dir = r"C:\Users\Clinton\Documents\voi-classifier\data"
-	answer_key = join(data_dir, "ground_truth.xlsx")
-	answer_key = pd.read_excel(answer_key, index_col=0)
 
 	orig_data_dict, num_samples = cbuild._collect_unaug_data()
 
@@ -73,28 +71,52 @@ def feature_id_bulk(model_nums):
 	lesion_sizes = [np.product(voi_df.loc[z, ["real_dx","real_dy","real_dz"]].values)**(1/3) for z in z_test]
 	size_cutoff = np.percentile(np.product(voi_df.loc[voi_df["cls"]=="fnh", ["real_dx","real_dy","real_dz"]].values,1)**(1/3), 75)
 
-	FEAT_DATA = np.zeros((num_features,3))
-	CLS_DATA = np.zeros((C.nb_classes,3))
-	MISCLS = np.zeros(4)
-	FIRST = np.zeros(2)
-	MISFIRST = np.zeros(2)
+	full_dfs = []
 
 	for model_ix in model_nums:
-		model = keras.models.load_model(join(C.model_dir, "models_%d.hdf5" % model_ix)) #models_305
-		model_dense = cbuild.pretrain_cnn(model, padding = ['same','valid'], last_layer=-2, add_activ=True)
+		model = keras.models.load_model(join(C.model_dir, "model_reader_new%d.hdf5" % model_ix)) #models_305
+		model_dense = cbuild.pretrain_cnn(model, padding=['same','valid'], last_layer=-2, add_activ=True)
 
 		fixed_indices = np.empty([num_features, num_annotations])
 		for f_ix,f in enumerate(all_features):
-			if len(np.where(np.isin(all_lesionids, random.sample(set(Z_features[f]), num_annotations)))[0]) < 10:
-				print(f,Z_features[f])
+			if not np.all(np.isin(Z_features[f], all_lesionids)):
+				print(f,set(Z_features[f]).difference(all_lesionids))
 			fixed_indices[f_ix, :] = np.where(np.isin(all_lesionids, random.sample(set(Z_features[f]), num_annotations)))[0]
 		fixed_indices = fixed_indices.astype(int)
 
 		all_dense = get_overall_activations(model_dense, orig_data_dict)
 		feature_dense = get_feature_activations(model_dense, Z_features, all_features)
 		df = predict_test_features(model, model_dense, all_dense, feature_dense, x_test, z_test, size_cutoff, lesion_sizes)
+		full_dfs.append(df)
 
-		acc_df = pd.DataFrame(columns=["num_correct", "predicted_freq", "true_freq"])
+	return full_dfs
+
+def process_feat_id_dfs(all_features, DFs):
+	C = config.Config()
+	
+	num_features = len(all_features) # number of features
+	data_dir = r"C:\Users\Clinton\Documents\voi-classifier\data"
+	answer_key = join(data_dir, "ground_truth.xlsx")
+	answer_key = pd.read_excel(answer_key, index_col=0)
+
+	FEAT_DATA = np.zeros((num_features,3))
+	CLS_DATA = np.zeros((C.nb_classes,3))
+	MISCLS = np.zeros(4)
+	FIRST = np.zeros(2)
+	MISFIRST = np.zeros(2)
+
+
+	prec_history = {"total":[]}
+	recall_history = {"total":[]}
+	for f in sorted(all_features):
+		prec_history[f] = []
+		recall_history[f] = []
+	for cls in sorted(C.classes_to_include):
+		prec_history[cls] = []
+		recall_history[cls] = []
+
+	for df in DFs:
+		acc_df = pd.DataFrame(columns=["num_correct", "pred_freq", "true_freq"])
 
 		for f in sorted(all_features):
 			num, prec_den, rec_den = 0,0,0
@@ -109,10 +131,15 @@ def feature_id_bulk(model_nums):
 				if f in answer_features:
 					rec_den += 1
 			acc_df.loc[f] = [num, prec_den, rec_den]
+			prec_history[f].append(num/(prec_den+1e-4))
+			recall_history[f].append(num/rec_den)
 		FEAT_DATA += acc_df.values.astype(float)
 
+		prec_history["total"].append(acc_df["num_correct"].sum()/acc_df["pred_freq"].sum())
+		recall_history["total"].append(acc_df["num_correct"].sum()/acc_df["true_freq"].sum())
+
 		# by lesion class
-		cls_df = pd.DataFrame(columns=["num_correct", "predicted_freq", "true_freq"])
+		acc_df = pd.DataFrame(columns=["num_correct", "pred_freq", "true_freq"])
 		for cls in sorted(C.classes_to_include):
 			num, prec_den, rec_den = 0,0,0
 			for key, row in answer_key.iterrows():
@@ -124,8 +151,10 @@ def feature_id_bulk(model_nums):
 				num += len([f for f in answer_features if f in pred_features])
 				prec_den += len([f for f in pred_features if f not in ignore_features])
 				rec_den += len(answer_features)
-			cls_df.loc[cls] = [num, prec_den, rec_den]
-		CLS_DATA += cls_df.values.astype(float)
+			acc_df.loc[cls] = [num, prec_den, rec_den]
+			prec_history[cls].append(num/(prec_den+1e-4))
+			recall_history[cls].append(num/rec_den)
+		CLS_DATA += acc_df.values.astype(float)
 
 		# misclassified lesions only
 		num, prec_den, rec_den = 0,0,0
@@ -164,10 +193,10 @@ def feature_id_bulk(model_nums):
 			rec_den += 1
 		MISFIRST += np.array([num, rec_den], float)
 
-	combine_feat_df = pd.DataFrame(FEAT_DATA, index=sorted(all_features), columns=["num_correct", "predicted_freq", "true_freq"])
-	combine_cls_df = pd.DataFrame(CLS_DATA, index=sorted(C.classes_to_include), columns=["num_correct", "predicted_freq", "true_freq"])
+	feat_df = pd.DataFrame(FEAT_DATA, index=sorted(all_features), columns=["num_correct", "pred_freq", "true_freq"])
+	cls_df = pd.DataFrame(CLS_DATA, index=sorted(C.classes_to_include), columns=["num_correct", "pred_freq", "true_freq"])
 
-	return combine_feat_df, combine_cls_df, MISCLS, FIRST, MISFIRST
+	return feat_df, cls_df, MISCLS, FIRST, MISFIRST, prec_history, recall_history
 
 @njit
 def get_spatial_overlap(w, f_c3_ch, ch_weights, num_rel_f):
@@ -464,22 +493,18 @@ def predict_test_features(full_model, model_dense, all_dense, feature_dense, x_t
 		
 		f1='infiltrative growth'
 		f2='nodular growth'
-		evidence[f1] -= 10
-		evidence[f2] -= 10
+		evidence[f1] -= 40
+		evidence[f2] -= 40
 		if evidence[f1] < evidence[f2]:
-			evidence[f1] -= 20
+			evidence[f1] -= 40
 		else:
 			evidence[f2] -= 20
-			
-		evidence["progressive centripetal filling"] -= 20
-		evidence["sharp margins"] -= 15
-		evidence["washout"] -= 10
 
 		f3='central scar'
 		if lesion_sizes[img_ix] < size_cutoff:
-			evidence[f3] -= 50
+			evidence[f3] -= 150
 		else:
-			evidence[f3] -= 20
+			evidence[f3] -= 35
 		
 		f4='isointense on venous/delayed phase'
 		f5='washout'
@@ -487,20 +512,20 @@ def predict_test_features(full_model, model_dense, all_dense, feature_dense, x_t
 			evidence.pop(f4)
 		else:
 			evidence.pop(f5)
-		#top3 = np.array(sorted(evidence.items(), key=lambda x:x[1], reverse=True)[:3])[:,0]
-		#if f4 not in top3:
-		#    evidence.pop(f4)
-		#if f5 not in top3:
-		#    evidence.pop(f5)
+
+		#top4 = np.array(sorted(evidence.items(), key=lambda x:x[1], reverse=True)[:4])[:,0]
+		#if 'heterogeneous lesion' not in top4:
+		#    evidence.pop(f1)
+		#    evidence.pop(f2)
 
 		for f,strength in sorted(evidence.items(), key=lambda x:x[1], reverse=True)[:4]:
 			row += [f, strength]
 			
-		if np.mean([row[-7], row[-5], row[-3]]) / 3 > row[-1]:
-			row[-2] = ''
+		#if np.mean([row[-7], row[-5], row[-3]]) / 3 > row[-1]:
+		#	row[-2] = ''
 			
-		if np.mean([row[-7], row[-5]]) / 3 > row[-3]:
-			row[-4] = ''
+		#if np.mean([row[-7], row[-5]]) / 3 > row[-3]:
+		#	row[-4] = ''
 			
 		df.loc[z] = row
 
@@ -568,14 +593,18 @@ def get_annotated_files(features_by_cls, num_samples=10):
 			if f not in Z_features:
 				Z_features[f] = []
 				
-			Z_features_by_cls[cls][f] = [x for x in feature_sheet[feature_sheet["evidence1"+cls] == f][cls].values]
-			Z_features[f] += [x for x in feature_sheet[feature_sheet["evidence1"+cls] == f][cls].values]
+			Z_features_by_cls[cls][f] = [x for x in feature_sheet[(feature_sheet["evidence1"+cls] == f) & ~(feature_sheet["test"+cls] >= 0)][cls].values]
+			Z_features[f] += Z_features_by_cls[cls][f]
 			if feature_sheet["evidence2"+cls].dropna().size > 0:
-				Z_features_by_cls[cls][f] = Z_features_by_cls[cls][f] + [x+".npy" for x in feature_sheet[feature_sheet["evidence2"+cls] == f][cls].values]
-				Z_features[f] += [x for x in feature_sheet[feature_sheet["evidence2"+cls] == f][cls].values]
+				X = [x for x in \
+						feature_sheet[(feature_sheet["evidence2"+cls] == f) & ~(feature_sheet["test"+cls] >= 0)][cls].values]
+				Z_features_by_cls[cls][f] += X
+				Z_features[f] += X
 
 	for f in Z_features:
-		Z_features[f] = np.random.choice(Z_features[f], num_samples, replace=False)
+		if len(Z_features[f]) < 10:
+			print(f, Z_features[f])
+		#Z_features[f] = np.random.choice(Z_features[f], num_samples, replace=False)
 
 	return Z_features
 

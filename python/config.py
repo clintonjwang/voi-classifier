@@ -27,10 +27,10 @@ class Config:
 		self.dual_img_inputs = False # whether to use both tight and gross image croppings for the network
 		self.non_imaging_inputs = False # whether non-imaging inputs should be incorporated into the neural network
 
-		self.lesion_ratio = 0.75 # ratio of the lesion side length to the length of the cropped image
+		self.lesion_ratio = 0.7 # ratio of the lesion side length to the length of the cropped image
 
-		self.intensity_local_frac = .5 # normalizes all images locally by this fraction
-		self.hard_scale = False # if True, normalizes all images within the tightly cropped region
+		self.pre_scale = .5 # normalizes images at augmentation time
+		self.post_scale = 0. # normalizes images at train/test time
 
 		self.base_dir = "C:\\Users\\Clinton\\Documents\\voi-classifier"
 		self.art_voi_path = join(self.base_dir, "data\\voi_art_full.csv")

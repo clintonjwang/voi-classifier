@@ -54,43 +54,6 @@ def autofill_cls_arg(func):
 ### QC methods
 ###########################
 
-def plot_check(num, lesion_id=None, cls=None, normalize=[-.8,.5]):
-	"""Plot the unscaled, cropped or augmented versions of a lesion.
-	Lesion selected at random from cls if lesion_id is None.
-	Either lesion_id or cls must be specified.
-	If accession number is put instead of lesion_id, picks the first lesion."""
-
-	C = config.Config()
-
-	if lesion_id is None:
-		fn = random.choice(os.listdir(join(C.crops_dir, cls)))
-		lesion_id = fn[:fn.find('.')]
-		print(lesion_id)
-	elif lesion_id.find('_') == -1:
-		lesion_id += '_0'
-	
-	if lesion_id is not None and cls is None:
-		small_voi_df = pd.read_csv(C.small_voi_path)
-		try:
-			cls = small_voi_df.loc[small_voi_df["id"] == lesion_id, "cls"].values[0]
-		except:
-			lesion_id += "_0"
-			cls = small_voi_df.loc[small_voi_df["id"] == lesion_id, "cls"].values[0]
-		
-	if num == 0:
-		img = np.load(join(C.full_img_dir, cls, lesion_id[:lesion_id.find('_')] + ".npy"))
-	elif num == 1:
-		img = np.load(join(C.crops_dir, cls, lesion_id + ".npy"))
-	elif num == 2:
-		img = np.load(join(C.orig_dir, cls, lesion_id + ".npy"))
-	elif num == 3:
-		img = np.load(join(C.aug_dir, cls, lesion_id + "_" + str(random.randint(0,C.aug_factor-1)) + ".npy"))
-	else:
-		raise ValueError(num + " should be 0 (uncropped), 1 (gross cropping), 2 (unaugmented) or 3 (augmented)")
-	hf.draw_slices(img, normalize=normalize)
-
-	return img
-
 @autofill_cls_arg
 def check_dims_df(cls=None):
 	"""Checks to see if dims_df is missing any accession numbers."""

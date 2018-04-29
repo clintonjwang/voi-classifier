@@ -35,6 +35,7 @@ from scipy.misc import imsave
 from skimage.transform import rescale
 from sklearn.metrics import confusion_matrix, f1_score, accuracy_score
 import time
+import importlib
 
 import dr_methods as drm
 import voi_methods as vm
@@ -62,11 +63,12 @@ def build_cnn_hyperparams(hyperparams):
 			dual_inputs=C.non_imaging_inputs, run_2d=hyperparams.run_2d,
 			skip_con=hyperparams.skip_con)
 
-def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same', 'same'], pool_sizes = [(2,2,2), (2,2,2)],
+def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same','same'], pool_sizes = [(2,2,2), (2,2,2)],
 	dropout=[0.1,0.1], activation_type='relu', f=[64,128,128], dense_units=100, kernel_size=(3,3,2),
 	dual_inputs=False, run_2d=False, stride=(1,1,1), skip_con=False, trained_model=None):
 	"""Main class for setting up a CNN. Returns the compiled model."""
 
+	importlib.reload(config)
 	C = config.Config()
 
 	if activation_type == 'elu':
@@ -160,7 +162,7 @@ def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same', 'same'],
 
 	return model
 
-def build_rcnn(optimizer='adam', padding=['same', 'same'], pool_sizes = [(2,2,2), (2,2,2)],
+def build_rcnn(optimizer='adam', padding=['same','same'], pool_sizes = [(2,2,2), (2,2,2)],
 	dropout=[0.1,0.1], activation_type='relu', f=[64,64,64,64,64], dense_units=100, kernel_size=(3,3,2),
 	dual_inputs=False, skip_con=False, trained_model=None, first_layer=0, last_layer=0, add_activ=False, debug=False):
 	"""Main class for setting up a CNN. Returns the compiled model."""
@@ -249,7 +251,7 @@ def build_rcnn(optimizer='adam', padding=['same', 'same'], pool_sizes = [(2,2,2)
 
 	return model
 
-def build_dual_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same', 'same'], pool_sizes = [(2,2,2), (2,2,2)],
+def build_dual_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same','same'], pool_sizes = [(2,2,2), (2,2,2)],
 	dropout=[0.1,0.1], activation_type='relu', f=[64,128,128], dense_units=100, kernel_size=(3,3,2), stride=(1,1,1)):
 	"""Main class for setting up a CNN. Returns the compiled model."""
 
@@ -310,12 +312,13 @@ def build_dual_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same', 'sa
 
 	return model
 
-def pretrain_cnn(trained_model, dilation_rate=(1,1,1), padding=['same', 'same'], pool_sizes = [(2,2,2), (2,2,1)],
+def pretrain_cnn(trained_model, padding=['same','same'], pool_sizes=[(2,2,2), (2,2,1)],
 	activation_type='relu', f=[64,128,128], kernel_size=(3,3,2), dense_units=100, skip_con=False,
 	last_layer=-2, add_activ=False, training=True, debug=False):
 	"""Sets up CNN with pretrained weights"""
 
 	C = config.Config()
+	dilation_rate=(1,1,1)
 
 	ActivationLayer = Activation
 	activation_args = 'relu'
@@ -333,25 +336,25 @@ def pretrain_cnn(trained_model, dilation_rate=(1,1,1), padding=['same', 'same'],
 	eq_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,2], axis=4))(img)
 	eq_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0], trainable=False)(eq_x)
 
-	if padding!=['same', 'same']:
-		art_x = BatchNormalization(trainable=False)(art_x, training=training)
-		ven_x = BatchNormalization(trainable=False)(ven_x, training=training)
-		eq_x = BatchNormalization(trainable=False)(eq_x, training=training)
+	#if padding != ['same', 'same']:
+	#	art_x = BatchNormalization(trainable=False)(art_x, training=training)
+	#	ven_x = BatchNormalization(trainable=False)(ven_x, training=training)
+	#	eq_x = BatchNormalization(trainable=False)(eq_x, training=training)
 
 	if last_layer >= -5:
-		if padding!=['same', 'same']:
-			art_x = ActivationLayer(activation_args)(art_x)
-			ven_x = ActivationLayer(activation_args)(ven_x)
-			eq_x = ActivationLayer(activation_args)(eq_x)
+		#if padding != ['same', 'same']:
+		#	art_x = ActivationLayer(activation_args)(art_x)
+		#	ven_x = ActivationLayer(activation_args)(ven_x)
+		#	eq_x = ActivationLayer(activation_args)(eq_x)
 
 		x = Concatenate(axis=4)([art_x, ven_x, eq_x])
-		if padding==['same', 'same']:
-			x = ActivationLayer(activation_args)(x)
-			x = Dropout(0)(x)
-			x = layers.MaxPooling3D(pool_sizes[0])(x)
-			x = BatchNormalization(axis=4, trainable=False)(x)
-		else:
-			x = layers.MaxPooling3D(pool_sizes[0])(x)
+		#if padding == ['same', 'same']:
+		x = ActivationLayer(activation_args)(x)
+		x = Dropout(0)(x)
+		x = layers.MaxPooling3D(pool_sizes[0])(x)
+		x = BatchNormalization(axis=4, trainable=False)(x)
+		#else:
+		#x = layers.MaxPooling3D(pool_sizes[0])(x)
 
 		for layer_num in range(1, len(f)+last_layer+2):
 			x = layers.Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1], trainable=False)(x)
@@ -583,7 +586,7 @@ def get_cnn_data(n=4, n_art=0, run_2d=False, Z_test_fixed=None, verbose=False):
 	"""Subroutine to run CNN
 	n is number of real samples, n_art is number of artificial samples
 	Z_test is filenames"""
-
+	importlib.reload(config)
 	C = config.Config()
 
 	nb_classes = len(C.classes_to_include)
@@ -811,8 +814,8 @@ def _collect_unaug_demogr():
 			img_path = os.path.join(C.orig_dir, cls, lesion_id+".npy")
 			try:
 				x[index] = np.load(img_path)
-				if C.hard_scale:
-					x[index] = tr.normalize_intensity(x[index], 1, 0)#, keep_min=True)
+				if C.post_scale > 0:
+					x[index] = tr.normalize_intensity(x[index], 1., -1., C.post_scale)
 			except:
 				raise ValueError(img_path + " not found")
 			z.append(lesion_id)
@@ -949,8 +952,11 @@ def _train_generator_func(test_ids, n=12, n_art=0):
 				lesion_id = img_fn[:img_fn.rfind('_')]
 				if lesion_id not in test_ids[cls]:
 					x1[train_cnt] = np.load(C.aug_dir+cls+"\\"+img_fn)
-					if C.hard_scale:
-						x1[train_cnt] = tr.normalize_intensity(x1[train_cnt], 1, 0)
+					try:
+						if C.post_scale > 0:
+							x1[train_cnt] = tr.normalize_intensity(x1[train_cnt], 1., -1., C.post_scale)
+					except:
+						vm.reset_accnum(lesion_id[:lesion_id.find('_')])
 
 					if C.dual_img_inputs:
 						tmp = np.load(os.path.join(C.crops_dir, cls, lesion_id+".npy"))
@@ -1076,8 +1082,8 @@ def _collect_unaug_data():
 			img_path = os.path.join(C.orig_dir, cls, lesion_id+".npy")
 			try:
 				x[index] = np.load(img_path)
-				if C.hard_scale:
-					x[index] = tr.normalize_intensity(x[index], 1, 0)
+				if C.post_scale > 0:
+					x[index] = tr.normalize_intensity(x[index], 1., -1., C.post_scale)
 			except:
 				raise ValueError(img_path + " not found")
 			z.append(lesion_id)
