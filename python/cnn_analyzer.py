@@ -218,6 +218,39 @@ def get_spatial_overlap(w, f_c3_ch, ch_weights, num_rel_f):
 
 def calculate_W(f_conv_ch, all_features, relevant_features, num_rel_f, num_channels):
 	gauss = get_gaussian_mask(1)
+	feature_avgs = np.zeros((num_rel_f, num_channels*4))
+	for i, f_ix in enumerate(relevant_features):
+		f = all_features[f_ix]
+		for ch_ix in range(num_channels):
+			f_conv_ch[f][:,:,:,ch_ix] *= gauss / np.mean(gauss)
+		feature_avgs[i] = get_shells(f_conv_ch[f], f_conv_ch[f].shape[:3])
+		
+	channel_separations = np.empty((num_rel_f, num_channels*4)) # separation between channel mean activations for the relevant features
+	for i in range(num_rel_f):
+		channel_separations[i] = (np.amax(feature_avgs, 0) - feature_avgs[i]) / np.mean(feature_avgs, 0)
+
+	channel_separations *= 10
+
+	W = np.zeros((num_rel_f, num_channels*4))
+	for ch_ix in range(num_channels*4):
+		#f_ix = list(channel_separations[:,ch_ix]).index(0)
+		#W[f_ix,ch_ix] = channel_separations[:,ch_ix].mean()
+		W[:,ch_ix] = np.median(channel_separations[:,ch_ix]) - channel_separations[:,ch_ix]
+		
+	for f_ix in range(num_rel_f):
+		for i in range(4):
+			W[f_ix, num_channels*i:num_channels*(i+1)] += np.mean(W[f_ix, num_channels*i:num_channels*(i+1)])
+
+	W[W < 0] = 0
+
+	WW = np.zeros((num_rel_f, num_channels))
+	for ch_ix in range(num_channels):
+		WW[:,ch_ix] = np.mean(W[:,[ch_ix, ch_ix+num_channels, ch_ix+num_channels*2, ch_ix+num_channels*3]], 1)
+
+	return W
+
+def calculate_W_old(f_conv_ch, all_features, relevant_features, num_rel_f, num_channels):
+	gauss = get_gaussian_mask(1)
 	feature_avgs = np.zeros((num_rel_f, num_channels))
 	for i, f_ix in enumerate(relevant_features):
 		f = all_features[f_ix]
@@ -237,11 +270,39 @@ def calculate_W(f_conv_ch, all_features, relevant_features, num_rel_f, num_chann
 		#W[f_ix,ch_ix] = channel_separations[:,ch_ix].mean()
 		W[:,ch_ix] = np.median(channel_separations[:,ch_ix]) - channel_separations[:,ch_ix]
 		
+	for f_ix in range(num_rel_f):
+		W[f_ix,:] += np.mean(W[f_ix,:])
+
 	W[W < 0] = 0
 
 	return W
 
 def get_saliency_map(W, test_neurons, num_rel_f):
+	D = np.empty(test_neurons.shape[:3])
+	for x in range(D.shape[0]):
+		for y in range(D.shape[1]):
+			for z in range(D.shape[2]):
+				D[x,y,z] = -((D.shape[0]//2-.5-x)**2 + (D.shape[1]//2-.5-y)**2 + 4*(D.shape[2]//2-.5-z)**2)
+
+	num_ch = test_neurons.shape[-1]
+	sal_map = np.zeros((num_rel_f, *test_neurons.shape[:3]))
+	for f_num in range(num_rel_f):
+		for ch_ix in range(num_ch):
+			sal_map[f_num, D <= np.percentile(D, 25)] += W[f_num, ch_ix] * test_neurons[D <= np.percentile(D, 25),ch_ix]
+			sal_map[f_num, (D <= np.percentile(D, 50)) & (D > np.percentile(D, 25))] += \
+					W[f_num, ch_ix+num_ch] * test_neurons[(D <= np.percentile(D, 50)) & (D > np.percentile(D, 25)),ch_ix]
+			sal_map[f_num, (D <= np.percentile(D, 75)) & (D > np.percentile(D, 50))] += \
+					W[f_num, ch_ix+num_ch*2] * test_neurons[(D <= np.percentile(D, 75)) & (D > np.percentile(D, 50)),ch_ix]
+			sal_map[f_num, D > np.percentile(D, 75)] += W[f_num, ch_ix+num_ch*3] * test_neurons[D > np.percentile(D, 75),ch_ix]
+		sal_map[f_num] /= np.sum(W[f_num])
+		
+	#for f_num in range(num_rel_f):
+	#    for spatial_ix in np.ndindex(test_neurons.shape[:-1]):
+	#        sal_map[f_num, spatial_ix] = sal_map[f_num, spatial_ix]**2 / sal_map[:, spatial_ix].sum()
+			
+	return sal_map
+
+def get_saliency_map_old(W, test_neurons, num_rel_f):
 	sal_map = np.zeros((num_rel_f, *test_neurons.shape[:3]))
 	for f_num in range(num_rel_f):
 		for ch_ix in range(test_neurons.shape[-1]):

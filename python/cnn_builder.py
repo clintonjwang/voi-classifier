@@ -63,7 +63,7 @@ def build_cnn_hyperparams(hyperparams):
 			dual_inputs=C.non_imaging_inputs, run_2d=hyperparams.run_2d,
 			skip_con=hyperparams.skip_con)
 
-def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same','same'], pool_sizes = [(2,2,2), (2,2,2)],
+def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same','same'], pool_sizes = [(2,2,2),(2,2,1)],
 	dropout=[0.1,0.1], activation_type='relu', f=[64,128,128], dense_units=100, kernel_size=(3,3,2),
 	dual_inputs=False, run_2d=False, stride=(1,1,1), skip_con=False, trained_model=None):
 	"""Main class for setting up a CNN. Returns the compiled model."""
@@ -81,12 +81,12 @@ def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same','same'], 
 	nb_classes = len(C.classes_to_include)
 
 	if trained_model is not None:
-		inputs = Input(shape=(C.dims[0]//2, C.dims[1]//2, C.dims[2]//2, 64))
+		inputs = Input(shape=(C.dims[0]//2, C.dims[1]//2, C.dims[2]//2, 128))
 		x = ActivationLayer(activation_args)(inputs)
-		x = layers.Conv3D(filters=f[-1], kernel_size=kernel_size, padding=padding[1])(x)
-		x = BatchNormalization()(x)
-		x = ActivationLayer(activation_args)(x)
-		x = Dropout(dropout[0])(x)
+		#x = layers.Conv3D(filters=f[-1], kernel_size=kernel_size, padding=padding[1])(x)
+		#x = BatchNormalization()(x)
+		#x = ActivationLayer(activation_args)(x)
+		#x = Dropout(dropout[0])(x)
 		x = layers.MaxPooling3D(pool_sizes[1])(x)
 		x = Flatten()(x)
 		x = Dense(dense_units)(x)
@@ -98,8 +98,8 @@ def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same','same'], 
 
 		num_l = len(model.layers)
 		dl = len(trained_model.layers)-num_l
-		for l in range(num_l-1, 0, -1):
-			model.layers[l].set_weights(trained_model.layers[l+dl].get_weights())
+		for ix in range(num_l):
+			model.layers[-ix].set_weights(trained_model.layers[-ix].get_weights())
 
 		return model
 

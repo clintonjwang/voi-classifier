@@ -64,7 +64,7 @@ class Config:
 		# Augmentation parameters
 		self.intensity_scaling = [.05,.05]
 		self.translate = [2,2,1]
-		#self.use_paula_dataset()
+		self.use_paula_dataset()
 
 	def turn_on_clinical_features(self):
 		self.non_imaging_inputs = True # whether non-imaging inputs should be incorporated into the neural network
