@@ -21,7 +21,7 @@ class Config:
 		self.nb_channels = 3
 		self.aug_factor = 100
 		self.train_frac = None#.9
-		self.test_num = 10 # only used if train_frac is None
+		self.test_num = 20 # only used if train_frac is None
 
 		self.context_dims = [36,36,12]
 		self.dual_img_inputs = False # whether to use both tight and gross image croppings for the network
@@ -64,7 +64,7 @@ class Config:
 		# Augmentation parameters
 		self.intensity_scaling = [.05,.05]
 		self.translate = [2,2,1]
-		self.use_paula_dataset()
+		#self.use_paula_dataset()
 
 	def turn_on_clinical_features(self):
 		self.non_imaging_inputs = True # whether non-imaging inputs should be incorporated into the neural network
