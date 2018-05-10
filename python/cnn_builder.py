@@ -40,10 +40,23 @@ import importlib
 import dr_methods as drm
 import voi_methods as vm
 
+def aleatoric_xentropy(y_true, y_pred):
+    eps = K.random_normal((1000,2), mean=0.0, stddev=1.0)
+    y_noisy = y_pred[0] + y_pred[1]*eps
+    #loss = K.binary_crossentropy(y_true, y_noisy)
+    lnDen = K.log(K.exp(y_noisy) + K.exp(1 - y_noisy))
+    loss = y_true * K.mean(1/(1+K.exp(-y_noisy))) + (1-y_true) * K.mean(K.exp(1 - y_noisy - lnDen))
+    
+    return loss
 
 def build_cnn_hyperparams(hyperparams):
 	C = config.Config()
-	if C.dual_img_inputs:
+	if C.aleatoric:
+		return build_prob_cnn(optimizer=hyperparams.optimizer,
+			padding=hyperparams.padding, pool_sizes=hyperparams.pool_sizes, dropout=hyperparams.dropout,
+			activation_type=hyperparams.activation_type, f=hyperparams.f, dense_units=hyperparams.dense_units,
+			kernel_size=hyperparams.kernel_size)
+	elif C.dual_img_inputs:
 		return build_dual_cnn(optimizer=hyperparams.optimizer,
 			padding=hyperparams.padding, pool_sizes=hyperparams.pool_sizes, dropout=hyperparams.dropout,
 			activation_type=hyperparams.activation_type, f=hyperparams.f, dense_units=hyperparams.dense_units,
@@ -159,6 +172,83 @@ def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same','same'], 
 
 		#optim = Adam(lr=0.01)#5, decay=0.001)
 		model.compile(optimizer=optimizer, loss='categorical_crossentropy', metrics=['accuracy'])
+
+	return model
+
+def build_prob_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same','same'], pool_sizes = [(2,2,2),(2,2,1)],
+	dropout=[0.1,0.1], activation_type='relu', f=[64,128,128], dense_units=100, kernel_size=(3,3,2),
+	dual_inputs=False, run_2d=False, stride=(1,1,1), skip_con=False, trained_model=None):
+	"""Main class for setting up a CNN. Returns the compiled model."""
+
+	importlib.reload(config)
+	C = config.Config()
+
+	if activation_type == 'elu':
+		ActivationLayer = ELU
+		activation_args = 1
+	elif activation_type == 'relu':
+		ActivationLayer = Activation
+		activation_args = 'relu'
+
+	if trained_model is not None:
+		inputs = Input(shape=(C.dims[0]//2, C.dims[1]//2, C.dims[2]//2, 128))
+		x = ActivationLayer(activation_args)(inputs)
+		x = layers.MaxPooling3D(pool_sizes[1])(x)
+		x = Flatten()(x)
+		x = Dense(dense_units)(x)
+		x = BatchNormalization()(x)
+		x = Dropout(dropout[1])(x)
+		x = ActivationLayer(activation_args)(x)
+		pred_class = Dense(2)(x)
+		model = Model(inputs, pred_class)
+
+		num_l = len(model.layers)
+		dl = len(trained_model.layers)-num_l
+		for ix in range(num_l):
+			model.layers[-ix].set_weights(trained_model.layers[-ix].get_weights())
+
+		return model
+
+
+	img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 3))
+
+	art_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,0], axis=4))(img)
+	art_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0])(art_x)
+	ven_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,1], axis=4))(img)
+	ven_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0])(ven_x)
+	eq_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,2], axis=4))(img)
+	eq_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0])(eq_x)
+
+	x = Concatenate(axis=4)([art_x, ven_x, eq_x])
+	x = ActivationLayer(activation_args)(x)
+	x = Dropout(dropout[0])(x)
+	x = layers.MaxPooling3D(pool_sizes[0])(x)
+	x = BatchNormalization(axis=4)(x)
+
+	for layer_num in range(1,len(f)):
+		x = layers.Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1])(x)
+
+		if skip_con and layer_num==1:
+			skip_layer = x
+		elif skip_con and layer_num==5:
+			x = layers.Add()([x, skip_layer])
+
+		x = BatchNormalization()(x)
+		x = ActivationLayer(activation_args)(x)
+		x = Dropout(dropout[0])(x)
+	x = layers.MaxPooling3D(pool_sizes[1])(x)
+	x = Flatten()(x)
+
+	x = Dense(dense_units)(x)
+	x = BatchNormalization()(x)
+	x = Dropout(dropout[1])(x)
+	x = ActivationLayer(activation_args)(x)
+	pred_class = Dense(2)(x)
+
+	model = Model(img, pred_class)
+
+	#optim = Adam(lr=0.01)#5, decay=0.001)
+	model.compile(optimizer=optimizer, loss=aleatoric_xentropy)
 
 	return model
 
