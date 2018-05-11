@@ -18,7 +18,7 @@ from keras.optimizers import Adam
 from keras.utils import np_utils
 
 import argparse
-import cnn_analyzer as cnna
+import feature_interpretation as cnna
 import copy
 import config
 import niftiutils.cnn_components as cnnc
@@ -36,18 +36,28 @@ from skimage.transform import rescale
 from sklearn.metrics import confusion_matrix, f1_score, accuracy_score
 import time
 import importlib
+import tensorflow as tf
 
 import dr_methods as drm
 import voi_methods as vm
 
 def aleatoric_xentropy(y_true, y_pred):
-    eps = K.random_normal((1000,2), mean=0.0, stddev=1.0)
-    y_noisy = y_pred[0] + y_pred[1]*eps
-    #loss = K.binary_crossentropy(y_true, y_noisy)
-    lnDen = K.log(K.exp(y_noisy) + K.exp(1 - y_noisy))
-    loss = y_true * K.mean(1/(1+K.exp(-y_noisy))) + (1-y_true) * K.mean(K.exp(1 - y_noisy - lnDen))
-    
-    return loss
+	eps = 1e-8
+	#rv = K.random_normal((1000,1), mean=0.0, stddev=1.0)
+	rv = np.random.laplace(loc=0., scale=1.0, size=(1000,1))
+	y_noisy = K.mean( 1/(1+K.exp(-(y_pred[:,0] + y_pred[:,1]*rv))) , 0 )
+	#loss = K.binary_crossentropy(y_true, y_noisy)
+	#lnDen = K.log(K.exp(y_noisy) + K.exp(1 - y_noisy))
+	loss = - y_true[:,0] * K.log(y_noisy + eps) - (1-y_true[:,0]) * K.log(1-y_noisy + eps)
+	
+	return loss
+
+def acc_logit(y_true, y_pred):
+	acc = K.abs(y_true[:,0] - K.cast(y_pred[:,0] < 0, 'float32'))
+	return acc
+
+def mod_acc(y_true, y_pred):
+	return 1
 
 def build_cnn_hyperparams(hyperparams):
 	C = config.Config()
@@ -176,8 +186,7 @@ def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same','same'], 
 	return model
 
 def build_prob_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same','same'], pool_sizes = [(2,2,2),(2,2,1)],
-	dropout=[0.1,0.1], activation_type='relu', f=[64,128,128], dense_units=100, kernel_size=(3,3,2),
-	dual_inputs=False, run_2d=False, stride=(1,1,1), skip_con=False, trained_model=None):
+	dropout=[0.1,0.1], activation_type='lrelu', f=[64,128,128], dense_units=100, kernel_size=(3,3,2)):
 	"""Main class for setting up a CNN. Returns the compiled model."""
 
 	importlib.reload(config)
@@ -189,26 +198,9 @@ def build_prob_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same','sam
 	elif activation_type == 'relu':
 		ActivationLayer = Activation
 		activation_args = 'relu'
-
-	if trained_model is not None:
-		inputs = Input(shape=(C.dims[0]//2, C.dims[1]//2, C.dims[2]//2, 128))
-		x = ActivationLayer(activation_args)(inputs)
-		x = layers.MaxPooling3D(pool_sizes[1])(x)
-		x = Flatten()(x)
-		x = Dense(dense_units)(x)
-		x = BatchNormalization()(x)
-		x = Dropout(dropout[1])(x)
-		x = ActivationLayer(activation_args)(x)
-		pred_class = Dense(2)(x)
-		model = Model(inputs, pred_class)
-
-		num_l = len(model.layers)
-		dl = len(trained_model.layers)-num_l
-		for ix in range(num_l):
-			model.layers[-ix].set_weights(trained_model.layers[-ix].get_weights())
-
-		return model
-
+	elif activation_type == 'lrelu':
+		ActivationLayer = layers.LeakyReLU
+		activation_args = .3
 
 	img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 3))
 
@@ -227,12 +219,6 @@ def build_prob_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same','sam
 
 	for layer_num in range(1,len(f)):
 		x = layers.Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1])(x)
-
-		if skip_con and layer_num==1:
-			skip_layer = x
-		elif skip_con and layer_num==5:
-			x = layers.Add()([x, skip_layer])
-
 		x = BatchNormalization()(x)
 		x = ActivationLayer(activation_args)(x)
 		x = Dropout(dropout[0])(x)
@@ -243,12 +229,15 @@ def build_prob_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same','sam
 	x = BatchNormalization()(x)
 	x = Dropout(dropout[1])(x)
 	x = ActivationLayer(activation_args)(x)
-	pred_class = Dense(2)(x)
+	pred_class = Dense(1)(x)
+	uncert = Dense(1)(x)
+	uncert = layers.LeakyReLU()(uncert)
+	out = layers.Concatenate()([pred_class, uncert])
 
-	model = Model(img, pred_class)
+	model = Model(img, out)
 
 	#optim = Adam(lr=0.01)#5, decay=0.001)
-	model.compile(optimizer=optimizer, loss=aleatoric_xentropy)
+	model.compile(optimizer=optimizer, loss=aleatoric_xentropy, metrics=[acc_logit])
 
 	return model
 
@@ -427,15 +416,15 @@ def pretrain_cnn(trained_model, padding=['same','same'], pool_sizes=[(2,2,2), (2
 	eq_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0], trainable=False)(eq_x)
 
 	#if padding != ['same', 'same']:
-	#	art_x = BatchNormalization(trainable=False)(art_x, training=training)
-	#	ven_x = BatchNormalization(trainable=False)(ven_x, training=training)
-	#	eq_x = BatchNormalization(trainable=False)(eq_x, training=training)
+	#   art_x = BatchNormalization(trainable=False)(art_x, training=training)
+	#   ven_x = BatchNormalization(trainable=False)(ven_x, training=training)
+	#   eq_x = BatchNormalization(trainable=False)(eq_x, training=training)
 
 	if last_layer >= -5:
 		#if padding != ['same', 'same']:
-		#	art_x = ActivationLayer(activation_args)(art_x)
-		#	ven_x = ActivationLayer(activation_args)(ven_x)
-		#	eq_x = ActivationLayer(activation_args)(eq_x)
+		#   art_x = ActivationLayer(activation_args)(art_x)
+		#   ven_x = ActivationLayer(activation_args)(ven_x)
+		#   eq_x = ActivationLayer(activation_args)(eq_x)
 
 		x = Concatenate(axis=4)([art_x, ven_x, eq_x])
 		#if padding == ['same', 'same']:
@@ -457,7 +446,7 @@ def pretrain_cnn(trained_model, padding=['same','same'], pool_sizes=[(2,2,2), (2
 
 			x = BatchNormalization(trainable=False)(x)
 			#if layer_num == len(f)+last_layer+1:
-			#	break
+			#   break
 			x = ActivationLayer(activation_args)(x)
 			x = Dropout(0)(x)
 
@@ -1008,7 +997,7 @@ def _train_generator_func(test_ids, n=12, n_art=0):
 
 	#avg_X2 = {}
 	#for cls in orig_data_dict:
-	#	avg_X2[cls] = np.mean(orig_data_dict[cls][1], axis=0)
+	#   avg_X2[cls] = np.mean(orig_data_dict[cls][1], axis=0)
 	
 	if C.non_imaging_inputs:
 		patient_info_df = pd.read_csv(C.patient_info_path)

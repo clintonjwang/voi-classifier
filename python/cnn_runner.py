@@ -19,7 +19,7 @@ from keras.optimizers import Adam
 from keras.utils import np_utils
 
 import argparse
-import cnn_analyzer as cnna
+import feature_interpretation as cnna
 import cnn_builder as cbuild
 import copy
 import config
