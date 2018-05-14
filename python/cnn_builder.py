@@ -43,8 +43,8 @@ import voi_methods as vm
 
 def aleatoric_xentropy(y_true, y_pred):
 	eps = 1e-8
-	#rv = K.random_normal((1000,1), mean=0.0, stddev=1.0)
-	rv = np.random.laplace(loc=0., scale=1.0, size=(1000,1))
+	rv = K.random_normal((1000,1), mean=0.0, stddev=1.0)
+	#rv = np.random.laplace(loc=0., scale=1.0, size=(1000,1))
 	y_noisy = K.mean( 1/(1+K.exp(-(y_pred[:,0] + y_pred[:,1]*rv))) , 0 )
 	#loss = K.binary_crossentropy(y_true, y_noisy)
 	#lnDen = K.log(K.exp(y_noisy) + K.exp(1 - y_noisy))
@@ -61,7 +61,7 @@ def mod_acc(y_true, y_pred):
 
 def build_cnn_hyperparams(hyperparams):
 	C = config.Config()
-	if C.aleatoric:
+	if C.probabilistic:
 		return build_prob_cnn(optimizer=hyperparams.optimizer,
 			padding=hyperparams.padding, pool_sizes=hyperparams.pool_sizes, dropout=hyperparams.dropout,
 			activation_type=hyperparams.activation_type, f=hyperparams.f, dense_units=hyperparams.dense_units,
@@ -186,7 +186,7 @@ def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same','same'], 
 	return model
 
 def build_prob_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same','same'], pool_sizes = [(2,2,2),(2,2,1)],
-	dropout=[0.1,0.1], activation_type='lrelu', f=[64,128,128], dense_units=100, kernel_size=(3,3,2)):
+	dropout=[.1,.1], activation_type='lrelu', f=[64,128,128], dense_units=100, kernel_size=(3,3,2)):
 	"""Main class for setting up a CNN. Returns the compiled model."""
 
 	importlib.reload(config)
@@ -213,7 +213,7 @@ def build_prob_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same','sam
 
 	x = Concatenate(axis=4)([art_x, ven_x, eq_x])
 	x = ActivationLayer(activation_args)(x)
-	x = Dropout(dropout[0])(x)
+	x = Lambda(lambda x: K.dropout(x, level=dropout[0]))(x)
 	x = layers.MaxPooling3D(pool_sizes[0])(x)
 	x = BatchNormalization(axis=4)(x)
 
@@ -221,13 +221,13 @@ def build_prob_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same','sam
 		x = layers.Conv3D(filters=f[layer_num], kernel_size=kernel_size, padding=padding[1])(x)
 		x = BatchNormalization()(x)
 		x = ActivationLayer(activation_args)(x)
-		x = Dropout(dropout[0])(x)
+		x = Lambda(lambda x: K.dropout(x, level=dropout[0]))(x)
 	x = layers.MaxPooling3D(pool_sizes[1])(x)
 	x = Flatten()(x)
 
 	x = Dense(dense_units)(x)
 	x = BatchNormalization()(x)
-	x = Dropout(dropout[1])(x)
+	x = Lambda(lambda x: K.dropout(x, level=dropout[1]))(x)
 	x = ActivationLayer(activation_args)(x)
 	pred_class = Dense(1)(x)
 	uncert = Dense(1)(x)
@@ -598,10 +598,8 @@ def build_autoencoder(pool_sizes=[(2,2,2), (2,2,1)], f=[64,128,128], kernel_size
 
 	return model
 
-def build_model_dropout(trained_model, dropout, last_layer="final", dilation_rate=(1,1,1), padding=['same', 'valid'], pool_sizes = [(2,2,2), (2,2,1)],
+"""def build_model_dropout(trained_model, dropout, last_layer="final", dilation_rate=(1,1,1), padding=['same', 'valid'], pool_sizes = [(2,2,2), (2,2,1)],
 	activation_type='relu', f=[64,128,128], kernel_size=(3,3,2), dense_units=100):
-	"""Sets up CNN with pretrained weights"""
-
 	C = config.Config()
 
 	ActivationLayer = Activation
@@ -656,6 +654,7 @@ def build_model_dropout(trained_model, dropout, last_layer="final", dilation_rat
 			model_pretrain.layers[l].set_weights(trained_model.layers[l-1].get_weights())
 
 	return model_pretrain
+"""
 
 ####################################
 ### Load Data

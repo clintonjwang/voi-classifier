@@ -1,10 +1,4 @@
 """
-Converts a nifti file to a numpy array.
-Accepts either a single nifti file or a folder of niftis as the input argument.
-
-Usage:
-	python cnn_builder.py
-
 Author: Clinton Wang, E-mail: `clintonjwang@gmail.com`, Github: `https://github.com/clintonjwang/voi-classifier`
 """
 

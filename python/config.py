@@ -26,7 +26,7 @@ class Config:
 		self.context_dims = [36,36,12]
 		self.dual_img_inputs = False # whether to use both tight and gross image croppings for the network
 		self.non_imaging_inputs = False # whether non-imaging inputs should be incorporated into the neural network
-		self.aleatoric = True
+		self.probabilistic = False
 
 		self.lesion_ratio = 0.7 # ratio of the lesion side length to the length of the cropped image
 
@@ -65,7 +65,7 @@ class Config:
 		# Augmentation parameters
 		self.intensity_scaling = [.05,.05]
 		self.translate = [2,2,1]
-		self.use_paula_dataset()
+		#self.use_paula_dataset()
 
 	def turn_on_clinical_features(self):
 		self.non_imaging_inputs = True # whether non-imaging inputs should be incorporated into the neural network

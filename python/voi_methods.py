@@ -272,6 +272,9 @@ def save_vois_as_imgs(cls=None, lesion_ids=None, save_dir=None, normalize=None, 
 
 		imsave("%s\\%s%s%s.png" % (save_dir, fn_prefix, fn[:-4], suffix), rescale(ret, rescale_factor, mode='constant'))
 
+def padded_coords(small_voi_df, lesion_id):
+	return _get_voi_coords(small_voi_df[small_voi_df["id"] == lesion_id])
+
 @drm.autofill_cls_arg
 def save_imgs_with_bbox(cls=None, lesion_ids=None, save_dir=None, normalize=None, fixed_width=100, fn_prefix="", fn_suffix=None, separate_by_cls=True):
 	"""Save images of grossly cropped lesions with a bounding box around the tighter crop.
@@ -312,7 +315,7 @@ def save_imgs_with_bbox(cls=None, lesion_ids=None, save_dir=None, normalize=None
 
 		img_slice = np.stack([img_slice, img_slice, img_slice], axis=2)
 		
-		img_slice = _draw_bbox(img_slice, _get_voi_coords(small_voi_df[small_voi_df["id"] == lesion_id]))
+		img_slice = _draw_bbox(img_slice, padded_coords(small_voi_df, lesion_id))
 			
 		ch1 = np.transpose(img_slice[:,::-1,:,0], (1,0,2))
 		ch2 = np.transpose(img_slice[:,::-1,:,1], (1,0,2))
