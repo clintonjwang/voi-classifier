@@ -105,7 +105,6 @@ def process_feat_id_dfs(all_features, DFs):
 	FIRST = np.zeros(2)
 	MISFIRST = np.zeros(2)
 
-
 	prec_history = {"total":[]}
 	recall_history = {"total":[]}
 	for f in sorted(all_features):

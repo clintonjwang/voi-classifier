@@ -86,15 +86,15 @@ def report_missing_folders(cls=None):
 		df_subset = df.loc[df['acc #'].astype(str) == acc_num]
 		subfolder = C.img_dirs[i] + "\\" + acc_num
 
-		if not exists(subfolder + "\\T1_multiphase"):
-			if not exists(subfolder + "\\T1_AP"):
-				print(subfolder)
-				continue
-				print(subfolder + "\\T1_AP is missing")
-			if not exists(subfolder + "\\T1_VP"):
-				print(subfolder + "\\T1_VP is missing")
-			if not exists(subfolder + "\\T1_EQ"):
-				print(subfolder + "\\T1_EQ is missing")
+		#if not exists(subfolder + "\\T1_multiphase"):
+		if not exists(subfolder + "\\T1_AP"):
+			print(subfolder)
+			continue
+			#print(subfolder + "\\T1_AP is missing")
+		if not exists(subfolder + "\\T1_VP"):
+			print(subfolder + "\\T1_VP is missing")
+		if not exists(subfolder + "\\T1_EQ"):
+			print(subfolder + "\\T1_EQ is missing")
 
 ###########################
 ### METHODS FOR EXTRACTING VOIS FROM THE SPREADSHEET
