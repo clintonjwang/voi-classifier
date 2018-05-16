@@ -14,7 +14,7 @@ Author: Clinton Wang, E-mail: `clintonjwang@gmail.com`, Github: `https://github.
 from os.path import *
 
 class Config:
-	def __init__(self):
+	def __init__(self, dataset="lirads"):
 		self.run_num = 2
 		self.test_run_num = 2
 		self.dims = [24,24,12]
@@ -33,63 +33,18 @@ class Config:
 		self.pre_scale = .5 # normalizes images at augmentation time
 		self.post_scale = 0. # normalizes images at train/test time
 
-		self.base_dir = "C:\\Users\\Clinton\\Documents\\voi-classifier"
-		self.art_voi_path = join(self.base_dir, "data\\voi_art_full.csv")
-		self.ven_voi_path = join(self.base_dir, "data\\voi_ven_full.csv")
-		self.eq_voi_path = join(self.base_dir, "data\\voi_eq_full.csv")
-		self.dims_df_path = join(self.base_dir, "data\\img_dims.csv")
-		self.int_df_path = join(self.base_dir, "data\\intensity.csv")
-		self.small_voi_path = join(self.base_dir, "data\\small_vois_full.csv")
-		self.run_stats_path = join(self.base_dir, "data\\overnight_run.csv")
-		self.patient_info_path = join(self.base_dir, "data\\patient_info.csv")
-		self.xls_name = 'Z:\\LIRADS\\Prototype1e.xlsx'
-
 		# Information about the abnormality classes
-		self.classes_to_include = ['hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh']
-		self.nb_classes = len(self.classes_to_include)
-		self.cls_names = ['hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh']#, 'net', 'adenoma', 'abscess']
-		self.sheetnames = ['HCC', 'Cholangio', 'Colorectal', 'Cyst', 'Hemangioma', 'FNH', 'NET', 'Adenoma', 'Abscess']
-		self.short_cls_names = ['HCC', 'ICC', 'CRC Met.', 'Cyst', 'Hemang.', 'FNH']#, 'NET', 'Adenoma', 'Abscess']
 		self.patient_sheetname = 'Patient Info'
-		self.img_dirs = ["Z:\\LIRADS\\DICOMs\\" + fn for fn in self.cls_names]
-		self.simplify_map = {'hcc': 0, 'cyst': 1, 'hemangioma': 1, 'fnh': 1, 'cholangio': 2, 'colorectal': 2}
-
-		self.full_img_dir = "Z:\\LIRADS\\full_imgs"
-		self.output_img_dir = "Z:\\LIRADS\\OUTPUT\\1-14"
-		self.crops_dir = "E:\\imgs\\unscaled_crops_full\\"
-		self.aug_dir = "E:\\imgs\\aug_imgs_2412_full\\"
-		self.orig_dir = "E:\\imgs\\orig_imgs_2412_full\\"
-		self.artif_dir = "E:\\imgs\\artif_imgs_2412\\"
-		self.model_dir = "E:\\models\\"
 
 		# Augmentation parameters
 		self.intensity_scaling = [.05,.05]
 		self.translate = [2,2,1]
 		#self.use_paula_dataset()
+		self.use_dataset(dataset)
 
-	def turn_on_clinical_features(self):
-		self.non_imaging_inputs = True # whether non-imaging inputs should be incorporated into the neural network
-		self.num_non_image_inputs = 3
+		self.nb_classes = len(self.cls_names)
+		self.phases = ["T1_20s", "T1_70s", "T1_3min"]
 
-	def use_expanded_dataset(self):
-		self.classes_to_include = ['hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh', 'net', 'adenoma', 'abscess']
-		self.nb_classes = len(self.classes_to_include)
-		self.cls_names = self.classes_to_include
-		self.sheetnames = ['HCC', 'Cholangio', 'Colorectal', 'Cyst', 'Hemangioma', 'FNH', 'NET', 'Adenoma', 'Abscess']
-		self.short_cls_names = ['HCC', 'ICC', 'CRC Met.', 'Cyst', 'Hemang.', 'FNH', 'NET', 'Adenoma', 'Abscess']
-		
-	def use_paula_dataset(self):
-		self.test_num = 5
-
-		self.classes_to_include = ['hcc', 'non-hcc']
-		self.nb_classes = len(self.classes_to_include)
-		self.cls_names = self.classes_to_include
-		self.sheetnames = ['HCC', 'Non-HCC']
-		self.short_cls_names = self.sheetnames
-		self.simplify_map = {'hcc': 0, 'non-hcc': 1}
-		self.img_dirs = ["Z:\\Paula\\Imaging", "Z:\\Paula\\Imaging"]
-
-		self.base_dir = "D:\\Paula-project"
 		self.art_voi_path = join(self.base_dir, "data\\voi_art_full.csv")
 		self.ven_voi_path = join(self.base_dir, "data\\voi_ven_full.csv")
 		self.eq_voi_path = join(self.base_dir, "data\\voi_eq_full.csv")
@@ -98,15 +53,64 @@ class Config:
 		self.small_voi_path = join(self.base_dir, "data\\small_vois_full.csv")
 		self.run_stats_path = join(self.base_dir, "data\\overnight_run.csv")
 		self.patient_info_path = join(self.base_dir, "data\\patient_info.csv")
-		self.xls_name = "Z:\\Paula\\new coordinates_CW.xlsx"
-		
-		self.full_img_dir = join(self.base_dir, "full_imgs")
-		self.output_img_dir = join(self.base_dir, "OUTPUT")
+
 		self.crops_dir = join(self.base_dir, "imgs\\unscaled_crops_full\\")
 		self.aug_dir = join(self.base_dir, "imgs\\aug_imgs_2412_full\\")
 		self.orig_dir = join(self.base_dir, "imgs\\orig_imgs_2412_full\\")
 		self.artif_dir = join(self.base_dir, "imgs\\artif_imgs_2412\\")
 		self.model_dir = join(self.base_dir, "models\\")
+
+
+	def turn_on_clinical_features(self):
+		self.non_imaging_inputs = True # whether non-imaging inputs should be incorporated into the neural network
+		self.num_non_image_inputs = 3
+
+	def use_dataset(self, dataset):
+		if dataset == "lirads":
+			self.base_dir = "E:\\LIRADS"
+			self.coord_xls_path = 'Z:\\LIRADS\\Prototype1e.xlsx'
+			self.test_num = 2
+			self.full_img_dir = "Z:\\LIRADS\\full_imgs"
+
+			self.cls_names = ['hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh']
+			self.sheetnames = ['HCC', 'Cholangio', 'Colorectal', 'Cyst', 'Hemangioma', 'FNH']
+			self.short_cls_names = ['HCC', 'ICC', 'CRC Met.', 'Cyst', 'Hemang.', 'FNH']
+			self.dcm_dirs = ["Z:\\LIRADS\\DICOMs\\" + fn for fn in self.cls_names]
+			self.simplify_map = {'hcc': 0, 'cyst': 1, 'hemangioma': 1, 'fnh': 1, 'cholangio': 2, 'colorectal': 2}
+			
+		elif dataset == "etiology":
+			self.base_dir = "D:\\Etiology"
+			self.coord_xls_path = "D:\\Etiology\\coords.xlsx"
+			self.test_num = 5
+			self.full_img_dir = join(self.base_dir, "full_imgs")
+
+			self.cls_names = ['hbv', 'hcv', 'nonviral']
+			self.sheetnames = ['HBV', 'HCV', 'Non-viral']
+			self.short_cls_names = ['HBV', 'HCV', 'NV']
+			self.dcm_dirs = ["D:\\Etiology\\Imaging"] * 3
+
+		elif dataset == "radpath":
+			self.base_dir = "D:\\Paula-project"
+			self.coord_xls_path = "Z:\\Paula\\new coordinates_CW.xlsx"
+			self.test_num = 5
+			self.full_img_dir = join(self.base_dir, "full_imgs")
+
+			self.cls_names = ['hcc', 'non-hcc']
+			self.sheetnames = ['HCC', 'Non-HCC']
+			self.short_cls_names = self.sheetnames
+			self.dcm_dirs = ["Z:\\Paula\\Imaging"] * 2
+
+		elif dataset == "lirads-expanded":
+			self.base_dir = "E:\\LIRADS"
+			self.coord_xls_path = 'Z:\\LIRADS\\Prototype1e.xlsx'
+			self.test_num = 4
+			self.full_img_dir = "Z:\\LIRADS\\full_imgs"
+
+			self.cls_names = ['hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh', 'net', 'adenoma', 'abscess']
+			self.sheetnames = ['HCC', 'Cholangio', 'Colorectal', 'Cyst', 'Hemangioma', 'FNH', 'NET', 'Adenoma', 'Abscess']
+			self.short_cls_names = ['HCC', 'ICC', 'CRC Met.', 'Cyst', 'Hemang.', 'FNH', 'NET', 'Adenoma', 'Abscess']
+			self.dcm_dirs = ["Z:\\LIRADS\\DICOMs\\" + fn for fn in self.cls_names]
+		
 
 	def use_artificial_samples(self):
 		# Artificial sample parameters

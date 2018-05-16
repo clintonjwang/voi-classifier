@@ -64,29 +64,30 @@ class InfluenceAnalyzer:
 			
 		return W
 
-	def get_grad(self, lesion_id, perturb_W=None):
+	def get_grad(self, lesion_id, perturb_W=None, wrong_cls=None):
 		C = config.Config()
 		
 		cls = self.voi_df.loc[lesion_id]["cls"]
 		img = np.load(join(C.orig_dir, cls, lesion_id+".npy"))
 		img = np.expand_dims(img,0)
 
+		if wrong_cls is not None:
+			cls = wrong_cls
 		y_true = np_utils.to_categorical(C.classes_to_include.index(cls), 6)
 		loss = K.categorical_crossentropy(y_true, self.M.output)
 		
-		with tf.device('/gpu:0'):
-			g = K.gradients(loss, self.M.trainable_weights)
-		with tf.Session() as sess:
-			sess.run(tf.global_variables_initializer())
-			g_i = sess.run(g, feed_dict={self.M.input:img, K.learning_phase():0})
-			if perturb_W is not None:
-				feed_dict_plus = {M.trainable_weights[i]:perturb_W[i] for i in range(len(perturb_W))}
-				g_i_plus = sess.run(g, feed_dict={**feed_dict_plus, self.M.input:img, K.learning_phase():0})
+		#with tf.device('/gpu:0'):
+		g = K.gradients(loss, self.M.trainable_weights)
+		#with tf.Session() as sess:
+		#	sess.run(tf.global_variables_initializer())
+		g_i = K.function([self.M.input, K.learning_phase()], g)([img, 0])
 
-			sess.close()
+		#g_i = sess.run(g, feed_dict={self.M.input:img, K.learning_phase():0})
+		#if perturb_W is not None:
+		#	feed_dict_plus = {M.trainable_weights[i]:perturb_W[i] for i in range(len(perturb_W))}
+		#	g_i_plus = sess.run(g, feed_dict={**feed_dict_plus, self.M.input:img, K.learning_phase():0})
 			
 		g_i = np.concatenate([x.flatten() for x in g_i], 0)
-		
 		if perturb_W is not None:
 			g_i_plus = np.concatenate([x.flatten() for x in g_i_plus], 0)
 			return g_i, g_i_plus
@@ -130,12 +131,12 @@ class InfluenceAnalyzer:
 			W_new = self.perturb_weights(p_k)
 			Hp = self.get_HVP(W_new, g_test.shape)
 
-			alpha = np.dot(r_k, r_k) / np.dot(p_k, Hp)
+			alpha = np.dot(r_k, r_k) / (np.dot(p_k, Hp) + 1e-10)
 			t_k += alpha * p_k
 			r_k2 = r_k - alpha * Hp
 			#phi_hist = .5*np.dot(t_k, Ht) - g_test
 
-			beta = np.dot(r_k2, r_k2) / np.dot(r_k, r_k)
+			beta = np.dot(r_k2, r_k2) / (np.dot(r_k, r_k) + 1e-10)
 			r_k = r_k2
 			p_k = r_k + beta*p_k
 
@@ -174,3 +175,4 @@ class InfluenceAnalyzer:
 			print(time.time()-t)
 		
 		return I / len(Z_sample)
+

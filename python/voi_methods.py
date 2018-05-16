@@ -77,17 +77,17 @@ def plot_check(num, lesion_id=None, cls=None, normalize=[-.8,.5]):
 def xref_dirs_with_excel(cls=None, fix_inplace=True):
 	"""Make sure the image directories have all the images expected based on the config settings
 	(aug factor and run number) and VOI spreadsheet contents.
-	If fix_inplace is True, reload any mismatched acc_nums."""
+	If fix_inplace is True, reload any mismatched accnums."""
 
 	C = config.Config()
 
 	small_voi_df = pd.read_csv(C.small_voi_path)
 
 	print("Checking", cls)
-	bad_acc_nums = []
+	bad_accnums = []
 
 	index = C.cls_names.index(cls)
-	acc_num_df = C.sheetnames[index]
+	accnum_df = C.sheetnames[index]
 	df = pd.read_excel(C.xls_name, C.sheetnames[index])
 	voi_df = drm.get_voi_dfs()[0]
 	xls_accnums = list(df[df['Run'] <= C.run_num]['acc #'].astype(str))
@@ -96,69 +96,69 @@ def xref_dirs_with_excel(cls=None, fix_inplace=True):
 	xls_cnts = dict(zip(unique, counts))
 
 	# Check for loaded images
-	for acc_num in xls_set:
-		if not exists(C.full_img_dir + "\\" + cls + "\\" + acc_num + ".npy"):
-			print(acc_num, "is contained in the spreadsheet but has no loaded image in", C.full_img_dir)
+	for accnum in xls_set:
+		if not exists(C.full_img_dir + "\\" + cls + "\\" + accnum + ".npy"):
+			print(accnum, "is contained in the spreadsheet but has no loaded image in", C.full_img_dir)
 
-			bad_acc_nums.append(acc_num)
+			bad_accnums.append(accnum)
 
 	# Check for small_voi_df
-	acc_nums = list(small_voi_df[small_voi_df["cls"] == cls]["acc_num"])
-	unique, counts = np.unique(acc_nums, return_counts=True)
+	accnums = list(small_voi_df[small_voi_df["cls"] == cls]["accnum"])
+	unique, counts = np.unique(accnums, return_counts=True)
 	diff = xls_set.difference(unique)
 	if len(diff) > 0:
 		print(diff, "are contained in the spreadsheet but not in small_voi_df.")
-		bad_acc_nums += list(diff)
+		bad_accnums += list(diff)
 
 	diff = set(unique).difference(xls_set)
 	if len(diff) > 0:
 		print(diff, "are contained in small_voi_df but not the spreadsheet.")
-		bad_acc_nums += list(diff)
+		bad_accnums += list(diff)
 
 	overlap = xls_set.intersection(unique)
 	voi_cnts = dict(zip(unique, counts))
-	for acc_num in overlap:
-		if voi_cnts[acc_num] != xls_cnts[acc_num]:
-			print("Mismatch in number of lesions in the spreadsheet vs small_voi_df for", acc_num)
-			bad_acc_nums.append(acc_num)
+	for accnum in overlap:
+		if voi_cnts[accnum] != xls_cnts[accnum]:
+			print("Mismatch in number of lesions in the spreadsheet vs small_voi_df for", accnum)
+			bad_accnums.append(accnum)
 
 	# Check rough cropped lesions
-	acc_nums = [fn[:fn.find("_")] for fn in os.listdir(C.crops_dir + "\\" + cls)]
-	unique, counts = np.unique(acc_nums, return_counts=True)
+	accnums = [fn[:fn.find("_")] for fn in os.listdir(C.crops_dir + "\\" + cls)]
+	unique, counts = np.unique(accnums, return_counts=True)
 	diff = xls_set.difference(unique)
 	if len(diff) > 0:
 		print(diff, "are contained in the spreadsheet but not in", C.crops_dir)
-		bad_acc_nums += list(diff)
+		bad_accnums += list(diff)
 	diff = set(unique).difference(xls_set)
 	if len(diff) > 0:
 		print(diff, "are contained in", C.crops_dir, "but not the spreadsheet.")
-		bad_acc_nums += list(diff)
+		bad_accnums += list(diff)
 
 	overlap = xls_set.intersection(unique)
 	voi_cnts = dict(zip(unique, counts))
-	for acc_num in overlap:
-		if voi_cnts[acc_num] != xls_cnts[acc_num]:
-			print("Mismatch in number of lesions in the spreadsheet vs", C.crops_dir, "for", acc_num)
-			bad_acc_nums.append(acc_num)
+	for accnum in overlap:
+		if voi_cnts[accnum] != xls_cnts[accnum]:
+			print("Mismatch in number of lesions in the spreadsheet vs", C.crops_dir, "for", accnum)
+			bad_accnums.append(accnum)
 
 	# Check unaugmented lesions
-	acc_nums = [fn[:fn.find("_")] for fn in os.listdir(C.orig_dir + "\\" + cls)]
-	unique, counts = np.unique(acc_nums, return_counts=True)
+	accnums = [fn[:fn.find("_")] for fn in os.listdir(C.orig_dir + "\\" + cls)]
+	unique, counts = np.unique(accnums, return_counts=True)
 	diff = xls_set.difference(unique)
 	if len(diff) > 0:
 		print(diff, "are contained in the spreadsheet but not in", C.orig_dir)
-		bad_acc_nums += list(diff)
+		bad_accnums += list(diff)
 	diff = set(unique).difference(xls_set)
 	if len(diff) > 0:
 		print(diff, "are contained in", C.orig_dir, "but not the spreadsheet.")
-		bad_acc_nums += list(diff)
+		bad_accnums += list(diff)
 
 	overlap = xls_set.intersection(unique)
 	voi_cnts = dict(zip(unique, counts))
-	for acc_num in overlap:
-		if voi_cnts[acc_num] != xls_cnts[acc_num]:
-			print("Mismatch in number of lesions in the spreadsheet vs", C.orig_dir, "for", acc_num)
-			bad_acc_nums.append(acc_num)
+	for accnum in overlap:
+		if voi_cnts[accnum] != xls_cnts[accnum]:
+			print("Mismatch in number of lesions in the spreadsheet vs", C.orig_dir, "for", accnum)
+			bad_accnums.append(accnum)
 
 
 	# Check augmented lesions
@@ -167,61 +167,61 @@ def xref_dirs_with_excel(cls=None, fix_inplace=True):
 	diff = lesion_ids_df.difference(lesion_ids_folder)
 	if len(diff) > 0:
 		print(diff, "are contained in voi_df but not in", C.aug_dir)
-		bad_acc_nums += [x[:x.find('_')] for x in diff]
+		bad_accnums += [x[:x.find('_')] for x in diff]
 	diff = lesion_ids_folder.difference(lesion_ids_df)
 	if len(diff) > 0:
 		print(diff, "are contained in", C.aug_dir, "but not in voi_df.")
-		bad_acc_nums += [x[:x.find('_')] for x in diff]
+		bad_accnums += [x[:x.find('_')] for x in diff]
 
 	# Fix lesions
-	if fix_inplace and len(bad_acc_nums) > 0:
-		print("Reloading", set(bad_acc_nums))
-		for acc_num in set(bad_acc_nums):
-			reset_accnum(acc_num)
+	if fix_inplace and len(bad_accnums) > 0:
+		print("Reloading", set(bad_accnums))
+		for accnum in set(bad_accnums):
+			reset_accnum(accnum)
 
-def reset_accnum(acc_num):
+def reset_accnum(accnum):
 	"""Reset an accession number (only assumes dcm2npy has been called)"""
 
 	importlib.reload(config)
 
 	C = config.Config()
 	small_voi_df = pd.read_csv(C.small_voi_path)
-	small_voi_df = small_voi_df[small_voi_df["acc_num"] != acc_num]
+	small_voi_df = small_voi_df[small_voi_df["accnum"] != accnum]
 	small_voi_df.to_csv(C.small_voi_path, index=False)
 
-	for cls in C.classes_to_include:
+	for cls in C.cls_names:
 		for fn in os.listdir(C.crops_dir + cls):
-			if fn.startswith(acc_num):
+			if fn.startswith(accnum):
 				os.remove(C.crops_dir + cls + "\\" + fn)
 		for fn in os.listdir(C.orig_dir + cls):
-			if fn.startswith(acc_num):
+			if fn.startswith(accnum):
 				os.remove(C.orig_dir + cls + "\\" + fn)
 		for fn in os.listdir(C.aug_dir + cls):
-			if fn.startswith(acc_num):
+			if fn.startswith(accnum):
 				os.remove(C.aug_dir + cls + "\\" + fn)
 
 	voi_df_art, voi_df_ven, voi_df_eq = drm.get_voi_dfs()
-	voi_df_art, voi_df_ven, voi_df_eq = drm._remove_accnums_from_vois(voi_df_art, voi_df_ven, voi_df_eq, [acc_num])
+	voi_df_art, voi_df_ven, voi_df_eq = drm._remove_accnums_from_vois(voi_df_art, voi_df_ven, voi_df_eq, [accnum])
 	voi_dfs = voi_df_art, voi_df_ven, voi_df_eq
 	drm.write_voi_dfs(voi_dfs)
 
-	for cls in C.classes_to_include:
-		reload_accnum(cls, acc_nums=[acc_num], augment=True)
+	for cls in C.cls_names:
+		reload_accnum(cls, accnums=[accnum], augment=True)
 
-def reload_accnum(cls=None, acc_nums=None, augment=True):
+def reload_accnum(cls=None, accnums=None, augment=True):
 	#Reloads cropped, scaled and augmented images. Updates voi_dfs and small_vois accordingly.
 	#May fail if the accnum already exists - should call reset_accnum instead
 	C = config.Config()
-	drm.load_vois_batch(cls, acc_nums=acc_nums, overwrite=True)
+	drm.load_vois_batch(cls, accnums=accnums, overwrite=True)
 
 	for base_dir in [C.crops_dir, C.orig_dir, C.aug_dir]:
 		if not exists(join(base_dir, cls)):
 			os.makedirs(join(base_dir, cls))
 
-	extract_vois(cls, acc_nums)
-	save_unaugmented_set(cls, acc_nums)
+	extract_vois(cls, accnums)
+	save_unaugmented_set(cls, accnums)
 	if augment:
-		save_augmented_set(cls, acc_nums, overwrite=True)
+		save_augmented_set(cls, accnums, overwrite=True)
 
 @drm.autofill_cls_arg
 def save_vois_as_imgs(cls=None, lesion_ids=None, save_dir=None, normalize=None, rescale_factor=3, fn_prefix="", fn_suffix=None, separate_by_cls=True):
@@ -271,9 +271,6 @@ def save_vois_as_imgs(cls=None, lesion_ids=None, save_dir=None, normalize=None, 
 			suffix = fn_suffix
 
 		imsave("%s\\%s%s%s.png" % (save_dir, fn_prefix, fn[:-4], suffix), rescale(ret, rescale_factor, mode='constant'))
-
-def padded_coords(small_voi_df, lesion_id):
-	return _get_voi_coords(small_voi_df[small_voi_df["id"] == lesion_id])
 
 @drm.autofill_cls_arg
 def save_imgs_with_bbox(cls=None, lesion_ids=None, save_dir=None, normalize=None, fixed_width=100, fn_prefix="", fn_suffix=None, separate_by_cls=True):
@@ -346,12 +343,15 @@ def save_imgs_with_bbox(cls=None, lesion_ids=None, save_dir=None, normalize=None
 		else:
 			imsave("%s\\%s%s%s.png" % (save_dir, fn_prefix, lesion_id, suffix), ret)
 
+def padded_coords(small_voi_df, lesion_id):
+	return _get_voi_coords(small_voi_df[small_voi_df["id"] == lesion_id])
+
 #####################################
 ### Data Creation
 #####################################
 
 @drm.autofill_cls_arg
-def extract_vois(cls=None, acc_nums=None):
+def extract_vois(cls=None, accnums=None):
 	"""Produces grossly cropped but unscaled versions of the images.
 	This intermediate step makes debugging and visualization easier, and augmentation faster.
 	Rotation, scaling, etc. for augmentation can be done directly on these images.
@@ -365,22 +365,22 @@ def extract_vois(cls=None, acc_nums=None):
 	try:
 		small_voi_df = pd.read_csv(C.small_voi_path)
 	except FileNotFoundError:
-		small_voi_df = pd.DataFrame(columns=["id", "acc_num", "cls", "coords"])
+		small_voi_df = pd.DataFrame(columns=["id", "accnum", "cls", "coords"])
 
-	if acc_nums is None:
-		acc_nums = [x[:-4] for x in os.listdir(join(C.full_img_dir, cls))]
+	if accnums is None:
+		accnums = [x[:-4] for x in os.listdir(join(C.full_img_dir, cls))]
 
 	if not exists(join(C.crops_dir, cls)):
 		os.makedirs(join(C.crops_dir, cls))
 
-	for img_num, acc_num in enumerate(acc_nums):
-		art_vois = voi_df_art[(voi_df_art["acc_num"] == acc_num) & (voi_df_art["cls"] == cls)]
+	for img_num, accnum in enumerate(accnums):
+		art_vois = voi_df_art[(voi_df_art["accnum"] == accnum) & (voi_df_art["cls"] == cls)]
 		if len(art_vois) == 0:
 			continue
 
-		img = np.load(join(C.full_img_dir, cls, acc_num+".npy"))
+		img = np.load(join(C.full_img_dir, cls, accnum+".npy"))
 
-		small_voi_df = _rm_lesion_from_voi_df(small_voi_df, acc_num, cls)
+		small_voi_df = _rm_lesion_from_voi_df(small_voi_df, accnum, cls)
 
 		# iterate over each voi in that image
 		for lesion_id, voi_row in art_vois.iterrows():
@@ -396,7 +396,7 @@ def extract_vois(cls=None, acc_nums=None):
 			cropped_img, small_voi = _extract_voi(img, copy.deepcopy(voi_row), C.dims, ven_voi=ven_voi, eq_voi=eq_voi)
 			cropped_img = tr.normalize_intensity(cropped_img, max_intensity=1, min_intensity=-1)
 			#cropped_img = tr.normalize_intensity(cropped_img, max_intensity=2, min_intensity=None) - 1
-			#cropped_img = _scale_intensity_df(cropped_img, intensity_df[intensity_df["acc_num"] == img_fn[:img_fn.find('.')]])
+			#cropped_img = _scale_intensity_df(cropped_img, intensity_df[intensity_df["accnum"] == img_fn[:img_fn.find('.')]])
 
 			np.save(join(C.crops_dir, cls, lesion_id), cropped_img)
 
@@ -409,7 +409,7 @@ def extract_vois(cls=None, acc_nums=None):
 	small_voi_df.to_csv(C.small_voi_path, index=False)
 
 @drm.autofill_cls_arg
-def save_unaugmented_set(cls=None, acc_nums=None, lesion_ids=None, custom_vois=None, return_img_only=False, lesion_ratio=None):
+def save_unaugmented_set(cls=None, accnums=None, lesion_ids=None, custom_vois=None, return_img_only=False, lesion_ratio=None):
 	"""Save unaugmented lesion images. Overwrites without checking."""
 
 	C = config.Config()
@@ -419,10 +419,10 @@ def save_unaugmented_set(cls=None, acc_nums=None, lesion_ids=None, custom_vois=N
 		os.makedirs(join(C.orig_dir, cls))
 
 	if lesion_ids is None:
-		if acc_nums is None:
+		if accnums is None:
 			lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir + cls)]
 		else:
-			lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir + cls) if x[:x.find('_')] in acc_nums]
+			lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir + cls) if x[:x.find('_')] in accnums]
 
 	ret = []
 	for ix, lesion_id in enumerate(lesion_ids):
@@ -440,7 +440,7 @@ def save_unaugmented_set(cls=None, acc_nums=None, lesion_ids=None, custom_vois=N
 	return ret
 
 @drm.autofill_cls_arg
-def save_augmented_set(cls=None, acc_nums=None, num_cores=None, overwrite=True):
+def save_augmented_set(cls=None, accnums=None, num_cores=None, overwrite=True):
 	"""Augment all images in cls using CPU parallelization.
 	Overwrite can be an int, in which case it will create
 	augmented samples enumerated starting at that number."""
@@ -451,8 +451,8 @@ def save_augmented_set(cls=None, acc_nums=None, num_cores=None, overwrite=True):
 	if not exists(join(C.aug_dir, cls)):
 		os.makedirs(join(C.aug_dir, cls))
 
-	if acc_nums is not None:
-		fn_subset = [x for x in os.listdir(C.crops_dir + cls) if x[:x.find('_')] in acc_nums]
+	if accnums is not None:
+		fn_subset = [x for x in os.listdir(C.crops_dir + cls) if x[:x.find('_')] in accnums]
 		for fn in fn_subset:
 			_save_augmented_img(fn[:-4], cls, _get_voi_coords(small_voi_df[small_voi_df["id"] == fn[:-4]]))
 
@@ -662,13 +662,13 @@ def _add_small_voi(small_voi_df, lesion_id, cls, coords):
 
 	return small_voi_df
 
-def _rm_lesion_from_voi_df(small_voi_df, acc_num, cls=None):
-	"""Remove any elements in small_voi_df with the given acc_num. Limit to cls if specified."""
+def _rm_lesion_from_voi_df(small_voi_df, accnum, cls=None):
+	"""Remove any elements in small_voi_df with the given accnum. Limit to cls if specified."""
 
 	if cls is not None:
-		small_voi_df = small_voi_df[~((small_voi_df["acc_num"] == acc_num) & (small_voi_df["cls"] == cls))]
+		small_voi_df = small_voi_df[~((small_voi_df["accnum"] == accnum) & (small_voi_df["cls"] == cls))]
 	else:
-		small_voi_df = small_voi_df[~(small_voi_df["acc_num"] == acc_num)]
+		small_voi_df = small_voi_df[~(small_voi_df["accnum"] == accnum)]
 
 	return small_voi_df
 
@@ -704,9 +704,9 @@ def _extract_voi(img, voi, min_dims, ven_voi, eq_voi):
 	dx = x2 - x1
 	dy = y2 - y1
 	dz = z2 - z1
-	assert dx > 0, "Bad voi for " + str(voi["acc_num"])
-	assert dy > 0, "Bad voi for " + str(voi["acc_num"])
-	assert dz > 0, "Bad voi for " + str(voi["acc_num"])
+	assert dx > 0, "Bad voi for " + str(voi["accnum"])
+	assert dy > 0, "Bad voi for " + str(voi["accnum"])
+	assert dz > 0, "Bad voi for " + str(voi["accnum"])
 	
 	# align all phases
 	if ven_voi is not None:
