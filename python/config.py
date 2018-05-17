@@ -14,14 +14,12 @@ Author: Clinton Wang, E-mail: `clintonjwang@gmail.com`, Github: `https://github.
 from os.path import *
 
 class Config:
-	def __init__(self, dataset="lirads"):
+	def __init__(self, dataset="etiology"):
 		self.run_num = 2
 		self.test_run_num = 2
 		self.dims = [24,24,12]
 		self.nb_channels = 3
 		self.aug_factor = 100
-		self.train_frac = None#.9
-		self.test_num = 20 # only used if train_frac is None
 
 		self.context_dims = [36,36,12]
 		self.dual_img_inputs = False # whether to use both tight and gross image croppings for the network
@@ -39,27 +37,11 @@ class Config:
 		# Augmentation parameters
 		self.intensity_scaling = [.05,.05]
 		self.translate = [2,2,1]
-		#self.use_paula_dataset()
+
 		self.use_dataset(dataset)
 
 		self.nb_classes = len(self.cls_names)
 		self.phases = ["T1_20s", "T1_70s", "T1_3min"]
-
-		self.art_voi_path = join(self.base_dir, "data\\voi_art_full.csv")
-		self.ven_voi_path = join(self.base_dir, "data\\voi_ven_full.csv")
-		self.eq_voi_path = join(self.base_dir, "data\\voi_eq_full.csv")
-		self.dims_df_path = join(self.base_dir, "data\\img_dims.csv")
-		self.int_df_path = join(self.base_dir, "data\\intensity.csv")
-		self.small_voi_path = join(self.base_dir, "data\\small_vois_full.csv")
-		self.run_stats_path = join(self.base_dir, "data\\overnight_run.csv")
-		self.patient_info_path = join(self.base_dir, "data\\patient_info.csv")
-
-		self.crops_dir = join(self.base_dir, "imgs\\unscaled_crops_full\\")
-		self.aug_dir = join(self.base_dir, "imgs\\aug_imgs_2412_full\\")
-		self.orig_dir = join(self.base_dir, "imgs\\orig_imgs_2412_full\\")
-		self.artif_dir = join(self.base_dir, "imgs\\artif_imgs_2412\\")
-		self.model_dir = join(self.base_dir, "models\\")
-
 
 	def turn_on_clinical_features(self):
 		self.non_imaging_inputs = True # whether non-imaging inputs should be incorporated into the neural network
@@ -69,7 +51,7 @@ class Config:
 		if dataset == "lirads":
 			self.base_dir = "E:\\LIRADS"
 			self.coord_xls_path = 'Z:\\LIRADS\\Prototype1e.xlsx'
-			self.test_num = 2
+			self.test_num = 20
 			self.full_img_dir = "Z:\\LIRADS\\full_imgs"
 
 			self.cls_names = ['hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh']
@@ -85,7 +67,7 @@ class Config:
 			self.full_img_dir = join(self.base_dir, "full_imgs")
 
 			self.cls_names = ['hbv', 'hcv', 'nonviral']
-			self.sheetnames = ['HBV', 'HCV', 'Non-viral']
+			self.sheetnames = ['HBV', 'HCV', 'Nonviral']
 			self.short_cls_names = ['HBV', 'HCV', 'NV']
 			self.dcm_dirs = ["D:\\Etiology\\Imaging"] * 3
 
@@ -110,7 +92,21 @@ class Config:
 			self.sheetnames = ['HCC', 'Cholangio', 'Colorectal', 'Cyst', 'Hemangioma', 'FNH', 'NET', 'Adenoma', 'Abscess']
 			self.short_cls_names = ['HCC', 'ICC', 'CRC Met.', 'Cyst', 'Hemang.', 'FNH', 'NET', 'Adenoma', 'Abscess']
 			self.dcm_dirs = ["Z:\\LIRADS\\DICOMs\\" + fn for fn in self.cls_names]
-		
+
+		self.art_voi_path = join(self.base_dir, "data\\voi_art_full.csv")
+		self.ven_voi_path = join(self.base_dir, "data\\voi_ven_full.csv")
+		self.eq_voi_path = join(self.base_dir, "data\\voi_eq_full.csv")
+		self.dims_df_path = join(self.base_dir, "data\\img_dims.csv")
+		self.int_df_path = join(self.base_dir, "data\\intensity.csv")
+		self.small_voi_path = join(self.base_dir, "data\\small_vois_full.csv")
+		self.run_stats_path = join(self.base_dir, "data\\overnight_run.csv")
+		self.patient_info_path = join(self.base_dir, "data\\patient_info.csv")
+
+		self.crops_dir = join(self.base_dir, "imgs\\unscaled_crops_full\\")
+		self.aug_dir = join(self.base_dir, "imgs\\aug_imgs_2412_full\\")
+		self.orig_dir = join(self.base_dir, "imgs\\orig_imgs_2412_full\\")
+		self.artif_dir = join(self.base_dir, "imgs\\artif_imgs_2412\\")
+		self.model_dir = join(self.base_dir, "models\\")
 
 	def use_artificial_samples(self):
 		# Artificial sample parameters

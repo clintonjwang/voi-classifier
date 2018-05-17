@@ -72,7 +72,7 @@ def get_run_stats_csv():
 			"kernel_size", "conv_filters", "conv_padding",
 			"dropout", "dense_units", "pooling",
 			"acc6cls", "acc3cls", "time_elapsed(s)", "loss_hist"] + \
-			C.classes_to_include + \
+			C.cls_names + \
 			['confusion_matrix', 'timestamp',
 			'misclassified_test', 'misclassified_train', 'model_num',
 			'y_true', 'y_pred_raw', 'z_test'])
@@ -166,13 +166,13 @@ def run_fixed_hyperparams(overwrite=False, max_runs=999, hyperparams=None):
 		running_acc_6.append(accuracy_score(y_true, y_pred))
 		print("6cls accuracy:", running_acc_6[-1], " - average:", np.mean(running_acc_6))
 
-		y_true_simp, y_pred_simp, _ = cnna.merge_classes(y_true, y_pred, C.classes_to_include)
+		y_true_simp, y_pred_simp, _ = cnna.merge_classes(y_true, y_pred, C.cls_names)
 		running_acc_3.append(accuracy_score(y_true_simp, y_pred_simp))
 		#print("3cls accuracy:", running_acc_3[-1], " - average:", np.mean(running_acc_3))
 
 		if hyperparams is not None:
 			running_stats.loc[index] = _get_hyperparams_as_list(C, T) + [running_acc_6[-1], running_acc_3[-1], time.time()-t, loss_hist] +\
-								[num_samples[k] for k in C.classes_to_include] + \
+								[num_samples[k] for k in C.cls_names] + \
 								[cm, time.time(), #C.run_num,
 								misclassified_test, misclassified_train, model_num, y_true, str(Y_pred), list(Z_test)]
 
@@ -182,7 +182,7 @@ def run_fixed_hyperparams(overwrite=False, max_runs=999, hyperparams=None):
 								kernel_size[index % len(kernel_size)], f[index % len(f)], padding[index % len(padding)],
 								dropout[index % len(dropout)], dense_units[index % len(dense_units)],
 								running_acc_6[-1], running_acc_3[-1], time.time()-t, loss_hist] +\
-								[num_samples[k] for k in C.classes_to_include] + \
+								[num_samples[k] for k in C.cls_names] + \
 								[cm, time.time(), #C.run_num,
 								misclassified_test, misclassified_train, model_num, y_true, str(Y_pred), list(Z_test)]
 		running_stats.to_csv(C.run_stats_path, index=False)
@@ -229,7 +229,7 @@ def run_then_return_val_loss(num_iters=1, hyperparams=None):
 	f1 = f1_score(y_true, y_pred, average="weighted")
 	acc_6cl = accuracy_score(y_true, y_pred)
 
-	y_true_simp, y_pred_simp, _ = condense_cm(y_true, y_pred, C.classes_to_include)
+	y_true_simp, y_pred_simp, _ = condense_cm(y_true, y_pred, C.cls_names)
 	acc_3cl = accuracy_score(y_true_simp, y_pred_simp)
 
 	running_stats.loc[index] = _get_hyperparams_as_list(C, T) + \

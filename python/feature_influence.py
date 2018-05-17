@@ -64,16 +64,17 @@ class InfluenceAnalyzer:
 			
 		return W
 
-	def get_grad(self, lesion_id, perturb_W=None, wrong_cls=None):
+	def get_grad(self, lesion_id, perturb_W=None, pred_cls=None):
 		C = config.Config()
 		
 		cls = self.voi_df.loc[lesion_id]["cls"]
 		img = np.load(join(C.orig_dir, cls, lesion_id+".npy"))
 		img = np.expand_dims(img,0)
 
-		if wrong_cls is not None:
-			cls = wrong_cls
-		y_true = np_utils.to_categorical(C.classes_to_include.index(cls), 6)
+		if pred_cls is not None:
+			cls = pred_cls
+
+		y_true = np_utils.to_categorical(C.cls_names.index(cls), 6)
 		loss = K.categorical_crossentropy(y_true, self.M.output)
 		
 		#with tf.device('/gpu:0'):
@@ -152,7 +153,7 @@ class InfluenceAnalyzer:
 			cls = self.voi_df.loc[lesion_id]["cls"]
 			img = np.load(join(C.orig_dir, cls, lesion_id+".npy"))
 			imgs.append(np.expand_dims(img,0))
-			classes.append(C.classes_to_include.index(cls))
+			classes.append(C.cls_names.index(cls))
 
 		Ht = np.zeros(s_test.shape)
 		losses = [K.categorical_crossentropy(y_true, self.M.output) for y_true in \

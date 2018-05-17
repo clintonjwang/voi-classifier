@@ -47,7 +47,7 @@ def feature_id_bulk(model_nums):
 	feat_count.pop("homogeneous texture")
 	#feat_count.pop("central scar")
 	all_features = sorted(list(feat_count.keys()))
-	cls_features = {f: [c for c in C.classes_to_include if f in features_by_cls[c]] for f in all_features}
+	cls_features = {f: [c for c in C.cls_names if f in features_by_cls[c]] for f in all_features}
 
 	Z_features = get_annotated_files(features_by_cls)
 	Z_features.pop("homogeneous texture")
@@ -57,10 +57,10 @@ def feature_id_bulk(model_nums):
 	num_annotations = 10
 	num_features = len(all_features) # number of features
 
-	all_imgs = [orig_data_dict[cls][0] for cls in C.classes_to_include]
+	all_imgs = [orig_data_dict[cls][0] for cls in C.cls_names]
 	all_imgs = np.array(hf.flatten(all_imgs))
 
-	all_lesionids = [orig_data_dict[cls][1] for cls in C.classes_to_include]
+	all_lesionids = [orig_data_dict[cls][1] for cls in C.cls_names]
 	all_lesionids = np.array(hf.flatten(all_lesionids))
 	test_indices = np.where(np.isin(all_lesionids, Z_test))[0]
 
@@ -110,7 +110,7 @@ def process_feat_id_dfs(all_features, DFs):
 	for f in sorted(all_features):
 		prec_history[f] = []
 		recall_history[f] = []
-	for cls in sorted(C.classes_to_include):
+	for cls in sorted(C.cls_names):
 		prec_history[cls] = []
 		recall_history[cls] = []
 
@@ -139,7 +139,7 @@ def process_feat_id_dfs(all_features, DFs):
 
 		# by lesion class
 		acc_df = pd.DataFrame(columns=["num_correct", "pred_freq", "true_freq"])
-		for cls in sorted(C.classes_to_include):
+		for cls in sorted(C.cls_names):
 			num, prec_den, rec_den = 0,0,0
 			for key, row in answer_key.iterrows():
 				if row['true_cls'] != cls:
@@ -193,7 +193,7 @@ def process_feat_id_dfs(all_features, DFs):
 		MISFIRST += np.array([num, rec_den], float)
 
 	feat_df = pd.DataFrame(FEAT_DATA, index=sorted(all_features), columns=["num_correct", "pred_freq", "true_freq"])
-	cls_df = pd.DataFrame(CLS_DATA, index=sorted(C.classes_to_include), columns=["num_correct", "pred_freq", "true_freq"])
+	cls_df = pd.DataFrame(CLS_DATA, index=sorted(C.cls_names), columns=["num_correct", "pred_freq", "true_freq"])
 
 	return feat_df, cls_df, MISCLS, FIRST, MISFIRST, prec_history, recall_history
 
@@ -389,7 +389,7 @@ def get_overall_activations(model_dense, orig_data_dict, models_conv=None, aug_f
 	C = config.Config()
 
 	voi_df = drm.get_voi_dfs()[0]
-	Z = np.concatenate([orig_data_dict[cls][1] for cls in C.classes_to_include], 0)
+	Z = np.concatenate([orig_data_dict[cls][1] for cls in C.cls_names], 0)
 	num_samples = aug_factor*len(Z)
 
 	all_dense = np.empty([num_samples,dense_u])
@@ -513,8 +513,8 @@ def predict_test_features(full_model, model_dense, all_dense, feature_dense, x_t
 
 		x = np.expand_dims(x_test[img_ix], axis=0)
 		preds = full_model.predict(x, verbose=False)[0]
-		#for pred_cls, _ in sorted(zip(C.classes_to_include, preds), key=lambda x:x[1], reverse=True)[:1]:
-		row.append(C.classes_to_include[list(preds).index(max(preds))])
+		#for pred_cls, _ in sorted(zip(C.cls_names, preds), key=lambda x:x[1], reverse=True)[:1]:
+		row.append(C.cls_names[list(preds).index(max(preds))])
 
 		p_f = np.empty(num_features)
 		aug_factor = 100
@@ -600,7 +600,7 @@ def tsne(filter_results):
 
 	X = []
 	z = [0]
-	for i,cls in enumerate(C.classes_to_include):
+	for i,cls in enumerate(C.cls_names):
 		X.append(filter_results[cls])
 		z.append(len(filter_results[cls]) + z[-1])
 	z.append(len(X))
@@ -610,7 +610,7 @@ def tsne(filter_results):
 
 	fig = plt.figure()
 	ax = fig.add_subplot(111)
-	for i, cls in enumerate(C.classes_to_include):
+	for i, cls in enumerate(C.cls_names):
 		ax.scatter(X_emb[z[i]:z[i+1], 0], X_emb[z[i]:z[i+1], 1], color=plt.cm.Set1(i/6.), marker='.', alpha=.8)
 
 	ax.legend(C.short_cls_names, framealpha=0.5)
@@ -628,27 +628,27 @@ def tsne(filter_results):
 
 def collect_features():
 	C = config.Config()
-	feature_sheet = pd.read_excel(C.xls_name, "Descriptions")
+	feature_sheet = pd.read_excel(C.coord_xls_path, "Descriptions")
 
 	features_by_cls = {}
 	feat_count = {}
-	for cls in C.classes_to_include:
+	for cls in C.cls_names:
 		features_by_cls[cls] = list(feature_sheet["evidence1"+cls].dropna().values)
 		features_by_cls[cls] = features_by_cls[cls] + list(feature_sheet["evidence2"+cls].dropna().values)
 
 	feat_count = dict(zip(*np.unique([f for cls in features_by_cls for f in features_by_cls[cls]], return_counts=True)))
-	for cls in C.classes_to_include:
+	for cls in C.cls_names:
 		features_by_cls[cls] = list(set(features_by_cls[cls]))
 
 	return features_by_cls, feat_count
 
 def get_annotated_files(features_by_cls, num_samples=10):
 	C = config.Config()
-	feature_sheet = pd.read_excel(C.xls_name, "Descriptions")
+	feature_sheet = pd.read_excel(C.coord_xls_path, "Descriptions")
 
 	Z_features_by_cls = {cls: {} for cls in features_by_cls}
 	Z_features = {}
-	for cls in C.classes_to_include:
+	for cls in C.cls_names:
 		for f in features_by_cls[cls]:
 			if f not in Z_features:
 				Z_features[f] = []
@@ -955,14 +955,14 @@ def visualize_channel(model, layer_name, save_path, num_ch=None):
 def save_output(Z, y_pred, y_true, C=None, save_dir=None):
 	"""Saves large and small cropped images of all lesions in Z.
 	Uses y_true and y_pred to separate correct and incorrect predictions.
-	Requires C.classes_to_include, C.output_img_dir, C.crops_dir, C.orig_dir"""
+	Requires C.cls_names, C.output_img_dir, C.crops_dir, C.orig_dir"""
 
 	if C is None:
 		C = config.Config()
 	if save_dir is None:
 		save_dir = C.output_img_dir
 
-	cls_mapping = C.classes_to_include
+	cls_mapping = C.cls_names
 
 	for cls in cls_mapping:
 		if not os.path.exists(save_dir + "\\correct\\" + cls):
@@ -985,7 +985,7 @@ def merge_classes(y_true, y_pred, cls_mapping=None):
 	C = config.Config()
 
 	if cls_mapping is None:
-		cls_mapping = C.classes_to_include
+		cls_mapping = C.cls_names
 	
 	y_true_simp = np.array([C.simplify_map[cls_mapping[y]] for y in y_true])
 	y_pred_simp = np.array([C.simplify_map[cls_mapping[y]] for y in y_pred])

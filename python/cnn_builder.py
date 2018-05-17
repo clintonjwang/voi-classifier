@@ -16,7 +16,6 @@ from keras.regularizers import l2
 from keras.callbacks import EarlyStopping
 from keras.optimizers import Adam
 from keras.utils import np_utils
-
 import argparse
 import feature_interpretation as cnna
 import copy
@@ -101,7 +100,7 @@ def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same','same'], 
 		ActivationLayer = Activation
 		activation_args = 'relu'
 
-	nb_classes = len(C.classes_to_include)
+	nb_classes = len(C.cls_names)
 
 	if trained_model is not None:
 		inputs = Input(shape=(C.dims[0]//2, C.dims[1]//2, C.dims[2]//2, 128))
@@ -255,7 +254,7 @@ def build_rcnn(optimizer='adam', padding=['same','same'], pool_sizes = [(2,2,2),
 		ActivationLayer = Activation
 		activation_args = 'relu'
 
-	nb_classes = len(C.classes_to_include)
+	nb_classes = len(C.cls_names)
 
 	if first_layer == 0:
 		inputs = Input(shape=(C.dims[0], C.dims[1], C.dims[2], C.nb_channels))
@@ -338,7 +337,7 @@ def build_dual_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same','sam
 	ActivationLayer = Activation
 	activation_args = 'relu'
 
-	nb_classes = len(C.classes_to_include)
+	nb_classes = len(C.cls_names)
 
 	context_img = layers.Input(shape=(C.context_dims[0], C.context_dims[1], C.context_dims[2], 3))
 	cx = context_img
@@ -402,7 +401,7 @@ def pretrain_cnn(trained_model, padding=['same','same'], pool_sizes=[(2,2,2), (2
 	ActivationLayer = Activation
 	activation_args = 'relu'
 
-	nb_classes = len(C.classes_to_include)
+	nb_classes = len(C.cls_names)
 
 	img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 3))
 
@@ -485,7 +484,7 @@ def pretrain_model_back(trained_model, dilation_rate=(1,1,1), padding=['same', '
 	ActivationLayer = Activation
 	activation_args = 'relu'
 
-	nb_classes = len(C.classes_to_include)
+	nb_classes = len(C.cls_names)
 
 	if first_layer <= -5:
 		img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], f[0]*3))
@@ -527,13 +526,11 @@ def pretrain_model_back(trained_model, dilation_rate=(1,1,1), padding=['same', '
 def build_bbox_cnn(dilation_rate=(1,1,1), 
 	dropout=[0.1,0.1], activation_type='relu', f=[64,128,128], dense_units=100, kernel_size=(3,3,2),
 	dual_inputs=False, run_2d=False, stride=(1,1,1), skip_con=False, trained_model=None):
-	"""Main class for setting up a CNN. Returns the compiled model."""
-
 	C = config.Config()
 	ActivationLayer = Activation
 	activation_args = 'relu'
 
-	nb_classes = len(C.classes_to_include)
+	nb_classes = len(C.cls_names)
 
 	img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 3))
 
@@ -560,7 +557,7 @@ def build_autoencoder(pool_sizes=[(2,2,2), (2,2,1)], f=[64,128,128], kernel_size
 	ActivationLayer = Activation
 	activation_args = 'relu'
 
-	nb_classes = len(C.classes_to_include)
+	nb_classes = len(C.cls_names)
 
 	img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 3))
 	x = Reshape((C.dims[0], C.dims[1], C.dims[2], 3, 1))(img)
@@ -605,7 +602,7 @@ def build_autoencoder(pool_sizes=[(2,2,2), (2,2,1)], f=[64,128,128], kernel_size
 	ActivationLayer = Activation
 	activation_args = 'relu'
 
-	nb_classes = len(C.classes_to_include)
+	nb_classes = len(C.cls_names)
 
 	img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 3))
 
@@ -667,7 +664,7 @@ def get_cnn_data(n=4, n_art=0, run_2d=False, Z_test_fixed=None, verbose=False):
 	importlib.reload(config)
 	C = config.Config()
 
-	nb_classes = len(C.classes_to_include)
+	nb_classes = len(C.cls_names)
 	orig_data_dict, num_samples = _collect_unaug_data()
 
 	train_ids = {} #filenames of training set originals
@@ -685,11 +682,11 @@ def get_cnn_data(n=4, n_art=0, run_2d=False, Z_test_fixed=None, verbose=False):
 
 	if Z_test_fixed is not None:
 		orders = {cls: np.where(np.isin(orig_data_dict[cls][1], Z_test_fixed)) for cls in orig_data_dict}
-		for cls in C.classes_to_include:
+		for cls in C.cls_names:
 			orders[cls] = list(set(range(num_samples[cls])).difference(list(orders[cls][0]))) + list(orders[cls][0])
 
 	for cls in orig_data_dict:
-		cls_num = C.classes_to_include.index(cls)
+		cls_num = C.cls_names.index(cls)
 
 		if C.train_frac is None:
 			train_samples[cls] = num_samples[cls] - C.test_num
@@ -744,7 +741,7 @@ def get_cnn_data(n=4, n_art=0, run_2d=False, Z_test_fixed=None, verbose=False):
 def load_data_capsnet(n=2, Z_test_fixed=None):
 	C = config.Config()
 
-	nb_classes = len(C.classes_to_include)
+	nb_classes = len(C.cls_names)
 	orig_data_dict, num_samples = _collect_unaug_data()
 
 	test_ids = {} #filenames of test set
@@ -757,11 +754,11 @@ def load_data_capsnet(n=2, Z_test_fixed=None):
 
 	if Z_test_fixed is not None:
 		orders = {cls: np.where(np.isin(orig_data_dict[cls][1], Z_test_fixed)) for cls in orig_data_dict}
-		for cls in C.classes_to_include:
+		for cls in C.cls_names:
 			orders[cls] = list(set(range(num_samples[cls])).difference(list(orders[cls][0]))) + list(orders[cls][0])
 
 	for cls in orig_data_dict:
-		cls_num = C.classes_to_include.index(cls)
+		cls_num = C.cls_names.index(cls)
 
 		if C.train_frac is None:
 			train_samples[cls] = num_samples[cls] - C.test_num
@@ -843,7 +840,7 @@ def get_cnn_demogr(n=4):
 
 	train_samples = {}
 	for cls in orig_data_dict:
-		cls_num = C.classes_to_include.index(cls)
+		cls_num = C.cls_names.index(cls)
 
 		if C.train_frac is None:
 			train_samples[cls] = num_samples[cls] - C.test_num
@@ -883,7 +880,7 @@ def _collect_unaug_demogr():
 	patient_info_df["AccNum"] = patient_info_df["AccNum"].astype(str)
 	num_samples = {}
 
-	for cls in C.classes_to_include:
+	for cls in C.cls_names:
 		x = np.empty((10000, C.dims[0], C.dims[1], C.dims[2], C.nb_channels))
 		x2 = np.empty((10000, 2))
 		z = []
@@ -929,7 +926,7 @@ def _train_gen_demogr(test_ids, n):
 		y = np.zeros((n*C.nb_classes, 2))
 
 		train_cnt = 0
-		for cls in C.classes_to_include:
+		for cls in C.cls_names:
 			img_fns = os.listdir(C.aug_dir+cls)
 			while n > train_cnt:
 				img_fn = random.choice(img_fns)
@@ -963,13 +960,13 @@ def _train_gen_capsnet(test_ids, n=4):
 
 	C = config.Config()
 
-	num_classes = len(C.classes_to_include)
+	num_classes = len(C.cls_names)
 	while True:
 		x1 = np.empty(((n+n_art)*num_classes, C.dims[0], C.dims[1], C.dims[2], C.nb_channels))
 		y = np.zeros(((n+n_art)*num_classes, num_classes))
 
 		train_cnt = 0
-		for cls in C.classes_to_include:
+		for cls in C.cls_names:
 			img_fns = os.listdir(C.aug_dir+cls)
 			while n > 0:
 				img_fn = random.choice(img_fns)
@@ -977,7 +974,7 @@ def _train_gen_capsnet(test_ids, n=4):
 				if lesion_id not in test_ids[cls]:
 					x1[train_cnt] = np.load(C.aug_dir+cls+"\\"+img_fn)
 					
-					y[train_cnt][C.classes_to_include.index(cls)] = 1
+					y[train_cnt][C.cls_names.index(cls)] = 1
 					
 					train_cnt += 1
 					if train_cnt % (n+n_art) == 0:
@@ -1002,7 +999,7 @@ def _train_generator_func(test_ids, n=12, n_art=0):
 		patient_info_df = pd.read_csv(C.patient_info_path)
 		patient_info_df["AccNum"] = patient_info_df["AccNum"].astype(str)
 
-	num_classes = len(C.classes_to_include)
+	num_classes = len(C.cls_names)
 	while True:
 		x1 = np.empty(((n+n_art)*num_classes, C.dims[0], C.dims[1], C.dims[2], C.nb_channels))
 		y = np.zeros(((n+n_art)*num_classes, num_classes))
@@ -1013,14 +1010,14 @@ def _train_generator_func(test_ids, n=12, n_art=0):
 			x2 = np.empty(((n+n_art)*num_classes, C.num_non_image_inputs))
 
 		train_cnt = 0
-		for cls in C.classes_to_include:
+		for cls in C.cls_names:
 			if n_art > 0:
 				img_fns = os.listdir(C.artif_dir+cls)
 				for _ in range(n_art):
 					img_fn = random.choice(img_fns)
 					x1[train_cnt] = np.load(C.artif_dir + cls + "\\" + img_fn)
 					#x2[train_cnt] = avg_X2[cls]
-					y[train_cnt][C.classes_to_include.index(cls)] = 1
+					y[train_cnt][C.cls_names.index(cls)] = 1
 
 					train_cnt += 1
 
@@ -1045,7 +1042,7 @@ def _train_generator_func(test_ids, n=12, n_art=0):
 						patient_row = patient_info_df[patient_info_df["AccNum"] == voi_row["acc_num"]]
 						x2[train_cnt] = get_non_img_inputs(voi_row, patient_row)
 					
-					y[train_cnt][C.classes_to_include.index(cls)] = 1
+					y[train_cnt][C.cls_names.index(cls)] = 1
 					
 					train_cnt += 1
 					if train_cnt % (n+n_art) == 0:
@@ -1059,18 +1056,18 @@ def _train_generator_func(test_ids, n=12, n_art=0):
 def _train_generator_func_2d(train_ids, voi_df, avg_X2, n=12, n_art=0, C=None):
 	"""n is the number of samples from each class, n_art is the number of artificial samples"""
 
-	classes_to_include = C.classes_to_include
+	cls_names = C.cls_names
 	if C is None:
 		C = config.Config()
 	
-	num_classes = len(classes_to_include)
+	num_classes = len(cls_names)
 	while True:
 		x1 = np.empty(((n+n_art)*num_classes, C.dims[0], C.dims[1], C.nb_channels))
 		x2 = np.empty(((n+n_art)*num_classes, C.num_non_image_inputs))
 		y = np.zeros(((n+n_art)*num_classes, num_classes))
 
 		train_cnt = 0
-		for cls in classes_to_include:
+		for cls in cls_names:
 			if n_art>0:
 				img_fns = os.listdir(C.artif_dir+cls)
 				for _ in range(n_art):
@@ -1078,7 +1075,7 @@ def _train_generator_func_2d(train_ids, voi_df, avg_X2, n=12, n_art=0, C=None):
 					temp = np.load(C.artif_dir + cls + "\\" + img_fn)
 					x1[train_cnt] = temp[:,:,temp.shape[2]//2,:]
 					x2[train_cnt] = avg_X2[cls]
-					y[train_cnt][C.classes_to_include.index(cls)] = 1
+					y[train_cnt][C.cls_names.index(cls)] = 1
 
 					train_cnt += 1
 
@@ -1094,7 +1091,7 @@ def _train_generator_func_2d(train_ids, voi_df, avg_X2, n=12, n_art=0, C=None):
 					x2[train_cnt] = [(float(row["real_dx"]) * float(row["real_dy"]) * float(row["real_dz"])) ** (1/3) / 50,
 										max(float(row["real_dx"]), float(row["real_dy"])) / float(row["real_dz"])]
 					
-					y[train_cnt][C.classes_to_include.index(cls)] = 1
+					y[train_cnt][C.cls_names.index(cls)] = 1
 					
 					train_cnt += 1
 					if train_cnt % (n+n_art) == 0:
@@ -1147,7 +1144,7 @@ def _collect_unaug_data():
 		patient_info_df = pd.read_csv(C.patient_info_path)
 		patient_info_df["AccNum"] = patient_info_df["AccNum"].astype(str)
 
-	for cls in C.classes_to_include:
+	for cls in C.cls_names:
 		x = np.empty((10000, C.dims[0], C.dims[1], C.dims[2], C.nb_channels))
 		z = []
 
