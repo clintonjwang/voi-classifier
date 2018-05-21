@@ -54,12 +54,11 @@ class InfluenceAnalyzer:
 		self.W = W
 
 	def perturb_weights(self, t):
-		eps = 1e-5
 		W = copy.deepcopy(self.W)
 		t_ix = 0
 		
 		for w_ix in range(len(self.W)):
-			W[w_ix] += eps * np.reshape(t[t_ix:t_ix+W[w_ix].size], W[w_ix].shape)
+			W[w_ix] += np.reshape(t[t_ix:t_ix+W[w_ix].size], W[w_ix].shape)
 			t_ix += W[w_ix].size
 			
 		return W
@@ -95,8 +94,7 @@ class InfluenceAnalyzer:
 		
 		return g_i
 
-	def get_HVP(self, perturb_W, g_shape, verbose=False):
-		eps = 1e-5
+	def get_HVP(self, perturb_W, g_shape, eps=1e-5, verbose=False):
 		Ht = np.zeros(g_shape)
 		feed_dict_plus = {self.M.trainable_weights[i]:perturb_W[i] for i in range(len(perturb_W))}
 		losses = [K.categorical_crossentropy(y_true, self.M.output) for y_true in \
@@ -123,23 +121,32 @@ class InfluenceAnalyzer:
 		
 		return Ht / len(self.all_cls)
 
-	def get_stest(self, g_test, num_iters=15):
+	def get_stest(self, g_test, max_iters=50, tol=.05, eps=1e-5):
 		t_k = np.zeros(g_test.shape)
 		r_k = g_test#-Ht
 		p_k = r_k
+		d_0 = d_new = np.dot(r_k, r_k)
+		i = 0
 
-		for _ in range(num_iters):
-			W_new = self.perturb_weights(p_k)
-			Hp = self.get_HVP(W_new, g_test.shape)
+		while d_new > tol**2 * d_0 and i < range(max_iters):
+			W_new = self.perturb_weights(p_k*eps)
+			Hp = self.get_HVP(W_new, g_test.shape, eps)
 
-			alpha = np.dot(r_k, r_k) / (np.dot(p_k, Hp) + 1e-10)
+			alpha = d_new / (np.dot(p_k, Hp) + 1e-10)
 			t_k += alpha * p_k
-			r_k2 = r_k - alpha * Hp
+			if i % 25 == 1:
+				Ht = self.get_HVP(self.perturb_weights(t_k*eps), g_test.shape, eps)
+				r_k2 = b - Ht
+			else:
+				r_k2 = r_k - alpha * Hp
 			#phi_hist = .5*np.dot(t_k, Ht) - g_test
 
-			beta = np.dot(r_k2, r_k2) / (np.dot(r_k, r_k) + 1e-10)
+			beta = np.dot(r_k2, r_k2) / (d_new + 1e-10)
 			r_k = r_k2
 			p_k = r_k + beta*p_k
+			d_new = np.dot(r_k, r_k)
+
+			i += 1
 
 		return t_k
 

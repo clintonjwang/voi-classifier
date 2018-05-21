@@ -61,6 +61,8 @@ class Config:
 			self.simplify_map = {'hcc': 0, 'cyst': 1, 'hemangioma': 1, 'fnh': 1, 'cholangio': 2, 'colorectal': 2}
 			
 		elif dataset == "etiology":
+			self.context_dims = [64,64,32]
+
 			self.base_dir = "D:\\Etiology"
 			self.coord_xls_path = "D:\\Etiology\\coords.xlsx"
 			self.test_num = 5
@@ -97,14 +99,13 @@ class Config:
 		self.ven_voi_path = join(self.base_dir, "data\\voi_ven_full.csv")
 		self.eq_voi_path = join(self.base_dir, "data\\voi_eq_full.csv")
 		self.dims_df_path = join(self.base_dir, "data\\img_dims.csv")
-		self.int_df_path = join(self.base_dir, "data\\intensity.csv")
 		self.small_voi_path = join(self.base_dir, "data\\small_vois_full.csv")
 		self.run_stats_path = join(self.base_dir, "data\\overnight_run.csv")
 		self.patient_info_path = join(self.base_dir, "data\\patient_info.csv")
 
 		self.crops_dir = join(self.base_dir, "imgs\\unscaled_crops_full\\")
-		self.aug_dir = join(self.base_dir, "imgs\\aug_imgs_2412_full\\")
 		self.orig_dir = join(self.base_dir, "imgs\\orig_imgs_2412_full\\")
+		self.aug_dir = join(self.base_dir, "imgs\\aug_imgs_2412_full\\")
 		self.artif_dir = join(self.base_dir, "imgs\\artif_imgs_2412\\")
 		self.model_dir = join(self.base_dir, "models\\")
 

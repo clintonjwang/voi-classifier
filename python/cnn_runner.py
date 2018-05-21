@@ -94,36 +94,19 @@ def run_fixed_hyperparams(overwrite=False, max_runs=999, hyperparams=None):
 
 	running_acc_6 = []
 	running_acc_3 = []
-	"""n = [4]
-			n_art = [0]
-			steps_per_epoch = [750]
-			epochs = [25]
-			run_2d = False
-			f = [[64,128,128]]
-			padding = [['valid','valid']]
-			dropout = [[0.1,0.1]]
-			dense_units = [128]
-			dilation_rate = [(1,1,1)]
-			kernel_size = [(3,3,2)]
-			pool_sizes = [(2,2,1),(1,1,2)]
-			activation_type = ['elu']
-			merge_layer = [0]
-			cycle_len = 1"""
 	early_stopping = EarlyStopping(monitor='loss', min_delta=0.002, patience=3)
 	time_dist = True
 
 	C_index = 0
 	while index < max_runs:
 		C = C_list[C_index % len(C_list)]
-		#C.hard_scale = False
-
 		#run_then_return_val_loss(num_iters=1, hyperparams=None)
 
 		if hyperparams is not None:
 			T = hyperparams
 
 			X_test, Y_test, train_generator, num_samples, train_orig, Z = cbuild.get_cnn_data(n=T.n,
-						n_art=T.n_art, run_2d=T.run_2d)
+						run_2d=T.run_2d)
 			Z_test, Z_train_orig = Z
 			X_train_orig, Y_train_orig = train_orig
 			model = cbuild.build_cnn_hyperparams(T)
@@ -136,7 +119,7 @@ def run_fixed_hyperparams(overwrite=False, max_runs=999, hyperparams=None):
 
 		else:
 			X_test, Y_test, train_generator, num_samples, train_orig, Z = cbuild.get_cnn_data(n=n[C_index % len(n)],
-						n_art=n_art[C_index % len(n_art)], run_2d=run_2d)
+						run_2d=run_2d)
 			Z_test, Z_train_orig = Z
 			X_train_orig, Y_train_orig = train_orig
 		#for _ in range(cycle_len):

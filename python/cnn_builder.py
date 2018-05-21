@@ -5,39 +5,43 @@ Usage:
 Author: Clinton Wang, E-mail: `clintonjwang@gmail.com`, Github: `https://github.com/clintonjwang/voi-classifier`
 """
 
+import argparse
+import copy
+import glob
+import importlib
+import math
+import operator
+import os
+from os.path import *
+import random
+import time
+from math import ceil, log
+
 import keras.backend as K
 import keras.layers as layers
-from keras_contrib.layers.normalization import InstanceNormalization
-from keras.layers import Input, Dense, Concatenate, Flatten, Dropout, Lambda
-from keras.layers import SimpleRNN, Conv2D, MaxPooling2D, ZeroPadding3D, Activation, ELU, TimeDistributed, Permute, Reshape
+import numpy as np
+import pandas as pd
+import tensorflow as tf
+from keras.callbacks import EarlyStopping
+from keras.layers import (ELU, Activation, Concatenate, Conv2D, Dense, Dropout,
+                          Flatten, Input, Lambda, MaxPooling2D, Permute,
+                          Reshape, SimpleRNN, TimeDistributed, ZeroPadding3D)
 from keras.layers.normalization import BatchNormalization
 from keras.models import Model
-from keras.regularizers import l2
-from keras.callbacks import EarlyStopping
 from keras.optimizers import Adam
+from keras.regularizers import l2
 from keras.utils import np_utils
-import argparse
-import feature_interpretation as cnna
-import copy
+from keras_contrib.layers.normalization import InstanceNormalization
+from scipy.misc import imsave
+from skimage.transform import rescale
+from sklearn.metrics import accuracy_score, confusion_matrix, f1_score
+
 import config
+import dr_methods as drm
+import feature_interpretation as cnna
 import niftiutils.cnn_components as cnnc
 import niftiutils.helper_fxns as hf
 import niftiutils.transforms as tr
-import math
-from math import log, ceil
-import numpy as np
-import operator
-import os
-import pandas as pd
-import random
-from scipy.misc import imsave
-from skimage.transform import rescale
-from sklearn.metrics import confusion_matrix, f1_score, accuracy_score
-import time
-import importlib
-import tensorflow as tf
-
-import dr_methods as drm
 import voi_methods as vm
 
 def aleatoric_xentropy(y_true, y_pred):
@@ -523,77 +527,6 @@ def pretrain_model_back(trained_model, dilation_rate=(1,1,1), padding=['same', '
 
 	return model_pretrain
 
-def build_bbox_cnn(dilation_rate=(1,1,1), 
-	dropout=[0.1,0.1], activation_type='relu', f=[64,128,128], dense_units=100, kernel_size=(3,3,2),
-	dual_inputs=False, run_2d=False, stride=(1,1,1), skip_con=False, trained_model=None):
-	C = config.Config()
-	ActivationLayer = Activation
-	activation_args = 'relu'
-
-	nb_classes = len(C.cls_names)
-
-	img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 3))
-
-	for layer_depth in range(depth):
-		layer1 = cnnc.conv_block(current_layer, base_f*2**layer_depth, strides=1)
-		layer1 = layers.Dropout(.1)(layer1)
-		layer2 = cnnc.conv_block(layer1, base_f*2**(layer_depth+1))
-
-		if layer_depth < depth - 1:
-			current_layer = layers.MaxPooling3D((2,2,2))(layer2)
-			levels.append([layer1, layer2, current_layer])
-		else:
-			current_layer = layer2
-			levels.append([layer1, layer2])
-			
-		model.compile(optimizer='adam', loss='mse')
-
-	return model
-
-def build_autoencoder(pool_sizes=[(2,2,2), (2,2,1)], f=[64,128,128], kernel_size=(3,3,2), dense_units=100,
-				lr=.001, trained_model=None, first_layer=0, last_layer=0):
-	C = config.Config()
-
-	ActivationLayer = Activation
-	activation_args = 'relu'
-
-	nb_classes = len(C.cls_names)
-
-	img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 3))
-	x = Reshape((C.dims[0], C.dims[1], C.dims[2], 3, 1))(img)
-	x = Permute((4,1,2,3,5))(x)
-
-	for layer_num in range(len(f)):
-		x = cnnc.td_conv_block(x, f[layer_num])
-		if layer_num == 0:
-			x = TimeDistributed(layers.MaxPooling3D(pool_sizes[0]))(x)
-
-	if last_layer == 0:
-		for layer_num in range(len(f)):
-			x = layers.Conv3DTranspose(filters=f[-1-layer_num], kernel_size=[3,3,2], strides=1)(x)
-			#x = layers.BatchNormalization(axis=4)(x)
-			#x = layers.BatchNormalization(axis=4)(x)
-		x = layers.Conv3DTranspose(filters=f[-1-layer_num], kernel_size=[3,3,2], strides=2)(x)
-		x = layers.Dense(3, activation='sigmoid')(x)
-		model = Model(inputs, x)
-
-		if first_layer == 0:
-			model.compile(optimizer=optimizer, loss='mse', metrics=['accuracy'])
-		else:
-			num_l = len(model.layers)
-			dl = len(trained_model.layers)-num_l
-
-			for l in range(num_l-1, 0, -1):
-				model.layers[l].set_weights(trained_model.layers[l+dl].get_weights())
-
-	else:
-		model = Model(img, filter_weights)
-		model.compile(optimizer=Adam(lr=lr), loss='mse', metrics=['accuracy'])
-
-		for l in range(1,len(model.layers)):
-			model.layers[l].set_weights(trained_model.layers[l].get_weights())
-
-	return model
 
 """def build_model_dropout(trained_model, dropout, last_layer="final", dilation_rate=(1,1,1), padding=['same', 'valid'], pool_sizes = [(2,2,2), (2,2,1)],
 	activation_type='relu', f=[64,128,128], kernel_size=(3,3,2), dense_units=100):
@@ -731,10 +664,7 @@ def get_cnn_data(n=4, n_art=0, run_2d=False, Z_test_fixed=None, verbose=False):
 	Z_test = np.array(Z_test)
 	Z_train_orig = np.array(Z_train_orig)
 
-	if run_2d:
-		train_generator = _train_generator_func_2d(test_ids, n=n, n_art=n_art)
-	else:
-		train_generator = _train_generator_func(test_ids, n=n, n_art=n_art)
+	train_generator = _train_generator_func(test_ids, n=n)
 
 	return X_test, Y_test, train_generator, num_samples, [X_train_orig, Y_train_orig], [Z_test, Z_train_orig]
 
@@ -780,6 +710,233 @@ def load_data_capsnet(n=2, Z_test_fixed=None):
 	Z_test = np.array(Z_test)
 
 	return _train_gen_capsnet(test_ids, n=n), (X_test, Y_test), Z_test
+
+####################################
+### Training Submodules
+####################################
+
+def _train_gen_capsnet(test_ids, n=4):
+	"""n is the number of samples from each class, n_art is the number of artificial samples"""
+
+	C = config.Config()
+
+	num_classes = len(C.cls_names)
+	while True:
+		x1 = np.empty((n*num_classes, *C.dims, C.nb_channels))
+		y = np.zeros((n*num_classes, num_classes))
+
+		train_cnt = 0
+		for cls in C.cls_names:
+			img_fns = os.listdir(C.aug_dir+cls)
+			while n > 0:
+				img_fn = random.choice(img_fns)
+				lesion_id = img_fn[:img_fn.rfind('_')]
+				if lesion_id not in test_ids[cls]:
+					x1[train_cnt] = np.load(C.aug_dir+cls+"\\"+img_fn)
+					
+					y[train_cnt][C.cls_names.index(cls)] = 1
+					
+					train_cnt += 1
+					if train_cnt % n == 0:
+						break
+
+		x_batch = np.array(x1)
+		y_batch = np.array(y)
+		yield ([x_batch, y_batch], [y_batch, x_batch])
+
+def _train_gen_dqn(test_accnums):
+	"""X is the whole abdominal MR (20s only); Y is the set of true bboxes"""
+	C = config.Config()
+
+	voi_df_art = drm.get_voi_dfs()[0]
+	voi_df_art.accnum = voi_df_art.accnum.astype(str)
+	img_fns = glob.glob(join(C.full_img_dir, "*", "*.npy"))
+	img_fns = [fn for fn in img_fns if basename(fn)[:-4] not in test_accnums]
+
+	while True:
+		img_fn = random.choice(img_fns)
+		x = np.expand_dims(np.load(img_fn)[...,0], 0)
+		accnum = basename(img_fn)[:-4]
+		voi_subset = voi_df_art[voi_df_art["accnum"] == accnum]
+		if len(voi_subset) == 0:
+			continue
+		num_vois = len(voi_subset)
+		y = []
+		for _,voi in voi_subset.iterrows():
+			y.append(voi[["x1","x2","y1","y2","z1","z2"]].values)
+
+		yield (x, np.array(y), voi_subset["cls"].values[0], accnum)
+
+def _train_gen_cls(test_accnums):
+	"""X is the whole abdominal MR (20s only); Y is the set of true bboxes"""
+	C = config.Config()
+
+	voi_df_art = drm.get_voi_dfs()[0]
+	voi_df_art.accnum = voi_df_art.accnum.astype(str)
+	img_fns = glob.glob(join(C.full_img_dir, "*", "*.npy"))
+	img_fns = [fn for fn in img_fns if basename(fn)[:-4] not in test_accnums]
+
+	while True:
+		img_fn = random.choice(img_fns)
+		x = np.expand_dims(np.load(img_fn)[...,0], 0)
+
+		accnum = basename(img_fn)[:-4]
+		num_vois = len(voi_df_art[voi_df_art["accnum"] == accnum])
+		y = []
+		for _,voi in voi_df_art[voi_df_art["accnum"] == accnum].iterrows():
+			y.append(voi[["x1","x2","y1","y2","z1","z2"]].values)
+
+		yield (x, np.array(y), voi["cls"].values[0])
+
+def _train_generator_func(test_ids, n=12):
+	"""n is the number of samples from each class, n_art is the number of artificial samples"""
+
+	C = config.Config()
+
+	voi_df = drm.get_voi_dfs()[0]
+
+	#avg_X2 = {}
+	#for cls in orig_data_dict:
+	#   avg_X2[cls] = np.mean(orig_data_dict[cls][1], axis=0)
+	
+	if C.non_imaging_inputs:
+		patient_info_df = pd.read_csv(C.patient_info_path)
+		patient_info_df["AccNum"] = patient_info_df["AccNum"].astype(str)
+
+	num_classes = len(C.cls_names)
+	while True:
+		x1 = np.empty((n*num_classes, C.dims[0], C.dims[1], C.dims[2], C.nb_channels))
+		y = np.zeros((n*num_classes, num_classes))
+
+		if C.dual_img_inputs:
+			x2 = np.empty((n*num_classes, *C.context_dims, C.nb_channels))
+		elif C.non_imaging_inputs:
+			x2 = np.empty((n*num_classes, C.num_non_image_inputs))
+
+		train_cnt = 0
+		for cls in C.cls_names:
+			img_fns = os.listdir(C.aug_dir+cls)
+			while n > 0:
+				img_fn = random.choice(img_fns)
+				lesion_id = img_fn[:img_fn.rfind('_')]
+				if lesion_id not in test_ids[cls]:
+					x1[train_cnt] = np.load(C.aug_dir+cls+"\\"+img_fn)
+					try:
+						if C.post_scale > 0:
+							x1[train_cnt] = tr.normalize_intensity(x1[train_cnt], 1., -1., C.post_scale)
+					except:
+						vm.reset_accnum(lesion_id[:lesion_id.find('_')])
+
+					if C.dual_img_inputs:
+						tmp = np.load(os.path.join(C.crops_dir, cls, lesion_id+".npy"))
+						x2[train_cnt] = tr.rescale_img(tmp, C.context_dims)[0]
+
+					elif C.non_imaging_inputs:
+						voi_row = voi_df.loc[lesion_id]
+						patient_row = patient_info_df[patient_info_df["AccNum"] == voi_row["acc_num"]]
+						x2[train_cnt] = get_non_img_inputs(voi_row, patient_row)
+					
+					y[train_cnt][C.cls_names.index(cls)] = 1
+					
+					train_cnt += 1
+					if train_cnt % n == 0:
+						break
+
+		if C.dual_img_inputs or C.non_imaging_inputs:
+			yield [np.array(x1), np.array(x2)], np.array(y) #[np.array(x1), np.array(x2)], np.array(y) #
+		else:
+			yield np.array(x1), np.array(y) #[np.array(x1), np.array(x2)], np.array(y) #
+
+def _separate_phases(X, non_imaging_inputs=False):
+	"""Assumes X[0] contains imaging and X[1] contains dimension data.
+	Reformats such that X[0:2] has 3 phases and X[3] contains dimension data.
+	Image data still is 5D (nb_samples, 3D, 1 channel).
+	Handles both 2D and 3D images"""
+	
+	if non_imaging_inputs:
+		dim_data = copy.deepcopy(X[1])
+		img_data = X[0]
+		
+		if len(X[0].shape)==5:
+			X[1] = np.expand_dims(X[0][:,:,:,:,1], axis=4)
+			X += [np.expand_dims(X[0][:,:,:,:,2], axis=4)]
+			X += [dim_data]
+			X[0] = np.expand_dims(X[0][:,:,:,:,0], axis=4)
+		
+		else:
+			X[1] = np.expand_dims(X[0][:,:,:,1], axis=3)
+			X += [np.expand_dims(X[0][:,:,:,2], axis=3)]
+			X += [dim_data]
+			X[0] = np.expand_dims(X[0][:,:,:,0], axis=3)
+	
+	else:
+		X = np.array(X)
+		if len(X.shape)==5:
+			X = [np.expand_dims(X[:,:,:,:,0], axis=4), np.expand_dims(X[:,:,:,:,1], axis=4), np.expand_dims(X[:,:,:,:,2], axis=4)]
+		else:
+			X = [np.expand_dims(X[:,:,:,0], axis=3), np.expand_dims(X[:,:,:,1], axis=3), np.expand_dims(X[:,:,:,2], axis=3)]
+
+	return X
+
+def _collect_unaug_data():
+	"""Return dictionary pointing to X (img data) and Z (filenames) and dictionary storing number of samples of each class."""
+
+	C = config.Config()
+	orig_data_dict = {}
+	num_samples = {}
+	voi_df = drm.get_voi_dfs()[0]
+	voi_df = voi_df[voi_df["run_num"] <= C.test_run_num]
+
+	if C.non_imaging_inputs:
+		patient_info_df = pd.read_csv(C.patient_info_path)
+		patient_info_df["AccNum"] = patient_info_df["AccNum"].astype(str)
+
+	for cls in C.cls_names:
+		x = np.empty((10000, C.dims[0], C.dims[1], C.dims[2], C.nb_channels))
+		z = []
+
+		if C.dual_img_inputs:
+			x2 = np.empty((10000, *C.context_dims, C.nb_channels))
+		elif C.non_imaging_inputs:
+			x2 = np.empty((10000, C.num_non_image_inputs))
+
+		for index, lesion_id in enumerate(voi_df[voi_df["cls"] == cls].index):
+			img_path = os.path.join(C.orig_dir, cls, lesion_id+".npy")
+			try:
+				x[index] = np.load(img_path)
+				if C.post_scale > 0:
+					x[index] = tr.normalize_intensity(x[index], 1., -1., C.post_scale)
+			except:
+				raise ValueError(img_path + " not found")
+			z.append(lesion_id)
+			
+			if C.dual_img_inputs:
+				tmp = np.load(os.path.join(C.crops_dir, cls, lesion_id+".npy"))
+				x2[index] = tr.rescale_img(tmp, C.context_dims)[0]
+
+			elif C.non_imaging_inputs:
+				voi_row = voi_df.loc[lesion_id]
+				patient_row = patient_info_df[patient_info_df["AccNum"] == voi_row["acc_num"]]
+				x2[index] = get_non_img_inputs(voi_row, patient_row)
+
+		x.resize((index+1, C.dims[0], C.dims[1], C.dims[2], C.nb_channels)) #shrink first dimension to fit
+		if C.dual_img_inputs or C.non_imaging_inputs:
+			x2.resize((index+1, *x2.shape[1:]))
+			orig_data_dict[cls] = [x, x2, np.array(z)]
+		else:
+			orig_data_dict[cls] = [x, np.array(z)]
+
+		num_samples[cls] = index + 1
+		
+	return orig_data_dict, num_samples
+
+def get_non_img_inputs(voi_info, patient_info):
+	side_length = ((float(voi_info["real_dx"]) * float(voi_info["real_dy"]) * float(voi_info["real_dz"])) ** (1/3) - 26.98) / 14.78
+	aspect_ratio = max(float(voi_info["real_dx"]), float(voi_info["real_dy"])) / float(voi_info["real_dz"])
+	age = (float(patient_info["AgeAtImaging"].values[0]) - 56.58) / 13.24
+	sex = 0 if patient_info["Sex"].values[0]=="M" else 1
+
+	return [side_length, age, sex]
 
 ####################################
 ### Predict demographics
@@ -949,247 +1106,6 @@ def _train_gen_demogr(test_ids, n):
 
 		y = [np_utils.to_categorical(y[:,0], 2), y[:,1]]
 		yield np.array(x1), y
-
-####################################
-### Training Submodules
-####################################
-
-def _train_gen_capsnet(test_ids, n=4):
-	"""n is the number of samples from each class, n_art is the number of artificial samples"""
-	n_art=0
-
-	C = config.Config()
-
-	num_classes = len(C.cls_names)
-	while True:
-		x1 = np.empty(((n+n_art)*num_classes, C.dims[0], C.dims[1], C.dims[2], C.nb_channels))
-		y = np.zeros(((n+n_art)*num_classes, num_classes))
-
-		train_cnt = 0
-		for cls in C.cls_names:
-			img_fns = os.listdir(C.aug_dir+cls)
-			while n > 0:
-				img_fn = random.choice(img_fns)
-				lesion_id = img_fn[:img_fn.rfind('_')]
-				if lesion_id not in test_ids[cls]:
-					x1[train_cnt] = np.load(C.aug_dir+cls+"\\"+img_fn)
-					
-					y[train_cnt][C.cls_names.index(cls)] = 1
-					
-					train_cnt += 1
-					if train_cnt % (n+n_art) == 0:
-						break
-
-		x_batch = np.array(x1)
-		y_batch = np.array(y)
-		yield ([x_batch, y_batch], [y_batch, x_batch])
-
-def _train_generator_func(test_ids, n=12, n_art=0):
-	"""n is the number of samples from each class, n_art is the number of artificial samples"""
-
-	C = config.Config()
-
-	voi_df = drm.get_voi_dfs()[0]
-
-	#avg_X2 = {}
-	#for cls in orig_data_dict:
-	#   avg_X2[cls] = np.mean(orig_data_dict[cls][1], axis=0)
-	
-	if C.non_imaging_inputs:
-		patient_info_df = pd.read_csv(C.patient_info_path)
-		patient_info_df["AccNum"] = patient_info_df["AccNum"].astype(str)
-
-	num_classes = len(C.cls_names)
-	while True:
-		x1 = np.empty(((n+n_art)*num_classes, C.dims[0], C.dims[1], C.dims[2], C.nb_channels))
-		y = np.zeros(((n+n_art)*num_classes, num_classes))
-
-		if C.dual_img_inputs:
-			x2 = np.empty(((n+n_art)*num_classes, *C.context_dims, C.nb_channels))
-		elif C.non_imaging_inputs:
-			x2 = np.empty(((n+n_art)*num_classes, C.num_non_image_inputs))
-
-		train_cnt = 0
-		for cls in C.cls_names:
-			if n_art > 0:
-				img_fns = os.listdir(C.artif_dir+cls)
-				for _ in range(n_art):
-					img_fn = random.choice(img_fns)
-					x1[train_cnt] = np.load(C.artif_dir + cls + "\\" + img_fn)
-					#x2[train_cnt] = avg_X2[cls]
-					y[train_cnt][C.cls_names.index(cls)] = 1
-
-					train_cnt += 1
-
-			img_fns = os.listdir(C.aug_dir+cls)
-			while n > 0:
-				img_fn = random.choice(img_fns)
-				lesion_id = img_fn[:img_fn.rfind('_')]
-				if lesion_id not in test_ids[cls]:
-					x1[train_cnt] = np.load(C.aug_dir+cls+"\\"+img_fn)
-					try:
-						if C.post_scale > 0:
-							x1[train_cnt] = tr.normalize_intensity(x1[train_cnt], 1., -1., C.post_scale)
-					except:
-						vm.reset_accnum(lesion_id[:lesion_id.find('_')])
-
-					if C.dual_img_inputs:
-						tmp = np.load(os.path.join(C.crops_dir, cls, lesion_id+".npy"))
-						x2[train_cnt] = tr.rescale_img(tmp, C.context_dims)[0]
-
-					elif C.non_imaging_inputs:
-						voi_row = voi_df.loc[lesion_id]
-						patient_row = patient_info_df[patient_info_df["AccNum"] == voi_row["acc_num"]]
-						x2[train_cnt] = get_non_img_inputs(voi_row, patient_row)
-					
-					y[train_cnt][C.cls_names.index(cls)] = 1
-					
-					train_cnt += 1
-					if train_cnt % (n+n_art) == 0:
-						break
-
-		if C.dual_img_inputs or C.non_imaging_inputs:
-			yield [np.array(x1), np.array(x2)], np.array(y) #[np.array(x1), np.array(x2)], np.array(y) #
-		else:
-			yield np.array(x1), np.array(y) #[np.array(x1), np.array(x2)], np.array(y) #
-
-def _train_generator_func_2d(train_ids, voi_df, avg_X2, n=12, n_art=0, C=None):
-	"""n is the number of samples from each class, n_art is the number of artificial samples"""
-
-	cls_names = C.cls_names
-	if C is None:
-		C = config.Config()
-	
-	num_classes = len(cls_names)
-	while True:
-		x1 = np.empty(((n+n_art)*num_classes, C.dims[0], C.dims[1], C.nb_channels))
-		x2 = np.empty(((n+n_art)*num_classes, C.num_non_image_inputs))
-		y = np.zeros(((n+n_art)*num_classes, num_classes))
-
-		train_cnt = 0
-		for cls in cls_names:
-			if n_art>0:
-				img_fns = os.listdir(C.artif_dir+cls)
-				for _ in range(n_art):
-					img_fn = random.choice(img_fns)
-					temp = np.load(C.artif_dir + cls + "\\" + img_fn)
-					x1[train_cnt] = temp[:,:,temp.shape[2]//2,:]
-					x2[train_cnt] = avg_X2[cls]
-					y[train_cnt][C.cls_names.index(cls)] = 1
-
-					train_cnt += 1
-
-			img_fns = os.listdir(C.aug_dir+cls)
-			while n>0:
-				img_fn = random.choice(img_fns)
-				if img_fn[:img_fn.rfind('_')] + ".npy" in train_ids[cls]:
-					temp = np.load(C.aug_dir+cls+"\\"+img_fn)
-					x1[train_cnt] = temp[:,:,temp.shape[2]//2,:]
-
-					row = voi_df[(voi_df["Filename"] == img_fn[:img_fn.find('_')] + ".npy") &
-								 (voi_df["lesion_num"] == int(img_fn[img_fn.find('_')+1:img_fn.rfind('_')]))]
-					x2[train_cnt] = [(float(row["real_dx"]) * float(row["real_dy"]) * float(row["real_dz"])) ** (1/3) / 50,
-										max(float(row["real_dx"]), float(row["real_dy"])) / float(row["real_dz"])]
-					
-					y[train_cnt][C.cls_names.index(cls)] = 1
-					
-					train_cnt += 1
-					if train_cnt % (n+n_art) == 0:
-						break
-			
-		
-		yield _separate_phases([np.array(x1), np.array(x2)]), np.array(y) #[np.array(x1), np.array(x2)], np.array(y) #
-
-def _separate_phases(X, non_imaging_inputs=False):
-	"""Assumes X[0] contains imaging and X[1] contains dimension data.
-	Reformats such that X[0:2] has 3 phases and X[3] contains dimension data.
-	Image data still is 5D (nb_samples, 3D, 1 channel).
-	Handles both 2D and 3D images"""
-	
-	if non_imaging_inputs:
-		dim_data = copy.deepcopy(X[1])
-		img_data = X[0]
-		
-		if len(X[0].shape)==5:
-			X[1] = np.expand_dims(X[0][:,:,:,:,1], axis=4)
-			X += [np.expand_dims(X[0][:,:,:,:,2], axis=4)]
-			X += [dim_data]
-			X[0] = np.expand_dims(X[0][:,:,:,:,0], axis=4)
-		
-		else:
-			X[1] = np.expand_dims(X[0][:,:,:,1], axis=3)
-			X += [np.expand_dims(X[0][:,:,:,2], axis=3)]
-			X += [dim_data]
-			X[0] = np.expand_dims(X[0][:,:,:,0], axis=3)
-	
-	else:
-		X = np.array(X)
-		if len(X.shape)==5:
-			X = [np.expand_dims(X[:,:,:,:,0], axis=4), np.expand_dims(X[:,:,:,:,1], axis=4), np.expand_dims(X[:,:,:,:,2], axis=4)]
-		else:
-			X = [np.expand_dims(X[:,:,:,0], axis=3), np.expand_dims(X[:,:,:,1], axis=3), np.expand_dims(X[:,:,:,2], axis=3)]
-
-	return X
-
-def _collect_unaug_data():
-	"""Return dictionary pointing to X (img data) and Z (filenames) and dictionary storing number of samples of each class."""
-
-	C = config.Config()
-	orig_data_dict = {}
-	num_samples = {}
-	voi_df = drm.get_voi_dfs()[0]
-	voi_df = voi_df[voi_df["run_num"] <= C.test_run_num]
-
-	if C.non_imaging_inputs:
-		patient_info_df = pd.read_csv(C.patient_info_path)
-		patient_info_df["AccNum"] = patient_info_df["AccNum"].astype(str)
-
-	for cls in C.cls_names:
-		x = np.empty((10000, C.dims[0], C.dims[1], C.dims[2], C.nb_channels))
-		z = []
-
-		if C.dual_img_inputs:
-			x2 = np.empty((10000, *C.context_dims, C.nb_channels))
-		elif C.non_imaging_inputs:
-			x2 = np.empty((10000, C.num_non_image_inputs))
-
-		for index, lesion_id in enumerate(voi_df[voi_df["cls"] == cls].index):
-			img_path = os.path.join(C.orig_dir, cls, lesion_id+".npy")
-			try:
-				x[index] = np.load(img_path)
-				if C.post_scale > 0:
-					x[index] = tr.normalize_intensity(x[index], 1., -1., C.post_scale)
-			except:
-				raise ValueError(img_path + " not found")
-			z.append(lesion_id)
-			
-			if C.dual_img_inputs:
-				tmp = np.load(os.path.join(C.crops_dir, cls, lesion_id+".npy"))
-				x2[index] = tr.rescale_img(tmp, C.context_dims)[0]
-
-			elif C.non_imaging_inputs:
-				voi_row = voi_df.loc[lesion_id]
-				patient_row = patient_info_df[patient_info_df["AccNum"] == voi_row["acc_num"]]
-				x2[index] = get_non_img_inputs(voi_row, patient_row)
-
-		x.resize((index+1, C.dims[0], C.dims[1], C.dims[2], C.nb_channels)) #shrink first dimension to fit
-		if C.dual_img_inputs or C.non_imaging_inputs:
-			x2.resize((index+1, *x2.shape[1:]))
-			orig_data_dict[cls] = [x, x2, np.array(z)]
-		else:
-			orig_data_dict[cls] = [x, np.array(z)]
-
-		num_samples[cls] = index + 1
-		
-	return orig_data_dict, num_samples
-
-def get_non_img_inputs(voi_info, patient_info):
-	side_length = ((float(voi_info["real_dx"]) * float(voi_info["real_dy"]) * float(voi_info["real_dz"])) ** (1/3) - 26.98) / 14.78
-	aspect_ratio = max(float(voi_info["real_dx"]), float(voi_info["real_dy"])) / float(voi_info["real_dz"])
-	age = (float(patient_info["AgeAtImaging"].values[0]) - 56.58) / 13.24
-	sex = 0 if patient_info["Sex"].values[0]=="M" else 1
-
-	return [side_length, age, sex]
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description='Convert DICOMs to npy files and transfer voi coordinates from excel to csv.')

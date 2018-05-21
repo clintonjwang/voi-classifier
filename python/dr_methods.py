@@ -23,19 +23,22 @@ Author: Clinton Wang, E-mail: `clintonjwang@gmail.com`, Github: `https://github.
 """
 
 import argparse
-import config
 import datetime
+import glob
 import importlib
-import niftiutils.helper_fxns as hf
-import niftiutils.masks as masks
-import niftiutils.registration as reg
-import numpy as np
 import os
-from os.path import *
-import pandas as pd
 import random
 import time
-import glob
+from os.path import *
+
+import numpy as np
+import pandas as pd
+
+import config
+import niftiutils.helper_fxns as hf
+import niftiutils.transforms as tr
+import niftiutils.masks as masks
+import niftiutils.registration as reg
 
 def autofill_cls_arg(func):
 	"""Decorator that autofills the first argument with the classes
@@ -64,8 +67,8 @@ def check_dims_df(cls=None):
 	C = config.Config()
 	df = get_coords_df(cls)
 	accnums = set(df['acc #'].astype(str).tolist())
-	dims_df = pd.read_csv(C.dims_df_path)
-	missing = accnums.difference(dims_df["acc_num"])
+	dims_df = pd.read_csv(C.dims_df_path, index_col=0)
+	missing = accnums.difference(dims_df.index.astype(str))
 	if len(missing) > 0:
 		print(cls, missing)
 
@@ -81,7 +84,7 @@ def report_missing_folders(cls=None):
 
 	for cnt, accnum in enumerate(accnums):
 		df_subset = df.loc[df['acc #'].astype(str) == accnum]
-		subfolder = C.img_dirs[i] + "\\" + accnum
+		subfolder = C.dcm_dirs[i] + "\\" + accnum
 
 		#if not exists(subfolder + "\\T1_multiphase"):
 		for ph in C.phases:
@@ -92,6 +95,22 @@ def report_missing_folders(cls=None):
 ###########################
 ### METHODS FOR EXTRACTING VOIS FROM THE SPREADSHEET
 ###########################
+
+def off2ids_batch(accnum_xls_path):
+	importlib.reload(masks)
+	C = config.Config("etiology")
+
+	input_df = pd.read_excel(accnum_xls_path,
+	             sheetname="Prelim Analysis Patients", index_col=0, parse_cols="A,J")
+	accnum_dict = {category: list(input_df[input_df["Category"] == category].index.astype(str)) for category in C.sheetnames}
+
+	for category in C.sheetnames:
+	    print(category)
+	    for ix,accnum in enumerate(accnum_dict[category]):
+	        load_dir = join(C.dcm_dirs[0], accnum)
+	        masks.off2ids(join(load_dir, 'Segs', 'tumor_20s.off'), R=[1,1,2.5])
+	        if ix%5==2:
+	            print('.',end='')
 
 def build_coords_df(accnum_xls_path, overwrite=False):
 	"""Builds all coords from scratch, without the ability to add or change individual coords"""
@@ -149,7 +168,7 @@ def build_coords_df(accnum_xls_path, overwrite=False):
 				#	M = masks.get_mask(fn, D, img.shape)
 				#	M = hf.crop_nonzero(M, C)[0]
 
-			if ix % 2 == 1:
+			if ix % 5 == 2:
 				print('.', end='')
 				coords_df.to_excel(writer, sheet_name=category)
 				writer.save()
@@ -158,17 +177,15 @@ def build_coords_df(accnum_xls_path, overwrite=False):
 		writer.save()
 
 @autofill_cls_arg
-def dcm2npy_batch(cls=None, accnums=None, overwrite=False, verbose=False):
+def dcm2npy_batch(cls=None, accnums=None, overwrite=False, verbose=False, downsample=1):
 	"""Converts dcms to full-size npy, update dims_df. Requires coords_df."""
-
-	import importlib
-	importlib.reload(config)
 	C = config.Config()
 
 	if exists(C.dims_df_path):
 		dims_df = pd.read_csv(C.dims_df_path, index_col=0)
+		dims_df.index = dims_df.index.map(str)
 	else:
-		dims_df = pd.DataFrame(columns = ["x", "y", "z"])
+		dims_df = pd.DataFrame(columns=["x","y","z"])
 
 	src_data_df = get_coords_df(cls)
 
@@ -177,17 +194,19 @@ def dcm2npy_batch(cls=None, accnums=None, overwrite=False, verbose=False):
 
 	if accnums is None:
 		accnums = list(set(src_data_df['acc #'].values))
+	elif type(accnums) != list:
+		accnums = list(accnums)
 	else:
 		accnums = set(accnums).intersection(src_data_df['acc #'].values)
 
 	cls_num = C.cls_names.index(cls)
 
 	for cnt, accnum in enumerate(accnums):
-		info = src_data_df.loc[src_data_df['acc #'].astype(str) == accnum]
+		#info = src_data_df.loc[src_data_df['acc #'].astype(str) == accnum]
 
-		if len(info) == 0:
-			print(accnum, "not properly marked in the spreadsheet.")
-			continue
+		#if len(info) == 0:
+		#	print(accnum, "not properly marked in the spreadsheet.")
+		#	continue
 
 		save_path = join(C.full_img_dir, cls, str(accnum) + ".npy")
 		if exists(save_path) and not overwrite:
@@ -201,16 +220,20 @@ def dcm2npy_batch(cls=None, accnums=None, overwrite=False, verbose=False):
 		except ValueError:
 			raise ValueError(load_dir + " cannot be loaded")
 
-		if 'x3' in info and np.all([np.isnan(x) for x in info['x3'].values]):
-			ven, _ = reg.reg_elastix(moving=ven, fixed=art)
-		if 'x5' in info and np.all([np.isnan(x) for x in info['x5'].values]):
-			eq, _ = reg.reg_elastix(moving=eq, fixed=art)
+		#if 'x3' in info and np.all([np.isnan(x) for x in info['x3'].values]):
+		#	ven, _ = reg.reg_elastix(moving=ven, fixed=art)
+		#if 'x5' in info and np.all([np.isnan(x) for x in info['x5'].values]):
+		#	eq, _ = reg.reg_elastix(moving=eq, fixed=art)
 
 		try:
 			img = np.stack((art, ven, eq), -1)
 		except ValueError:
 			raise ValueError(accnum + " has a bad header")
 		
+		if downsample != 1:
+			img = tr.scale3d(img, [1/downsample, 1/downsample, 1])
+			D *= [downsample, downsample, 1]
+
 		np.save(save_path, img)
 
 		if verbose:
@@ -221,14 +244,74 @@ def dcm2npy_batch(cls=None, accnums=None, overwrite=False, verbose=False):
 		dims_df.loc[accnum] = list(D)
 		dims_df.to_csv(C.dims_df_path)
 
+	load_vois_batch(cls, accnums, overwrite, downsample)
+
 @autofill_cls_arg
-def load_vois_batch(cls=None, accnums=None, overwrite=False):
+def load_vois_batch(cls=None, accnums=None, overwrite=False, downsample=1):
 	"""Updates the voi_dfs based on the raw spreadsheet.
 	dcm2npy_batch() must be run first to produce full size npy images."""
 
+	def _load_vois(cls, accnum):
+		"""Load all vois belonging to an accnum. Does not overwrite entries."""
+
+		voi_df_art, voi_df_ven, voi_df_eq = voi_dfs
+		df_subset = src_data_df.loc[src_data_df['acc #'].astype(str) == accnum]
+
+		for _, row in df_subset.iterrows():
+			coords = [[int(row[char+'1']), int(row[char+'2'])] for char in ['x','y','z']]
+			x,y,z = coords
+
+			#if row['Flipped'] != "Yes":
+			#	z = [img.shape[2]-z[1], img.shape[2]-z[0]] # flip z
+			
+			try:
+				D = dims_df.loc[accnum].values
+			except:
+				raise ValueError("dims_df not yet loaded for", accnum)
+			
+			real_dx = abs(x[1] - x[0])*D[0] #mm
+			real_dy = abs(y[1] - y[0])*D[1]
+			real_dz = abs(z[1] - z[0])*D[2]
+
+			lesion_ids = voi_df_art[voi_df_art["accnum"] == accnum].index
+			if len(lesion_ids) > 0:
+				lesion_nums = [int(lid[lid.find('_')+1:]) for lid in lesion_ids]
+				for num in range(len(lesion_nums)+1):
+					if num not in lesion_nums:
+						new_num = num
+			else:
+				new_num = 0
+
+			lesion_id = accnum + "_" + str(new_num)
+			voi_df_art.loc[lesion_id] = [accnum]+x+y+z+[cls, real_dx, real_dy, real_dz, int(row["Run"])]
+
+			if 'x3' in row and not np.isnan(row['x3']):
+				coords = [[int(row[char+'3']), int(row[char+'4'])] for char in ['x','y','z']]
+				x,y,z = coords
+				
+				y = [img.shape[1]-y[1], img.shape[1]-y[0]] # flip y
+				if row['Flipped'] != "Yes":
+					z = [img.shape[2]-z[1], img.shape[2]-z[0]] # flip z
+					
+				voi_df_ven.loc[lesion_id] = x+y+z
+				
+			if 'x5' in row and not np.isnan(row['x5']):
+				coords = [[int(row[char+'5']), int(row[char+'6'])] for char in ['x','y','z']]
+				x,y,z = coords
+				
+				y = [img.shape[1]-y[1], img.shape[1]-y[0]] # flip y
+				if row['Flipped'] != "Yes":
+					z = [img.shape[2]-z[1], img.shape[2]-z[0]] # flip z
+					
+				voi_df_eq.loc[lesion_id] = x+y+z
+
+		return voi_df_art, voi_df_ven, voi_df_eq
+
 	C = config.Config()
 
-	src_data_df = get_coords_df(cls)
+	dims_df = pd.read_csv(C.dims_df_path, index_col=0)
+	dims_df.index = dims_df.index.map(str)
+	src_data_df = get_coords_df(cls, downsample)
 	if accnums is None:
 		accnums = list(set(src_data_df['acc #'].values))
 	else:
@@ -239,30 +322,18 @@ def load_vois_batch(cls=None, accnums=None, overwrite=False):
 	if overwrite:
 		voi_df_art, voi_df_ven, voi_df_eq = _remove_accnums_from_vois(voi_df_art, voi_df_ven, voi_df_eq, accnums, cls)
 	else:
-		accnums = set(accnums).difference(voi_df_art[voi_df_art["cls"] == cls]["acc_num"].values)
+		accnums = set(accnums).difference(voi_df_art[voi_df_art["cls"] == cls]["accnum"].values)
 
 	voi_dfs = voi_df_art, voi_df_ven, voi_df_eq
 	for cnt, accnum in enumerate(accnums):
-		voi_dfs = _load_vois(cls, accnum, voi_dfs)
+		voi_dfs = _load_vois(cls, str(accnum))
 
-		if cnt % 10 == 2:
+		if cnt % 20 == 2:
 			print(".", end="")
 			write_voi_dfs(voi_dfs)
 
 	write_voi_dfs(voi_dfs)
 
-def write_voi_dfs(*args):
-	C = config.Config()
-
-	if len(args) == 1:
-		voi_df_art, voi_df_ven, voi_df_eq = args[0]
-	else:
-		voi_df_art, voi_df_ven, voi_df_eq = args
-
-	voi_df_art.to_csv(C.art_voi_path)
-	voi_df_ven.to_csv(C.ven_voi_path)
-	voi_df_eq.to_csv(C.eq_voi_path)
-	
 @autofill_cls_arg
 def load_patient_info(cls=None, accnums=None, overwrite=False, verbose=False):
 	"""Loads patient demographic info from metadata files downloaded alongside the dcms."""
@@ -313,24 +384,24 @@ def load_patient_info(cls=None, accnums=None, overwrite=False, verbose=False):
 	if accnums is None:
 		accnums = set(df['acc #'].astype(str).values)
 
-	try:
+	if exists(C.patient_info_path):
 		patient_info_df = pd.read_csv(C.patient_info_path)
-	except FileNotFoundError:
-		patient_info_df = pd.DataFrame(columns = ["MRN", "Sex", "acc_num", "AgeAtImaging", "Ethnicity", "cls"])
+	else:
+		patient_info_df = pd.DataFrame(columns = ["MRN", "Sex", "accnum", "AgeAtImaging", "Ethnicity", "cls"])
 
 	if not overwrite:
-		accnums = set(accnums).difference(patient_info_df[patient_info_df["cls"] == cls]["acc_num"].values)
+		accnums = set(accnums).difference(patient_info_df[patient_info_df["cls"] == cls]["accnum"].values)
 
 	length = len(patient_info_df)
 	print(cls)
 	for cnt, accnum in enumerate(accnums):
 		df_subset = df.loc[df['acc #'].astype(str) == accnum]
-		subdir = join(C.img_dirs[i], accnum)
+		subdir = join(C.dcm_dirs[C.cls_names.index(cls)], accnum)
 		fn = join(subdir, "T1_AP", "metadata.xml")
 
-		try:
+		if exists(fn):
 			f = open(fn, 'r')
-		except FileNotFoundError:
+		else:
 			missing_metadata = True
 			foldernames = [x for x in os.listdir(subdir) if 'T1' in x or 'post' in x or 'post' in x]
 			for folder in foldernames:
@@ -350,33 +421,6 @@ def load_patient_info(cls=None, accnums=None, overwrite=False, verbose=False):
 
 	patient_info_df.to_csv(C.patient_info_path, index=False)
 
-@autofill_cls_arg
-def mask2voi(cls=None):
-	C = config.Config()
-
-	src_data_df = get_coords_df(cls)
-	if accnums is None:
-		accnums = list(set(src_data_df['acc #'].values))
-	else:
-		accnums = set(accnums).intersection(src_data_df['acc #'].values)
-	
-	voi_df_art, voi_df_ven, voi_df_eq = get_voi_dfs()
-
-	if overwrite:
-		voi_df_art, voi_df_ven, voi_df_eq = _remove_accnums_from_vois(voi_df_art, voi_df_ven, voi_df_eq, accnums, cls)
-	else:
-		accnums = set(accnums).difference(voi_df_art[voi_df_art["cls"] == cls]["acc_num"].values)
-
-	voi_dfs = voi_df_art, voi_df_ven, voi_df_eq
-	for cnt, accnum in enumerate(accnums):
-		voi_dfs = _load_vois(cls, accnum, voi_dfs)
-
-		if cnt % 10 == 5:
-			print(".", end="")
-			write_voi_dfs(voi_dfs)
-
-	write_voi_dfs(voi_dfs)
-
 ###########################
 ### Public Subroutines
 ###########################
@@ -388,24 +432,41 @@ def get_voi_dfs():
 		voi_df_art = pd.read_csv(C.art_voi_path, index_col=0)
 		voi_df_ven = pd.read_csv(C.ven_voi_path, index_col=0)
 		voi_df_eq = pd.read_csv(C.eq_voi_path, index_col=0)
-		voi_df_art["acc_num"] = voi_df_art["acc_num"].astype(str)
+		voi_df_art["accnum"] = voi_df_art["accnum"].astype(str)
 	except FileNotFoundError:
-		voi_df_art = pd.DataFrame(columns = ["acc_num", "x1", "x2", "y1", "y2", "z1", "z2", "cls",
+		voi_df_art = pd.DataFrame(columns = ["accnum", "x1", "x2", "y1", "y2", "z1", "z2", "cls",
 										 "real_dx", "real_dy", "real_dz", "run_num"])
 		voi_df_ven = pd.DataFrame(columns = ["x1", "x2", "y1", "y2", "z1", "z2"]) #voi_df_ven only contains entries where manually specified
 		voi_df_eq = pd.DataFrame(columns = ["x1", "x2", "y1", "y2", "z1", "z2"]) #voi_df_ven only contains entries where manually specified
 
 	return voi_df_art, voi_df_ven, voi_df_eq
 
+def write_voi_dfs(*args):
+	C = config.Config()
+
+	if len(args) == 1:
+		voi_df_art, voi_df_ven, voi_df_eq = args[0]
+	else:
+		voi_df_art, voi_df_ven, voi_df_eq = args
+
+	voi_df_art.to_csv(C.art_voi_path)
+	voi_df_ven.to_csv(C.ven_voi_path)
+	voi_df_eq.to_csv(C.eq_voi_path)
+	
 ###########################
 ### Subroutines
 ###########################
 
-def get_coords_df(cls):
+def get_coords_df(cls, downsample=1):
 	C = config.Config()
 	df = pd.read_excel(C.coord_xls_path, C.sheetnames[C.cls_names.index(cls)])
 	df = df[df['Run'] <= C.run_num].dropna(subset=["x1"])
 	df['acc #'] = df['acc #'].astype(str)
+
+	if downsample != 1:
+		for i in ['x','y','z']:
+			for j in ['1','2']:
+				df[i+j] = df[i+j]/downsample
 	
 	return df.drop(set(df.columns).difference(['acc #', 'Run', 'Flipped', 
 		  'x1', 'x2', 'y1', 'y2', 'z1', 'z2',
@@ -415,98 +476,12 @@ def get_coords_df(cls):
 def _remove_accnums_from_vois(voi_df_art, voi_df_ven, voi_df_eq, accnums, cls=None):
 	"""Remove voi from the voi csvs"""
 	if cls is None:
-		ids_to_delete = list(voi_df_art[voi_df_art["acc_num"].isin(accnums)].index)
+		ids_to_delete = list(voi_df_art[voi_df_art["accnum"].isin(accnums)].index)
 	else:
-		ids_to_delete = list(voi_df_art[(voi_df_art["acc_num"].isin(accnums)) & (voi_df_art["cls"] == cls)].index)
+		ids_to_delete = list(voi_df_art[(voi_df_art["accnum"].isin(accnums)) & (voi_df_art["cls"] == cls)].index)
 	voi_df_ven = voi_df_ven[~voi_df_ven.index.isin(ids_to_delete)]
 	voi_df_eq = voi_df_eq[~voi_df_eq.index.isin(ids_to_delete)]
 	voi_df_art = voi_df_art[~voi_df_art.index.isin(ids_to_delete)]
-
-	return voi_df_art, voi_df_ven, voi_df_eq
-
-
-def _load_vois(cls, accnum, voi_dfs=None):
-	"""Load all vois belonging to an accnum. Does not overwrite entries."""
-
-	def _add_voi_row(voi_df, x, y, z, accnum=None, cls=None, run_num=-1, vox_dims=None, index=None):
-		"""Append voi info to the dataframe voi_df.
-		If an index is passed, will overwrite any existing entry for that index.
-		Otherwise, will create a new row."""
-		
-		if index is None:
-			lesion_ids = voi_df[voi_df["acc_num"] == accnum].index
-			if len(lesion_ids) > 0:
-				lesion_nums = [int(lesion_id[lesion_id.find('_')+1:]) for lesion_id in lesion_ids]
-				for num in range(len(lesion_nums)+1):
-					if num not in lesion_nums:
-						new_num = num
-				index = accnum + "_" + str(new_num)
-			else:
-				index = accnum + "_0"
-
-			real_dx = abs(x[1] - x[0])*vox_dims[0]
-			real_dy = abs(y[1] - y[0])*vox_dims[1]
-			real_dz = abs(z[1] - z[0])*vox_dims[2]
-
-			voi_df.loc[index] = [str(accnum), x[0], x[1], y[0], y[1], z[0], z[1], cls, real_dx, real_dy, real_dz, run_num]
-			return voi_df, index
-			
-		else:
-			voi_df.loc[index] = [x[0], x[1], y[0], y[1], z[0], z[1]]
-			return voi_df
-
-	C = config.Config()
-
-	dims_df = pd.read_csv(C.dims_df_path)
-
-	if voi_dfs is None:
-		voi_df_art, voi_df_ven, voi_df_eq = get_voi_dfs()
-	else:
-		voi_df_art, voi_df_ven, voi_df_eq = voi_dfs
-
-	src_data_df = get_coords_df(cls)
-
-	df_subset = src_data_df.loc[src_data_df['acc #'].astype(str) == accnum]
-	img = np.load(join(C.full_img_dir, cls, str(accnum) + ".npy"))
-
-	for _, row in df_subset.iterrows():
-		x = (int(row['x1']), int(row['x2']))
-		y = (int(row['y1']), int(row['y2']))
-		z = (int(row['z1']), int(row['z2']))
-		
-		try:
-			cur_dims = dims_df[dims_df["acc_num"] == accnum].iloc[0].values[1:]
-		except:
-			raise ValueError("dims_df not yet loaded for", accnum)
-		
-		y = (img.shape[1]-y[1], img.shape[1]-y[0]) # flip y
-		if row['Flipped'] != "Yes":
-			z = (img.shape[2]-z[1], img.shape[2]-z[0]) # flip z
-		
-		voi_df_art, lesion_id = _add_voi_row(voi_df_art, x,y,z, vox_dims=cur_dims,
-						accnum=accnum, cls=cls, run_num=int(row["Run"]))
-
-		if not np.isnan(row['x3']):
-			x = (int(row['x3']), int(row['x4']))
-			y = (int(row['y3']), int(row['y4']))
-			z = (int(row['z3']), int(row['z4']))
-			
-			y = (img.shape[1]-y[1], img.shape[1]-y[0]) # flip y
-			if row['Flipped'] != "Yes":
-				z = (img.shape[2]-z[1], img.shape[2]-z[0]) # flip z
-				
-			voi_df_ven = _add_voi_row(voi_df_ven, x,y,z, index=lesion_id)
-			
-		if not np.isnan(row['x5']):
-			x = (int(row['x5']), int(row['x6']))
-			y = (int(row['y5']), int(row['y6']))
-			z = (int(row['z5']), int(row['z6']))
-			
-			y = (img.shape[1]-y[1], img.shape[1]-y[0]) # flip y
-			if row['Flipped'] != "Yes":
-				z = (img.shape[2]-z[1], img.shape[2]-z[0]) # flip z
-				
-			voi_df_eq = _add_voi_row(voi_df_eq, x,y,z, index=lesion_id)
 
 	return voi_df_art, voi_df_ven, voi_df_eq
 
