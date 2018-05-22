@@ -39,7 +39,7 @@ import niftiutils.visualization as vis
 ### QC methods
 #####################################
 
-def plot_check(num, lesion_id=None, cls=None, normalize=[-.8,.5]):
+def plot_check(lesion_id=None, normalize=None):
 	"""Plot the unscaled, cropped or augmented versions of a lesion.
 	Lesion selected at random from cls if lesion_id is None.
 	Either lesion_id or cls must be specified.

@@ -199,28 +199,6 @@ def run_then_return_val_loss(num_iters=1, hyperparams=None):
 			epochs=num_iters, callbacks=[T.early_stopping], verbose=False, validation=[X_test, Y_test])
 	loss_hist = hist.history['val_loss']
 
-	"""	Y_pred = model.predict(X_train_orig)
-	y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_train_orig])
-	y_pred = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_pred])
-	misclassified_train = list(Z_train_orig[~np.equal(y_pred, y_true)])
-
-	Y_pred = model.predict(X_test)
-	y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_test])
-	y_pred = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_pred])
-	misclassified_test = list(Z_test[~np.equal(y_pred, y_true)])
-	cm = confusion_matrix(y_true, y_pred)
-	f1 = f1_score(y_true, y_pred, average="weighted")
-	acc_6cl = accuracy_score(y_true, y_pred)
-
-	y_true_simp, y_pred_simp, _ = condense_cm(y_true, y_pred, C.cls_names)
-	acc_3cl = accuracy_score(y_true_simp, y_pred_simp)
-
-	running_stats.loc[index] = _get_hyperparams_as_list(C, T) + \
-			[acc_6cl, acc_3cl, time.time()-t, loss_hist,
-			num_samples['hcc'], num_samples['cholangio'], num_samples['colorectal'], num_samples['cyst'], num_samples['hemangioma'], num_samples['fnh'],
-			cm, time.time(), misclassified_test, misclassified_train, model_num, y_true, str(Y_pred), list(Z_test)]
-	running_stats.to_csv(C.run_stats_path, index=False)"""
-
 	return loss_hist
 
 def _get_hyperparams_as_list(C=None, T=None):

@@ -621,10 +621,7 @@ def get_cnn_data(n=4, n_art=0, run_2d=False, Z_test_fixed=None, verbose=False):
 	for cls in orig_data_dict:
 		cls_num = C.cls_names.index(cls)
 
-		if C.train_frac is None:
-			train_samples[cls] = num_samples[cls] - C.test_num
-		else:
-			train_samples[cls] = round(num_samples[cls]*C.train_frac)
+		train_samples[cls] = num_samples[cls] - C.test_num
 		
 		if Z_test_fixed is None:
 			order = np.random.permutation(list(range(num_samples[cls])))
@@ -689,11 +686,7 @@ def load_data_capsnet(n=2, Z_test_fixed=None):
 
 	for cls in orig_data_dict:
 		cls_num = C.cls_names.index(cls)
-
-		if C.train_frac is None:
-			train_samples[cls] = num_samples[cls] - C.test_num
-		else:
-			train_samples[cls] = round(num_samples[cls]*C.train_frac)
+		train_samples[cls] = num_samples[cls] - C.test_num
 		
 		if Z_test_fixed is None:
 			order = np.random.permutation(list(range(num_samples[cls])))
@@ -900,7 +893,9 @@ def _collect_unaug_data():
 		elif C.non_imaging_inputs:
 			x2 = np.empty((10000, C.num_non_image_inputs))
 
-		for index, lesion_id in enumerate(voi_df[voi_df["cls"] == cls].index):
+		lesion_ids = [x for x in voi_df[voi_df["cls"] == cls].index if exists(os.path.join(C.orig_dir, cls, x+".npy"))]
+
+		for index, lesion_id in enumerate(lesion_ids):
 			img_path = os.path.join(C.orig_dir, cls, lesion_id+".npy")
 			try:
 				x[index] = np.load(img_path)
@@ -999,10 +994,7 @@ def get_cnn_demogr(n=4):
 	for cls in orig_data_dict:
 		cls_num = C.cls_names.index(cls)
 
-		if C.train_frac is None:
-			train_samples[cls] = num_samples[cls] - C.test_num
-		else:
-			train_samples[cls] = round(num_samples[cls]*C.train_frac)
+		train_samples[cls] = num_samples[cls] - C.test_num
 		
 		order = np.random.permutation(list(range(num_samples[cls])))
 		

@@ -19,7 +19,7 @@ class Config:
 		self.test_run_num = 2
 		self.dims = [24,24,12]
 		self.nb_channels = 3
-		self.aug_factor = 100
+		self.aug_factor = 10
 
 		self.context_dims = [36,36,12]
 		self.dual_img_inputs = False # whether to use both tight and gross image croppings for the network
@@ -72,6 +72,7 @@ class Config:
 			self.sheetnames = ['HBV', 'HCV', 'Nonviral']
 			self.short_cls_names = ['HBV', 'HCV', 'NV']
 			self.dcm_dirs = ["D:\\Etiology\\Imaging"] * 3
+			self.replay_img_dir = join(self.base_dir, "imgs\\replay\\")
 
 		elif dataset == "radpath":
 			self.base_dir = "D:\\Paula-project"
@@ -87,7 +88,7 @@ class Config:
 		elif dataset == "lirads-expanded":
 			self.base_dir = "E:\\LIRADS"
 			self.coord_xls_path = 'Z:\\LIRADS\\Prototype1e.xlsx'
-			self.test_num = 4
+			self.test_num = 5
 			self.full_img_dir = "Z:\\LIRADS\\full_imgs"
 
 			self.cls_names = ['hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh', 'net', 'adenoma', 'abscess']

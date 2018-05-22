@@ -43,51 +43,45 @@ import tensorflow as tf
 import dr_methods as drm
 import voi_methods as vm
 
-#def jagged_activ(x):
-#	a = K.switch(x>1, x-1, x-x+0)
-#	a = K.switch(a<-1, a+1, a-a+0) #tf.where
-#	return a
-
 class DQNAgent:
 	def __init__(self, state_size):
 		self.state_size = state_size
 		self.action_size = 9
-		self.memory = deque(maxlen=10000)
+		self.memory = deque(maxlen=5000)
 		self.gamma = 0.95    # discount rate
 		self.epsilon = 1.0  # exploration rate
 		self.epsilon_min = 0.01
 		self.epsilon_decay = 0.995
 		self.learning_rate = 0.001
-		self.dqn_model, self.cls_model = self._build_model()
 		self.max_t = 25
-		#self.target_model = self._build_model()
-		#self.update_target_model()
+		self.dqn_model, self.cls_model = self._build_model()
+		self.target_model = self._build_model()[0]
+		self.update_target_model()
 
 	def _huber_loss(self, target, prediction):
 		error = prediction - target
 		return K.mean(K.sqrt(1+K.square(error))-1, axis=-1)
 
-	#get_custom_objects().update({'custom_activation': Activation(custom_activation)})
-
 	def _build_model(self):
+		importlib.reload(cnnc)
 		# Neural Net for Deep-Q learning Model
 		img = layers.Input(self.state_size)
 		x = layers.Reshape((*self.state_size,1))(img)
+		x = layers.Conv3D(64, 5, strides=2, activation='relu')(x)
+		x = layers.BatchNormalization(axis=-1)(x)
 		x = layers.Conv3D(64, 3, activation='relu')(x)
-		x = layers.MaxPooling3D((2,2,2))(x)
-		x = layers.Conv3D(64, 3, activation='relu')(x)
+		x = cnnc.SeparableConv3D(x, 128, 3, activation='relu')
 		x = layers.BatchNormalization(axis=-1)(x)
 		x = layers.Conv3D(64, 3, activation='relu')(x)
 		x = layers.MaxPooling3D((2,2,1))(x)
 		x = layers.Flatten()(x)
-		qn = layers.Dense(128, activation='relu')(x)
-		qn = layers.BatchNormalization()(qn)
-		qn = layers.Dense(self.action_size, activation='linear')(qn)
+		Q = layers.Dense(128, activation='relu')(x)
+		Q = layers.BatchNormalization()(Q)
+		Q = layers.Dense(self.action_size, activation='linear')(Q)
 
-		#run_opts = tf.RunOptions(report_tensor_allocations_upon_oom = True)
-		dqn_model = Model(img, qn)
+		dqn_model = Model(img, Q)
 		dqn_model.compile(loss=self._huber_loss,
-					  optimizer=Adam(lr=self.learning_rate))#, options=run_opts)
+					  optimizer=Adam(lr=self.learning_rate))
 
 		classifier = layers.Dense(64, activation='relu')(x)
 		classifier = layers.BatchNormalization()(classifier)
@@ -99,15 +93,15 @@ class DQNAgent:
 
 		return dqn_model, cls_model
 
-	#def update_target_model(self):
-	#	self.target_model.set_weights(self.dqn_model.get_weights())
+	def update_target_model(self):
+		self.target_model.set_weights(self.dqn_model.get_weights())
 
 	def remember(self, state, action, reward, next_state, done):
 		self.memory.append((state, action, reward, next_state, done))
 
 	def act(self, state):
 		if np.random.rand() <= self.epsilon:
-			return np_utils.to_categorical(random.randint(0,self.action_size-2), self.action_size)
+			return np_utils.to_categorical(random.randint(0,self.action_size-1), self.action_size)
 		act_values = self.dqn_model.predict(state)
 		return np_utils.to_categorical(np.argmax(act_values[0]), self.action_size)
 
@@ -118,14 +112,52 @@ class DQNAgent:
 				Q = reward
 			else:
 				Q = reward + self.gamma * \
-					   np.amax(self.dqn_model.predict(next_state)[0])
+					   np.amax(self.target_model.predict(next_state)[0])
 			Q = np.expand_dims(Q, 0)
 			self.dqn_model.fit(state, Q, epochs=1, verbose=0)
 
 		if self.epsilon > self.epsilon_min:
 			self.epsilon *= self.epsilon_decay
 
-def train_dqn(img_generator):
+
+
+	def create_actor_network(self):
+		S = Input(shape=[self.state_size])
+		h0 = Dense(HIDDEN1_UNITS, activation='relu')(S)
+		h1 = Dense(HIDDEN2_UNITS, activation='relu')(h0)
+		Steering = Dense(1,activation='tanh',init=lambda shape, name: normal(shape, scale=1e-4, name=name))(h1)   
+		Acceleration = Dense(1,activation='sigmoid',init=lambda shape, name: normal(shape, scale=1e-4, name=name))(h1)   
+		Brake = Dense(1,activation='sigmoid',init=lambda shape, name: normal(shape, scale=1e-4, name=name))(h1)   
+		V = merge([Steering,Acceleration,Brake],mode='concat')          
+		model = Model(input=S,output=V)
+
+		return model, model.trainable_weights, S
+
+	def create_critic_network(self):
+		S = Input(self.state_size)
+		A = Input(self.action_dim)
+		w1 = Dense(HIDDEN1_UNITS, activation='relu')(S)
+		a1 = Dense(HIDDEN2_UNITS, activation='linear')(A)
+		h1 = Dense(HIDDEN2_UNITS, activation='linear')(w1)
+		h2 = merge([h1,a1],mode='sum')    
+		h3 = Dense(HIDDEN2_UNITS, activation='relu')(h2)
+		V = Dense(action_dim,activation='linear')(h3)  
+		model = Model(input=[S,A],output=V)
+		model.compile(loss='mse', optimizer=Adam(lr=self.LEARNING_RATE))
+
+		return model, A, S 
+
+	def target_train(self):
+		actor_weights = self.model.get_weights()
+		actor_target_weights = self.target_model.get_weights()
+		for i in range(len(actor_weights)):
+			actor_target_weights[i] = self.TAU * actor_weights[i] + (1 - self.TAU)* actor_target_weights[i]
+		self.target_model.set_weights(actor_target_weights)
+
+
+
+
+def train_dqn(dqn_generator, agent=None):
 	importlib.reload(dqn_env)
 	C = config.Config()
 
@@ -134,10 +166,13 @@ def train_dqn(img_generator):
 	state_size = C.context_dims
 
 	env = dqn_env.DQNEnv(state_size)
-	agent = DQNAgent(state_size)
+	if agent is None:
+		agent = DQNAgent(state_size)
+	else:
+		agent.epsilon = .5
 
 	for e in range(episodes):
-		img, true_bbox, cls, accnum = next(img_generator)
+		img, true_bbox, cls, accnum = next(dqn_generator)
 		save_path = join(C.orig_dir, cls, accnum)
 		state = env.set_img(img, true_bbox, save_path)
 
@@ -147,12 +182,13 @@ def train_dqn(img_generator):
 			agent.remember(state, action, reward, next_state, done)
 			state = next_state
 			if done:
+				agent.update_target_model()
 				break
 
-		print(env.best_dice)
+		#print("%.3f" % env.best_dice)
 		if e % 5 == 0:
 			dice = dqn_env.get_DICE(env.true_bbox, env.pred_bbox)
-			print("episode: %d/%d, dice: %.2f" % (e, episodes, dice))
+			print("episode: %d/%d, dice: %.2f, eps: %.2f" % (e, episodes, dice, agent.epsilon))
 
 		try:
 			agent.replay(minibatch)

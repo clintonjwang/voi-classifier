@@ -313,7 +313,7 @@ def load_vois_batch(cls=None, accnums=None, overwrite=False, downsample=1):
 	dims_df.index = dims_df.index.map(str)
 	src_data_df = get_coords_df(cls, downsample)
 	if accnums is None:
-		accnums = list(set(src_data_df['acc #'].values))
+		accnums = list(set(src_data_df['acc #'].astype(str).values))
 	else:
 		accnums = set(accnums).intersection(src_data_df['acc #'].values)
 	
@@ -322,7 +322,7 @@ def load_vois_batch(cls=None, accnums=None, overwrite=False, downsample=1):
 	if overwrite:
 		voi_df_art, voi_df_ven, voi_df_eq = _remove_accnums_from_vois(voi_df_art, voi_df_ven, voi_df_eq, accnums, cls)
 	else:
-		accnums = set(accnums).difference(voi_df_art[voi_df_art["cls"] == cls]["accnum"].values)
+		accnums = set(accnums).difference(voi_df_art[voi_df_art["cls"] == cls]["accnum"].astype(str).values)
 
 	voi_dfs = voi_df_art, voi_df_ven, voi_df_eq
 	for cnt, accnum in enumerate(accnums):

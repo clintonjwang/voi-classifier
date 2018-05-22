@@ -52,14 +52,15 @@ def get_DICE(A, B):
 class DQNEnv:
 	def __init__(self, state_size):
 		self.state_size = state_size
-		self.dice_thresh = 0.6
+		self.dice_thresh = 0.5
 		self.min = 16
 
-	def set_img(self, img, true_bbox=None, save_path=None):
+	def set_img(self, img, true_bbox=None, save_path=None, true_seg=None):
 		self.img = img[0]
 		self.ix = 0
 		self.save_path = save_path
 		self.true_bbox = true_bbox[0]
+		self.true_seg = true_seg
 		self.best_dice = 0.001
 		self.pred_bbox = np.array([[self.img.shape[i]//4, self.img.shape[i]*3//4] for i in range(3)]).flatten()
 		self.center = np.array([(self.pred_bbox[i] + self.pred_bbox[i+1])/2 for i in [0,2,4]])
@@ -70,8 +71,8 @@ class DQNEnv:
 		return np.expand_dims(cropI, 0)
 
 	def get_bbox(self, action):
-		self.center += np.array(action[:3]) * (self.dx/2) # action of 1 traverses 1/2 of the dimension
-		self.center -= np.array(action[3:6]) * (self.dx/2)
+		self.center += action[:3] * (self.dx/2) # action of 1 traverses 1/2 of the dimension
+		self.center -= action[3:6] * (self.dx/2)
 		self.dx += action[6] * (self.dx/2)
 		self.dx -= action[7] * (self.dx/2)
 		self.pred_bbox = [[round(self.center[i]-self.dx[i]/2),
@@ -99,21 +100,26 @@ class DQNEnv:
 			raise ValueError()
 		done = False
 
-		if action[-1] == 1 or dice > self.dice_thresh:
-			reward = dice
+		if action[-1] == 1:
 			done = True
-		#elif dice < 0.1:
-		#	reward = -50*(.2-dice) #-10 to -5
-		#elif dice < self.best_dice:
-		#	reward = -1
-		elif dice < self.best_dice:
-			reward = -10*(self.best_dice - dice)
-		else:
-			np.save(self.save_path+str(self.ix), cropI)
-			self.ix += 1
-
-			reward = 10*(dice - self.best_dice)
+			if dice > self.dice_thresh:
+				reward = 25
+			elif dice > .8:
+				reward = 100
+			else:
+				reward = -10
+		elif dice > self.best_dice:
+			reward = 10*(self.best_dice - dice)
 			self.best_dice = dice
+		elif dice < .1:
+			reward = -1
+		else:
+			reward = -.1
+
+		if dice > self.dice_thresh:
+			np.save(self.save_path+str(self.ix), cropI)
+			#seg_df = get_seg(self.pred_bbox, self.img)
+			self.ix += 1
 
 		next_state = np.expand_dims(cropI, 0)
 		return next_state, reward, done
