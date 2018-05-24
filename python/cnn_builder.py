@@ -59,9 +59,6 @@ def acc_logit(y_true, y_pred):
 	acc = K.abs(y_true[:,0] - K.cast(y_pred[:,0] < 0, 'float32'))
 	return acc
 
-def mod_acc(y_true, y_pred):
-	return 1
-
 def build_cnn_hyperparams(hyperparams):
 	C = config.Config()
 	if C.probabilistic:
@@ -736,6 +733,9 @@ def _train_gen_capsnet(test_ids, n=4):
 		x_batch = np.array(x1)
 		y_batch = np.array(y)
 		yield ([x_batch, y_batch], [y_batch, x_batch])
+
+def _train_gen_ddpg(test_accnums):
+	"""X is the whole abdominal MR (20s only), ; Y is the set of true bboxes"""
 
 def _train_gen_dqn(test_accnums):
 	"""X is the whole abdominal MR (20s only); Y is the set of true bboxes"""

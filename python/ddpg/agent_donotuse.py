@@ -1,7 +1,4 @@
 """
-Usage:
-	python cnn_builder.py
-
 Author: Clinton Wang, E-mail: `clintonjwang@gmail.com`, Github: `https://github.com/clintonjwang/voi-classifier`
 """
 
@@ -12,7 +9,6 @@ from keras.layers import Input, Dense, Concatenate, Flatten, Dropout, Lambda
 from keras.layers import SimpleRNN, Conv2D, MaxPooling2D, ZeroPadding3D, Activation, ELU, TimeDistributed, Permute, Reshape
 from keras.layers.normalization import BatchNormalization
 from keras.models import Model
-from keras.regularizers import l2
 from keras.callbacks import EarlyStopping
 from keras.optimizers import Adam
 from keras.utils import np_utils
@@ -33,13 +29,9 @@ import os
 from os.path import *
 import pandas as pd
 import random
-from scipy.misc import imsave
-from skimage.transform import rescale
-from sklearn.metrics import confusion_matrix, f1_score, accuracy_score
 import time
 import importlib
 import tensorflow as tf
-
 import dr_methods as drm
 import voi_methods as vm
 
@@ -120,7 +112,6 @@ class DQNAgent:
 			self.epsilon *= self.epsilon_decay
 
 
-
 	def create_actor_network(self):
 		S = Input(shape=[self.state_size])
 		h0 = Dense(HIDDEN1_UNITS, activation='relu')(S)
@@ -133,80 +124,9 @@ class DQNAgent:
 
 		return model, model.trainable_weights, S
 
-	def create_critic_network(self):
-		S = Input(self.state_size)
-		A = Input(self.action_dim)
-		w1 = Dense(HIDDEN1_UNITS, activation='relu')(S)
-		a1 = Dense(HIDDEN2_UNITS, activation='linear')(A)
-		h1 = Dense(HIDDEN2_UNITS, activation='linear')(w1)
-		h2 = merge([h1,a1],mode='sum')    
-		h3 = Dense(HIDDEN2_UNITS, activation='relu')(h2)
-		V = Dense(action_dim,activation='linear')(h3)  
-		model = Model(input=[S,A],output=V)
-		model.compile(loss='mse', optimizer=Adam(lr=self.LEARNING_RATE))
-
-		return model, A, S 
-
 	def target_train(self):
 		actor_weights = self.model.get_weights()
 		actor_target_weights = self.target_model.get_weights()
 		for i in range(len(actor_weights)):
 			actor_target_weights[i] = self.TAU * actor_weights[i] + (1 - self.TAU)* actor_target_weights[i]
 		self.target_model.set_weights(actor_target_weights)
-
-
-
-
-def train_dqn(dqn_generator, agent=None):
-	importlib.reload(dqn_env)
-	C = config.Config()
-
-	episodes = 250
-	minibatch = 32
-	state_size = C.context_dims
-
-	env = dqn_env.DQNEnv(state_size)
-	if agent is None:
-		agent = DQNAgent(state_size)
-	else:
-		agent.epsilon = .5
-
-	for e in range(episodes):
-		img, true_bbox, cls, accnum = next(dqn_generator)
-		save_path = join(C.orig_dir, cls, accnum)
-		state = env.set_img(img, true_bbox, save_path)
-
-		for time_t in range(agent.max_t):
-			action = agent.act(state)
-			next_state, reward, done = env.step(action)
-			agent.remember(state, action, reward, next_state, done)
-			state = next_state
-			if done:
-				agent.update_target_model()
-				break
-
-		#print("%.3f" % env.best_dice)
-		if e % 5 == 0:
-			dice = dqn_env.get_DICE(env.true_bbox, env.pred_bbox)
-			print("episode: %d/%d, dice: %.2f, eps: %.2f" % (e, episodes, dice, agent.epsilon))
-
-		try:
-			agent.replay(minibatch)
-		except Exception as e:
-			print(e)
-			continue
-
-	return agent
-
-def run_dqn(agent, img):
-	env = dqn_env.DQNEnv(state_size)
-	state = env.set_img(img)
-	self.epsilon = 0
-	# time_t represents each frame of the game
-	for time_t in range(agent.max_t):
-		# Decide action
-		action = agent.act(state)
-		state, done = env.step(action)
-		if done:
-			break
-	return env.pred_bbox
