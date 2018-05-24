@@ -4,13 +4,6 @@ Config file
 Author: Clinton Wang, E-mail: `clintonjwang@gmail.com`, Github: `https://github.com/clintonjwang/voi-classifier`
 """
 
-#Run Numbers:
-# 1 - classic
-# 2 - classic but difficult
-# 3 - atypical, maybe exclude
-# 4 - atypical, exclude
-# 5 - temporarily excluded
-# 6 - inconsistent slices, missing phase, bad imaging quality, etc. see notes
 from os.path import *
 
 class Config:
@@ -109,14 +102,6 @@ class Config:
 		self.aug_dir = join(self.base_dir, "imgs\\aug_imgs_2412_full\\")
 		self.artif_dir = join(self.base_dir, "imgs\\artif_imgs_2412\\")
 		self.model_dir = join(self.base_dir, "models\\")
-
-	def use_artificial_samples(self):
-		# Artificial sample parameters
-		self.n_aug = 1500
-		self.long_size_frac = [0.6, 0.85]
-		self.max_side_ratio = 1.6
-		self.noise_std = 0.05
-		self.shade_std = 0.05
 
 class Hyperparams:
 	def __init__(self):

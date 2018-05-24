@@ -394,9 +394,6 @@ def extract_vois(cls=None, accnums=None, overwrite=False):
 	
 	small_voi_df.to_csv(C.small_voi_path)
 
-def transform_masks():
-	pass
-
 @drm.autofill_cls_arg
 def save_unaugmented_set(cls=None, accnums=None, lesion_ids=None, custom_vois=None, lesion_ratio=None, overwrite=True):
 	"""Save unaugmented lesion images. Overwrites without checking."""
