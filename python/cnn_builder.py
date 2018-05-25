@@ -49,8 +49,6 @@ def aleatoric_xentropy(y_true, y_pred):
 	rv = K.random_normal((1000,1), mean=0.0, stddev=1.0)
 	#rv = np.random.laplace(loc=0., scale=1.0, size=(1000,1))
 	y_noisy = K.mean( 1/(1+K.exp(-(y_pred[:,0] + y_pred[:,1]*rv))) , 0 )
-	#loss = K.binary_crossentropy(y_true, y_noisy)
-	#lnDen = K.log(K.exp(y_noisy) + K.exp(1 - y_noisy))
 	loss = - y_true[:,0] * K.log(y_noisy + eps) - (1-y_true[:,0]) * K.log(1-y_noisy + eps)
 	
 	return loss
