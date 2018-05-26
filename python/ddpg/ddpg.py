@@ -66,11 +66,10 @@ def train_dqn(dqn_generator, agent=None):
 
 	episodes = 250
 	minibatch = 32
-	state_size = C.context_dims
 
-	env = dqn_env.DQNEnv(state_size)
+	env = dqn_env.DQNEnv()
 	if agent is None:
-		agent = DQNAgent(state_size)
+		agent = DQNAgent()
 	else:
 		agent.epsilon = .5
 
@@ -102,7 +101,7 @@ def train_dqn(dqn_generator, agent=None):
 	return agent
 
 def run_dqn(agent, img):
-	env = dqn_env.DQNEnv(state_size)
+	env = dqn_env.DQNEnv()
 	state = env.set_img(img)
 	self.epsilon = 0
 	# time_t represents each frame of the game
@@ -115,8 +114,6 @@ def run_dqn(agent, img):
 	return env.pred_bbox
 
 
-
-
 def playGame(train_indicator=0):    #1 means Train, 0 means simply Run
 	OU = OU()       #Ornstein-Uhlenbeck Process
 	BUFFER_SIZE = 100000
@@ -126,8 +123,8 @@ def playGame(train_indicator=0):    #1 means Train, 0 means simply Run
 	LRA = 0.0001    #Learning rate for Actor
 	LRC = 0.001     #Lerning rate for Critic
 
-	action_dim = 6  #6 bbox coordinates
-	state_dim = 29  #of sensors input
+	action_dim = 8  #6 bbox coordinates, cls weight, trigger
+	state_dim = C.context_dims  #of sensors input
 
 	np.random.seed(1337)
 
@@ -139,7 +136,6 @@ def playGame(train_indicator=0):    #1 means Train, 0 means simply Run
 	config = tf.ConfigProto()
 	config.gpu_options.allow_growth = True
 	sess = tf.Session(config=config)
-	from keras import backend as K
 	K.set_session(sess)
 
 	actor = actor.ActorNetwork(sess, state_dim, action_dim, BATCH_SIZE, TAU, LRA)
@@ -157,17 +153,21 @@ def playGame(train_indicator=0):    #1 means Train, 0 means simply Run
 		pass
 
 	for i in range(episode_count):
-
 		print("Episode : " + str(i) + " Replay Buffer " + str(buff.count()))
 
+		cur_seg = np.zeros((*C.context_dims, 2))
+		seg_var = np.zeros(C.context_dims)
+
+		cur_cls = np.zeros(len(C.cls_names))
+		cls_var = 0
+
+		img, true_seg, true_cls = next(dqn_generator)
 		if np.mod(i, 3) == 0:
-			ob = env.reset(relaunch=True)   #relaunch TORCS every 3 episode because of the memory leak error
+			ob = env.reset(img, true_seg, true_cls, relaunch=True)   #relaunch TORCS every 3 episode because of the memory leak error
 		else:
-			ob = env.reset()
+			ob = env.reset(img, true_seg, true_cls)
 
-		s_t = np.hstack((ob.angle, ob.track, ob.trackPos, ob.speedX, ob.speedY,  ob.speedZ, ob.wheelSpinVel/100.0, ob.rpm))
-
-		true_seg, true_cls = next(dqn_generator)
+		s_t = env.train_unet_cls()
 
 		epsilon = 1
 		total_reward = 0.
@@ -178,18 +178,16 @@ def playGame(train_indicator=0):    #1 means Train, 0 means simply Run
 			noise_t = np.zeros([1,action_dim])
 			
 			a_t_original = actor.model.predict(s_t.reshape(1, s_t.shape[0]))
-			noise_t[0][0] = train_indicator * max(epsilon, 0) * OU.function(a_t_original[0][0],  0.0 , 0.60, 0.30)
-			noise_t[0][1] = train_indicator * max(epsilon, 0) * OU.function(a_t_original[0][1],  0.5 , 1.00, 0.10)
-			noise_t[0][2] = train_indicator * max(epsilon, 0) * OU.function(a_t_original[0][2], -0.1 , 1.00, 0.05)
+			for i in range(3):
+				noise_t[0][i] = train_indicator * max(epsilon, 0) * OU.function(a_t_original[0][i], .0, .60, .30)
 
 			#The following code do the stochastic brake
 			#if random.random() <= 0.1:
 			#    print("********Now we apply the brake***********")
 			#    noise_t[0][2] = train_indicator * max(epsilon, 0) * OU.function(a_t_original[0][2],  0.2 , 1.00, 0.10)
 
-			a_t[0][0] = a_t_original[0][0] + noise_t[0][0]
-			a_t[0][1] = a_t_original[0][1] + noise_t[0][1]
-			a_t[0][2] = a_t_original[0][2] + noise_t[0][2]
+			for i in range(action_dim):
+				a_t[0][i] = a_t_original[0][i] + noise_t[0][i]
 
 			ob, r_t, done, info = env.step(a_t[0])
 

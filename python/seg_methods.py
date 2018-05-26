@@ -32,6 +32,7 @@ from skimage.transform import rescale, resize
 import config
 import dr_methods as drm
 import niftiutils.helper_fxns as hf
+import niftiutils.masks as masks
 import niftiutils.transforms as tr
 import niftiutils.visualization as vis
 
@@ -58,19 +59,43 @@ def load_accnum(cls=None, accnums=None, augment=True):
 	pass
 
 def make_pngs(cls=None, lesion_ids=None, save_dir=None, normalize=None, fixed_width=100, fn_prefix="", fn_suffix=None, separate_by_cls=True):
-	pass
+	accnums = [basename(fn[:-4]) for fn in glob.glob(join(C.full_img_dir, "*.npy")) if not fn.endswith("_seg.npy")]
 
-def make_dcms(cls=None, lesion_ids=None, save_dir=None, normalize=None, fixed_width=100, fn_prefix="", fn_suffix=None, separate_by_cls=True):
+	for accnum in accnums:
+		img = np.load(join(C.full_img_dir, accnum+".npy"))
+		M = np.load(join(C.full_img_dir, accnum+"_seg.npy"))
+
+def make_dcms(cls=None, lesion_ids=None, save_dir=None):
 	pass
 
 #####################################
 ### Data Creation
 #####################################
 
-def crop_seg(accnum, coords):
-	"""Save all voi images as jpg."""
+def save_segs():
+	"""Save all segmentations as numpy."""
 	importlib.reload(hf)
 	C = config.Config()
+	accnums = [basename(fn[:-4]) for fn in glob.glob(join(C.full_img_dir, "*.npy")) if \
+				not fn.endswith("_seg.npy") and not exists(fn[:-4]+"_seg.npy")]
+
+	for accnum in accnums:
+		load_dir = join(C.dcm_dirs[0], accnum)
+		M_path = join(load_dir, 'Segs', 'tumor_20s_0.ids')
+		if not exists(M_path):
+			continue
+		M = masks.get_mask(M_path, img_path=join(load_dir, C.phases[0]))
+		if np.product(M.shape) > C.max_size:
+			M = tr.scale3d(M, [.5]*3) > .5
+		np.save(join(C.full_img_dir, accnum+"_seg.npy"), M)
+
+def crop_seg(accnum, coords):
+	"""Output the ground truth segmentation for an accnum."""
+	importlib.reload(hf)
+	C = config.Config()
+	M = np.load(join(C.full_img_dir, accnum+"_seg.npy"))
+	sl = [slice(coords[i], coords[i+1]) for i in [0,2,4]]
+	return M[sl]
 
 def transform_masks():
 	pass

@@ -53,11 +53,11 @@ def plot_check(num, lesion_id=None, cls=None, normalize=[-.8,.5]):
 	cls = pd.read_csv(C.small_voi_path, index_col=0).loc[lesion_id, "cls"].values[0]
 		
 	if num == 0:
-		img = np.load(join(C.full_img_dir, cls, lesion_id[:lesion_id.find('_')] + ".npy"))
+		img = np.load(join(C.full_img_dir, lesion_id[:lesion_id.find('_')] + ".npy"))
 	elif num == 1:
 		img = np.load(join(C.crops_dir, cls, lesion_id + ".npy"))
 	elif num == 2:
-		img = np.load(join(C.orig_dir, cls, lesion_id + ".npy"))
+		img = np.load(join(C.unaug_dir, cls, lesion_id + ".npy"))
 	elif num == 3:
 		img = np.load(join(C.aug_dir, cls, lesion_id + "_" + str(random.randint(0,C.aug_factor-1)) + ".npy"))
 	else:
@@ -135,22 +135,22 @@ def xref_dirs_with_excel(cls=None, fix_inplace=True):
 			bad_accnums.append(accnum)
 
 	# Check unaugmented lesions
-	accnums = [fn[:fn.find("_")] for fn in os.listdir(join(C.orig_dir, cls))]
+	accnums = [fn[:fn.find("_")] for fn in os.listdir(join(C.unaug_dir, cls))]
 	unique, counts = np.unique(accnums, return_counts=True)
 	diff = xls_set.difference(unique)
 	if len(diff) > 0:
-		print(diff, "are contained in the spreadsheet but not in", C.orig_dir)
+		print(diff, "are contained in the spreadsheet but not in", C.unaug_dir)
 		bad_accnums += list(diff)
 	diff = set(unique).difference(xls_set)
 	if len(diff) > 0:
-		print(diff, "are contained in", C.orig_dir, "but not the spreadsheet.")
+		print(diff, "are contained in", C.unaug_dir, "but not the spreadsheet.")
 		bad_accnums += list(diff)
 
 	overlap = xls_set.intersection(unique)
 	voi_cnts = dict(zip(unique, counts))
 	for accnum in overlap:
 		if voi_cnts[accnum] != xls_cnts[accnum]:
-			print("Mismatch in number of lesions in the spreadsheet vs", C.orig_dir, "for", accnum)
+			print("Mismatch in number of lesions in the spreadsheet vs", C.unaug_dir, "for", accnum)
 			bad_accnums.append(accnum)
 
 
@@ -185,7 +185,7 @@ def reset_accnum(accnum):
 	small_voi_df.to_csv(C.small_voi_path)
 
 	for cls in C.cls_names:
-		for base_dir in [C.crops_dir, C.orig_dir, C.aug_dir]:
+		for base_dir in [C.crops_dir, C.unaug_dir, C.aug_dir]:
 			for fn in glob.glob(join(base_dir, cls, accnum+"*")):
 				os.remove(fn)
 
@@ -203,7 +203,7 @@ def load_accnum(cls=None, accnums=None, augment=True):
 	importlib.reload(drm)
 	C = config.Config()
 
-	for base_dir in [C.crops_dir, C.orig_dir, C.aug_dir]:
+	for base_dir in [C.crops_dir, C.unaug_dir, C.aug_dir]:
 		if not exists(join(base_dir, cls)):
 			os.makedirs(join(base_dir, cls))
 
@@ -229,12 +229,12 @@ def save_vois_as_imgs(cls=None, lesion_ids=None, save_dir=None, normalize=None, 
 		os.makedirs(save_dir)
 
 	if lesion_ids is not None:
-		fns = [lesion_id+".npy" for lesion_id in lesion_ids if lesion_id+".npy" in os.listdir(join(C.orig_dir, cls))]
+		fns = [lesion_id+".npy" for lesion_id in lesion_ids if lesion_id+".npy" in os.listdir(join(C.unaug_dir, cls))]
 	else:
-		fns = os.listdir(join(C.orig_dir, cls))
+		fns = os.listdir(join(C.unaug_dir, cls))
 
 	for fn in fns:
-		img = np.load(C.orig_dir + cls + "\\" + fn)
+		img = np.load(C.unaug_dir + cls + "\\" + fn)
 
 		img_slice = img[:,:, img.shape[2]//2].astype(float)
 		img_slice = vis.normalize_img(img_slice, normalize)
@@ -361,7 +361,7 @@ def extract_vois(cls=None, accnums=None, overwrite=False):
 		os.makedirs(join(C.crops_dir, cls))
 
 	if accnums is None:
-		accnums = [x[:-4] for x in os.listdir(join(C.full_img_dir, cls))]
+		accnums = [x[:-4] for x in os.listdir(C.full_img_dir)]
 	if not overwrite:
 		accnums = list(set(accnums).difference(small_voi_df["accnum"]))
 
@@ -370,7 +370,7 @@ def extract_vois(cls=None, accnums=None, overwrite=False):
 		if len(art_vois) == 0:
 			continue
 
-		img = np.load(join(C.full_img_dir, cls, accnum+".npy"))
+		img = np.load(join(C.full_img_dir, accnum+".npy"))
 		if overwrite:
 			small_voi_df = small_voi_df[~((small_voi_df["accnum"] == accnum) & (small_voi_df["cls"] == cls))]
 
@@ -401,8 +401,8 @@ def save_unaugmented_set(cls=None, accnums=None, lesion_ids=None, custom_vois=No
 	C = config.Config()
 	small_voi_df = pd.read_csv(C.small_voi_path, index_col=0)
 
-	if not exists(join(C.orig_dir, cls)):
-		os.makedirs(join(C.orig_dir, cls))
+	if not exists(join(C.unaug_dir, cls)):
+		os.makedirs(join(C.unaug_dir, cls))
 
 	if lesion_ids is None:
 		if accnums is None:
@@ -411,7 +411,7 @@ def save_unaugmented_set(cls=None, accnums=None, lesion_ids=None, custom_vois=No
 			lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir + cls) if x[:x.find('_')] in accnums]
 
 	for ix, lesion_id in enumerate(lesion_ids):
-		if not overwrite and exists(join(C.orig_dir, cls, lesion_id)):
+		if not overwrite and exists(join(C.unaug_dir, cls, lesion_id)):
 			continue
 		if custom_vois is None:
 			try:
@@ -422,7 +422,7 @@ def save_unaugmented_set(cls=None, accnums=None, lesion_ids=None, custom_vois=No
 		else:
 			unaug_img = _resize_img(join(C.crops_dir, cls, lesion_id + ".npy"), custom_vois[ix], lesion_ratio)
 
-		np.save(join(C.orig_dir, cls, lesion_id), unaug_img)
+		np.save(join(C.unaug_dir, cls, lesion_id), unaug_img)
 
 @drm.autofill_cls_arg
 def save_augmented_set(cls=None, accnums=None, num_cores=None, overwrite=True):

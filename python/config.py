@@ -5,6 +5,7 @@ Author: Clinton Wang, E-mail: `clintonjwang@gmail.com`, Github: `https://github.
 """
 
 from os.path import *
+from keras.callbacks import EarlyStopping
 
 class Config:
 	def __init__(self, dataset="etiology"):
@@ -13,6 +14,8 @@ class Config:
 		self.dims = [24,24,12]
 		self.nb_channels = 3
 		self.aug_factor = 10
+
+		self.max_size = 350*350*100
 
 		self.context_dims = [36,36,12]
 		self.dual_img_inputs = False # whether to use both tight and gross image croppings for the network
@@ -54,18 +57,18 @@ class Config:
 			self.simplify_map = {'hcc': 0, 'cyst': 1, 'hemangioma': 1, 'fnh': 1, 'cholangio': 2, 'colorectal': 2}
 			
 		elif dataset == "etiology":
+			self.dims = [32,32,16]
 			self.context_dims = [64,64,32]
 
 			self.base_dir = "D:\\Etiology"
-			self.coord_xls_path = "D:\\Etiology\\coords.xlsx"
+			self.coord_xls_path = "D:\\Etiology\\excel\\coords.xlsx"
 			self.test_num = 5
-			self.full_img_dir = join(self.base_dir, "full_imgs")
+			self.full_img_dir = join(self.base_dir, "imgs","full_imgs")
 
 			self.cls_names = ['hbv', 'hcv', 'nonviral']
 			self.sheetnames = ['HBV', 'HCV', 'Nonviral']
 			self.short_cls_names = ['HBV', 'HCV', 'NV']
 			self.dcm_dirs = ["D:\\Etiology\\Imaging"] * 3
-			self.replay_img_dir = join(self.base_dir, "imgs\\replay\\")
 
 		elif dataset == "radpath":
 			self.base_dir = "D:\\Paula-project"
@@ -89,23 +92,22 @@ class Config:
 			self.short_cls_names = ['HCC', 'ICC', 'CRC Met.', 'Cyst', 'Hemang.', 'FNH', 'NET', 'Adenoma', 'Abscess']
 			self.dcm_dirs = ["Z:\\LIRADS\\DICOMs\\" + fn for fn in self.cls_names]
 
-		self.art_voi_path = join(self.base_dir, "data\\voi_art_full.csv")
-		self.ven_voi_path = join(self.base_dir, "data\\voi_ven_full.csv")
-		self.eq_voi_path = join(self.base_dir, "data\\voi_eq_full.csv")
-		self.dims_df_path = join(self.base_dir, "data\\img_dims.csv")
-		self.small_voi_path = join(self.base_dir, "data\\small_vois_full.csv")
-		self.run_stats_path = join(self.base_dir, "data\\overnight_run.csv")
-		self.patient_info_path = join(self.base_dir, "data\\patient_info.csv")
+		self.art_voi_path = join(self.base_dir, "excel\\voi_art_full.csv")
+		self.ven_voi_path = join(self.base_dir, "excel\\voi_ven_full.csv")
+		self.eq_voi_path = join(self.base_dir, "excel\\voi_eq_full.csv")
+		self.dims_df_path = join(self.base_dir, "excel\\img_dims.csv")
+		self.small_voi_path = join(self.base_dir, "excel\\small_vois_full.csv")
+		self.run_stats_path = join(self.base_dir, "excel\\overnight_run.csv")
+		self.patient_info_path = join(self.base_dir, "excel\\patient_info.csv")
 
-		self.crops_dir = join(self.base_dir, "imgs\\unscaled_crops_full\\")
-		self.orig_dir = join(self.base_dir, "imgs\\orig_imgs_2412_full\\")
-		self.aug_dir = join(self.base_dir, "imgs\\aug_imgs_2412_full\\")
-		self.artif_dir = join(self.base_dir, "imgs\\artif_imgs_2412\\")
+		self.crops_dir = join(self.base_dir, "imgs\\rough_crops\\")
+		self.unaug_dir = join(self.base_dir, "imgs\\unaug_imgs\\")
+		self.aug_dir = join(self.base_dir, "imgs\\aug_imgs\\")
+		self.replay_img_dir = join(self.base_dir, "imgs\\replay\\")
 		self.model_dir = join(self.base_dir, "models\\")
 
 class Hyperparams:
 	def __init__(self):
-		from keras.callbacks import EarlyStopping
 		self.n = 4
 		self.n_art = 0
 		self.steps_per_epoch = 750

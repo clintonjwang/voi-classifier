@@ -732,16 +732,34 @@ def _train_gen_capsnet(test_ids, n=4):
 		y_batch = np.array(y)
 		yield ([x_batch, y_batch], [y_batch, x_batch])
 
-def _train_gen_ddpg(test_accnums):
+def _train_gen_unet(test_accnums=[]):
 	"""X is the whole abdominal MR (20s only), ; Y is the set of true bboxes"""
-
-def _train_gen_dqn(test_accnums):
-	"""X is the whole abdominal MR (20s only); Y is the set of true bboxes"""
 	C = config.Config()
 
 	voi_df_art = drm.get_voi_dfs()[0]
 	voi_df_art.accnum = voi_df_art.accnum.astype(str)
-	img_fns = glob.glob(join(C.full_img_dir, "*", "*.npy"))
+	img_fns = [fn for fn in glob.glob(join(C.full_img_dir, "*.npy")) if not fn.endswith("_seg.npy") \
+				and basename(fn)[:-4] not in test_accnums]
+
+	while True:
+		img_fn = random.choice(img_fns)
+		img = np.load(img_fn)
+		img = tr.rescale_img(img, C.dims)
+		seg = np.load(img_fn[:-4]+"_seg.npy")
+		seg = tr.rescale_img(seg, C.dims) > .5
+		seg = np_utils.to_categorical(seg, 2).astype(int)
+		cls = np_utils.to_categorical(C.cls_names.index(voi_df_art.loc[voi_df_art["accnum"] \
+			== basename(img_fn[:-4]), "cls"].values[0]), len(C.cls_names)).astype(int)
+
+		yield [np.expand_dims(img, 0), np.expand_dims(seg, 0), np.expand_dims(cls, 0)], None
+
+def _train_gen_ddpg(test_accnums):
+	"""X is the whole abdominal MR (20s only), ; Y is the set of true bboxes"""
+	C = config.Config()
+
+	voi_df_art = drm.get_voi_dfs()[0]
+	voi_df_art.accnum = voi_df_art.accnum.astype(str)
+	img_fns = glob.glob(join(C.full_img_dir, "*.npy"))
 	img_fns = [fn for fn in img_fns if basename(fn)[:-4] not in test_accnums]
 
 	while True:
@@ -754,7 +772,7 @@ def _train_gen_dqn(test_accnums):
 		num_vois = len(voi_subset)
 		y = []
 		for _,voi in voi_subset.iterrows():
-			y.append(voi[["x1","x2","y1","y2","z1","z2"]].values)
+			y.append(voi[["x1","x2","y1","y2","z1","z2","w_cls"]].values)
 
 		yield (x, np.array(y), voi_subset["cls"].values[0], accnum)
 
@@ -891,10 +909,10 @@ def _collect_unaug_data():
 		elif C.non_imaging_inputs:
 			x2 = np.empty((10000, C.num_non_image_inputs))
 
-		lesion_ids = [x for x in voi_df[voi_df["cls"] == cls].index if exists(os.path.join(C.orig_dir, cls, x+".npy"))]
+		lesion_ids = [x for x in voi_df[voi_df["cls"] == cls].index if exists(os.path.join(C.unaug_dir, cls, x+".npy"))]
 
 		for index, lesion_id in enumerate(lesion_ids):
-			img_path = os.path.join(C.orig_dir, cls, lesion_id+".npy")
+			img_path = os.path.join(C.unaug_dir, cls, lesion_id+".npy")
 			try:
 				x[index] = np.load(img_path)
 				if C.post_scale > 0:
@@ -1033,7 +1051,7 @@ def _collect_unaug_demogr():
 		z = []
 
 		for index, lesion_id in enumerate(voi_df[voi_df["cls"] == cls].index):
-			img_path = os.path.join(C.orig_dir, cls, lesion_id+".npy")
+			img_path = os.path.join(C.unaug_dir, cls, lesion_id+".npy")
 			try:
 				x[index] = np.load(img_path)
 				if C.post_scale > 0:

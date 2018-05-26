@@ -179,6 +179,7 @@ def build_coords_df(accnum_xls_path, overwrite=False):
 @autofill_cls_arg
 def dcm2npy_batch(cls=None, accnums=None, overwrite=False, verbose=False, downsample=1):
 	"""Converts dcms to full-size npy, update dims_df. Requires coords_df."""
+	importlib.reload(config)
 	C = config.Config()
 
 	if exists(C.dims_df_path):
@@ -189,8 +190,8 @@ def dcm2npy_batch(cls=None, accnums=None, overwrite=False, verbose=False, downsa
 
 	src_data_df = get_coords_df(cls)
 
-	if not exists(join(C.full_img_dir, cls)):
-		os.makedirs(join(C.full_img_dir, cls))
+	if not exists(C.full_img_dir):
+		os.makedirs(C.full_img_dir)
 
 	if accnums is None:
 		accnums = list(set(src_data_df['acc #'].values))
@@ -207,14 +208,15 @@ def dcm2npy_batch(cls=None, accnums=None, overwrite=False, verbose=False, downsa
 		#if len(info) == 0:
 		#	print(accnum, "not properly marked in the spreadsheet.")
 		#	continue
+		accnum = str(accnum)
 
-		save_path = join(C.full_img_dir, cls, str(accnum) + ".npy")
+		save_path = join(C.full_img_dir, accnum + ".npy")
 		if exists(save_path) and not overwrite:
 			continue
 
 		load_dir = join(C.dcm_dirs[cls_num], accnum)
 		try:
-			art, D = hf.dcm_load(join(load_dir, C.phases[0]))
+			art,D = hf.dcm_load(join(load_dir, C.phases[0]))
 			ven = hf.dcm_load(join(load_dir, C.phases[1]))[0]
 			eq = hf.dcm_load(join(load_dir, C.phases[2]))[0]
 		except ValueError:
@@ -229,12 +231,27 @@ def dcm2npy_batch(cls=None, accnums=None, overwrite=False, verbose=False, downsa
 			img = np.stack((art, ven, eq), -1)
 		except ValueError:
 			raise ValueError(accnum + " has a bad header")
-		
-		if downsample != 1:
-			img = tr.scale3d(img, [1/downsample, 1/downsample, 1])
-			D *= [downsample, downsample, 1]
+
+		if np.product(art.shape) > C.max_size:
+			downsample = 2
+
+		try:
+			if downsample != 1:
+				img = tr.scale3d(img, [1/downsample, 1/downsample, 1])
+				D = [D[0]*downsample, D[1]*downsample, D[2]]
+		except:
+			print(accnum)
+			raise ValueError
+
+		M_paths = glob.glob(join(load_dir, 'Segs', 'tumor_20s_*.ids'))
+		M = masks.get_mask(M_paths[0], D, img.shape)
+		if len(M_paths) > 1:
+			for M_path in M_paths:
+				M = (M + masks.get_mask(M_path, D, img.shape)).astype(bool)
 
 		np.save(save_path, img)
+		np.save(join(C.full_img_dir, accnum+"_seg.npy"), M)
+
 
 		if verbose:
 			print("%d out of %d accession numbers loaded" % (cnt+1, len(accnums)))
