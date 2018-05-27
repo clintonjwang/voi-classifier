@@ -104,7 +104,7 @@ class Config:
 		self.unaug_dir = join(self.base_dir, "imgs\\unaug_imgs\\")
 		self.aug_dir = join(self.base_dir, "imgs\\aug_imgs\\")
 		self.replay_img_dir = join(self.base_dir, "imgs\\replay\\")
-		self.model_dir = join(self.base_dir, "models\\")
+		self.model_dir = join(self.base_dir, "models")
 
 class Hyperparams:
 	def __init__(self):

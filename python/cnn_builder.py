@@ -753,28 +753,27 @@ def _train_gen_unet(test_accnums=[]):
 
 		yield [np.expand_dims(img, 0), np.expand_dims(seg, 0), np.expand_dims(cls, 0)], None
 
-def _train_gen_ddpg(test_accnums):
+def _train_gen_ddpg(test_accnums=[]):
 	"""X is the whole abdominal MR (20s only), ; Y is the set of true bboxes"""
 	C = config.Config()
 
 	voi_df_art = drm.get_voi_dfs()[0]
 	voi_df_art.accnum = voi_df_art.accnum.astype(str)
-	img_fns = glob.glob(join(C.full_img_dir, "*.npy"))
-	img_fns = [fn for fn in img_fns if basename(fn)[:-4] not in test_accnums]
+	img_fns = [fn for fn in glob.glob(join(C.full_img_dir, "*.npy")) if not fn.endswith("_seg.npy") \
+				and basename(fn)[:-4] not in test_accnums]
 
 	while True:
 		img_fn = random.choice(img_fns)
-		x = np.expand_dims(np.load(img_fn)[...,0], 0)
-		accnum = basename(img_fn)[:-4]
-		voi_subset = voi_df_art[voi_df_art["accnum"] == accnum]
-		if len(voi_subset) == 0:
-			continue
-		num_vois = len(voi_subset)
-		y = []
-		for _,voi in voi_subset.iterrows():
-			y.append(voi[["x1","x2","y1","y2","z1","z2","w_cls"]].values)
+		img = np.load(img_fn)
+		img = tr.rescale_img(img, C.context_dims)
+		img = tr.normalize_intensity(img, 1, -1)
+		seg = np.load(img_fn[:-4]+"_seg.npy")
+		seg = tr.rescale_img(seg, C.context_dims) > .5
+		seg = np_utils.to_categorical(seg, 2).astype(int)
+		cls = np_utils.to_categorical(C.cls_names.index(voi_df_art.loc[voi_df_art["accnum"] \
+			== basename(img_fn[:-4]), "cls"].values[0]), len(C.cls_names)).astype(int)
 
-		yield (x, np.array(y), voi_subset["cls"].values[0], accnum)
+		yield (img, seg, cls)
 
 def _train_gen_cls(test_accnums):
 	"""X is the whole abdominal MR (20s only); Y is the set of true bboxes"""

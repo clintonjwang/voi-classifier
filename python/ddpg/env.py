@@ -27,69 +27,123 @@ import niftiutils.helper_fxns as hf
 import niftiutils.transforms as tr
 
 C = config.Config()
-class DQNEnv:
-	def __init__(self):
-		self.pred_model, train_model = tn.get_models()
+importlib.reload(tn)
+class Env(object):
+	def __init__(self, lr=.0001):
+		self.min_x = 5
+		self.pred_model, self.train_model = tn.get_models(lr)
 
-	def reset(self, img, true_seg=None, true_cls=None, save_path=None):
+	def reset(self, img, true_seg=None, true_cls=None):
+		"""Set new image to train on or predict.
+		If training, include ground truth segs and cls."""
 		self.img = tr.rescale_img(img, C.context_dims)
-		self.save_path = save_path
+		self.pred_seg = np.zeros((*C.context_dims, 2))
+		self.pred_seg_var = np.ones(C.context_dims)
+		self.pred_cls = np.zeros(len(C.cls_names))
+		self.pred_cls_var = 1
+		self.sum_w_seg = np.ones(C.context_dims) * 1e-5
+		self.sum_w_cls = 1e-5
+		self.art_small = tr.rescale_img(self.img[...,0], C.dims)
+
+		# Training parameters
 		self.true_seg = true_seg
 		self.true_cls = true_cls
-		self.last_loss = 0
-		self.center = np.array([(self.bbox[i] + self.bbox[i+1])/2 for i in [0,2,4]])
-		self.dx = np.array([self.bbox[i+1] - self.bbox[i] for i in [0,2,4]], float)
+		self.last_loss = 1e50
 
-		self.train_unet_cls()
-
-		sl = [slice(self.bbox[i], self.bbox[i+1]) for i in [0,2,4]]
-		self.cropI = tr.rescale_img(self.img[sl], C.dims)
+		init_action = [.5]*3+[1]*3+[.1,0]
+		self.step(init_action)
 
 	def update_bbox(self, action):
-		self.center += action[:3] * (self.dx/2) # action of 1 traverses 1/2 of the dimension
-		self.center -= action[3:6] * (self.dx/2)
-		self.dx += action[6] * (self.dx/2)
-		self.dx -= action[7] * (self.dx/2)
-		self.bbox = [[round(self.center[i]-self.dx[i]/2),
-			round(self.center[i]+self.dx[i]/2)] for i in range(3)]
+		"""Set focus bounding box based on the action."""
+		center = action[:3] * np.array(self.img.shape[:3])
+		dx = action[3:6] * np.array(self.img.shape[:3]) / 2
+		self.bbox = [[round(center[i]-dx[i]),
+			round(center[i]+dx[i])] for i in range(3)]
 		for i in range(3):
-			self.bbox[i][1] = max(self.min+1, min(self.img.shape[i] - 1, self.bbox[i][1]))
-			self.bbox[i][0] = max(1, min(self.bbox[i][1] - self.min, self.bbox[i][0]))
+			self.bbox[i][1] = max(self.min_x+1, min(self.img.shape[i] - 1, self.bbox[i][1]))
+			self.bbox[i][0] = max(1, min(self.bbox[i][1] - self.min_x, self.bbox[i][0]))
 		self.bbox = np.array(self.bbox, int).flatten()
 
-		self.center = np.array([(self.bbox[i] + self.bbox[i+1])/2 for i in [0,2,4]])
-		self.dx = np.array([self.bbox[i+1] - self.bbox[i] for i in [0,2,4]], float)
-
-	def train_unet_cls(bbox=None):
-		self.train_model.fit([self.cropI, self.crop_true_seg, self.true_cls])
-
-	def run_unet_cls(bbox=None):
-		self.pred_seg, self.pred_cls = self.pred_model.predict(self.cropI)
-
-	def step(self, action):
-		self.update_bbox(action)
-
-		if self.true_seg is None:
-			return next_state, action[-1] == 1
-
+	def run_unet_cls(self, action, train_unet=False):
+		# Only for run mode
+		# For now, w_seg and w_cls formulas don't make sense. Needs Bayesian treatment
 		sl = [slice(self.bbox[i], self.bbox[i+1]) for i in [0,2,4]]
-		try:
-			cropI = tr.rescale_img(self.img[sl], self.state_size)
-		except:
-			print(self.bbox, self.img.shape)
-			raise ValueError()
-		done = False
+		D = [self.bbox[i+1] - self.bbox[i] for i in [0,2,4]]
+		cropI = tr.rescale_img(self.img[sl], C.dims)
 
-		if action[-1] == 1:
+		crop_pred_seg, crop_pred_cls = self.pred_model.predict(np.expand_dims(cropI, 0))
+		crop_pred_seg = tr.rescale_img(crop_pred_seg[0], D)
+
+		crop_pred_seg_var = np.exp(np.clip(crop_pred_seg[..., -1], -10, 50))
+		crop_pred_cls_var = np.exp(np.clip(crop_pred_cls[0, -1], -10, 50))
+		crop_pred_seg = crop_pred_seg[..., :-1] #logits
+		crop_pred_cls = crop_pred_cls[0, :-1] #logits
+		w_seg = 1/crop_pred_seg_var
+		w_cls = action[-2] / crop_pred_cls_var
+		#self.pred_seg[sl] += crop_pred_seg * np.tile(w_seg, (2,1,1,1)).transpose((1,2,3,0))
+		#self.pred_cls += crop_pred_cls * w_cls
+
+		# Update variances of the mean
+		self.pred_seg[sl] = self.pred_seg[sl] * np.tile(self.sum_w_seg[sl], (2,1,1,1)).transpose((1,2,3,0))
+		self.pred_seg_var[sl] = self.pred_seg_var[sl] * self.sum_w_seg[sl]
+		self.pred_cls *= self.sum_w_cls
+		self.pred_cls_var *= self.sum_w_cls
+		self.sum_w_seg[sl] += w_seg
+		self.sum_w_cls += w_cls
+		self.pred_seg[sl] = (self.pred_seg[sl] + crop_pred_seg * \
+						np.tile(w_seg, (2,1,1,1)).transpose((1,2,3,0))) / \
+						np.tile(self.sum_w_seg[sl], (2,1,1,1)).transpose((1,2,3,0))
+		self.pred_seg_var[sl] = (self.pred_seg_var[sl] + crop_pred_seg_var * w_seg) / self.sum_w_seg[sl]
+		self.pred_cls = (self.pred_cls + crop_pred_cls * w_cls) / self.sum_w_cls
+		self.pred_cls_var = (self.pred_cls_var + crop_pred_cls_var * w_cls) / self.sum_w_cls
+
+		if train_unet:
+			return sl, cropI
+
+	def get_state(self):
+		return np.stack([self.art_small, tr.rescale_img(self.pred_seg[...,-1] / 10, C.dims),
+			tr.rescale_img(np.log(self.pred_seg_var), C.dims)], -1)
+
+	def get_loss(self):
+		log_vars = [K.get_value(x)[0] for x in self.train_model.layers[-1].log_vars]
+
+		y_true = self.true_seg
+		y_pred = np.concatenate([self.pred_seg, np.expand_dims(np.log(self.pred_seg_var), -1)], -1)
+		num_classes = 2
+		loss = np.sum(np.exp(-log_vars[0]) * K.get_value(tn.hetero_cls_loss(y_true, y_pred,
+						num_classes=num_classes)) + log_vars[0], -1)
+
+		y_true = self.true_cls
+		y_pred = np.array(list(self.pred_cls) + [math.log(self.pred_cls_var)])
+		num_classes = len(C.cls_names)
+		loss += np.sum(np.exp(-log_vars[1]) * K.get_value(tn.hetero_cls_loss(y_true, y_pred,
+						num_classes=num_classes)) + log_vars[1], -1)
+
+		return np.mean(loss)
+
+	def step(self, action, get_crops=False):
+		self.update_bbox(action)
+		if self.true_seg is None:
+			self.run_unet_cls(action)
+			return next_state, action[-1] > .9
+
+		sl, cropI = self.run_unet_cls(action, train_unet=True)
+		crop_true_seg = tr.rescale_img(self.true_seg[sl], C.dims)
+		self.train_model.train_on_batch([np.expand_dims(cropI,0),
+			np.expand_dims(crop_true_seg,0), np.expand_dims(self.true_cls,0)], None)
+
+		cur_loss = self.get_loss()
+
+		if action[-1] > .9:
 			done = True
 			reward = 0
-		elif dice > self.best_dice:
-			reward = 10*(self.last_loss - cur_loss)
+		else:
+			done = False
+			reward = np.clip(10*(self.last_loss - cur_loss) - .1, -10,10)
+			self.last_loss = cur_loss
 
-		if dice > self.dice_thresh:
-			np.save(self.save_path+str(self.ix), cropI)
-			#seg_df = get_seg(self.bbox, self.img)
-			self.ix += 1
+		next_state = self.get_state()
+		if get_crops:
+			return next_state, reward, done, cropI, crop_true_seg
 
-		next_state = np.expand_dims(cropI, 0)
 		return next_state, reward, done

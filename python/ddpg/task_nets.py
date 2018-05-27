@@ -34,7 +34,7 @@ import niftiutils.transforms as tr
 import spatial_transformer as st
 import voi_methods as vm
 
-def get_trainable_model():
+def get_models(lr):
 	C = config.Config()
 
 	prediction_model = unet_cls()
@@ -44,6 +44,8 @@ def get_trainable_model():
 	y2_true = Input((len(C.cls_names),), name='y2_true')
 	out = CustomMultiLossLayer(nb_outputs=2)([y1_true, y2_true, y1_pred, y2_pred])
 	trainable_model = Model([inp, y1_true, y2_true], out)
+	#prediction_model.compile(optimizer=None, loss=None)
+	trainable_model.compile(optimizer=Adam(lr), loss=None)
 	return prediction_model, trainable_model
 
 def unet_cls(nb_segs=2, optimizer='adam', depth=3, base_f=32, dropout=.1, lr=.001):
@@ -92,9 +94,7 @@ def unet_cls(nb_segs=2, optimizer='adam', depth=3, base_f=32, dropout=.1, lr=.00
 
 	cls_layer = layers.Flatten()(current_layer)
 	cls_layer = layers.Dense(128, activation='relu')(cls_layer)
-	cls_logit = layers.Dense(len(C.cls_names), activation='softmax')(cls_layer)
-	cls_var = layers.Dense(1)(cls_layer)
-	cls_layers = layers.Concatenate(axis=-1)([cls_logit, cls_var])
+	cls_layer = layers.Dense(len(C.cls_names)+1)(cls_layer)
 			
 	for layer_depth in range(depth-2, -1, -1):
 		up_convolution = cnnc.up_conv_block(pool_size=2, deconvolution=False,
@@ -104,11 +104,9 @@ def unet_cls(nb_segs=2, optimizer='adam', depth=3, base_f=32, dropout=.1, lr=.00
 		current_layer = layers.Dropout(dropout)(current_layer)
 		current_layer = cnnc.conv_block(current_layer, levels[layer_depth][1]._keras_shape[-1]//2)
 
-	segs = layers.Conv3D(nb_segs, (1,1,1), activation='softmax')(current_layer)
-	seg_var = layers.Conv3D(1, (1,1,1))(current_layer)
-	segs = layers.Concatenate(axis=-1)([segs, seg_var])
+	segs = layers.Conv3D(nb_segs+1, (1,1,1))(current_layer)
 
-	model = Model(img, [segs, cls_layers])
+	model = Model(img, [segs, cls_layer]) #logits + logvar
 
 	return model
 
@@ -117,28 +115,32 @@ def hetero_cls_loss(true, pred_var, T=500, num_classes=3):
 	# https://github.com/kyle-dorman/bayesian-neural-network-blogpost
 	# N data points, C classes, T monte carlo simulations
 	# true - true values. Shape: (N, C)
-	# pred_var - predicted logit values and variance. Shape: (N, C + 1)
+	# pred_var - predicted logit values and log variance. Shape: (N, C + 1)
 	# returns - loss (N,)
 
 	true = K.reshape(true, [-1, num_classes])
 	pred_var = K.reshape(pred_var, [-1, num_classes+1])
+	std = K.sqrt(K.exp(pred_var[:, num_classes:])) # shape: (N,)
+	pred = pred_var[:, :num_classes] # shape: (N, C)
+
+	dist = distributions.Normal(loc=K.zeros_like(std), scale=std) # shape: (T,)
+	std_samples = K.transpose(dist.sample(num_classes))
+	distorted_loss = K.categorical_crossentropy(true, pred + std_samples, from_logits=True)
+
+	return K.mean(distorted_loss, axis=-1)
+
 	# shape: (N,)
-	std = K.sqrt(pred_var[:, num_classes:])
-	# shape: (N,)
-	variance = pred_var[:, num_classes]
+	variance = K.exp(pred_var[:, num_classes])
 	variance_depressor = K.exp(variance) - K.ones_like(variance)
-	# shape: (N, C)
-	pred = pred_var[:, :num_classes]
 	# shape: (N,)
-	undistorted_loss = K.categorical_crossentropy(pred, true, from_logits=True)
-	# shape: (T,)
+	undistorted_loss = K.categorical_crossentropy(true, pred, from_logits=True)
+
 	iterable = K.variable(np.ones(T))
-	dist = distributions.Normal(loc=K.zeros_like(std), scale=std)
 	monte_carlo_results = K.map_fn(gaussian_categorical_crossentropy(true, pred, dist, undistorted_loss, num_classes), iterable, name='monte_carlo_results')
 
 	variance_loss = K.mean(monte_carlo_results, axis=0) * undistorted_loss
 
-	return variance_loss + undistorted_loss + variance_depressor
+	return variance_loss + undistorted_loss# + variance_depressor
 
 def gaussian_categorical_crossentropy(true, pred, dist, undistorted_loss, num_classes):
 	# for a single monte carlo simulation, 
@@ -153,7 +155,7 @@ def gaussian_categorical_crossentropy(true, pred, dist, undistorted_loss, num_cl
 	# returns - total differences for all classes (N,)
 	def map_fn(i):
 		std_samples = K.transpose(dist.sample(num_classes))
-		distorted_loss = K.categorical_crossentropy(pred + std_samples, true, from_logits=True)
+		distorted_loss = K.categorical_crossentropy(true, pred + std_samples, from_logits=True)
 		diff = undistorted_loss - distorted_loss
 		return -K.elu(diff)
 	return map_fn
@@ -172,14 +174,6 @@ class CustomMultiLossLayer(Layer):
 			self.log_vars += [self.add_weight(name='log_var' + str(i), shape=(1,),
 											  initializer=Constant(0.), trainable=True)]
 		super(CustomMultiLossLayer, self).build(input_shape)
-
-	def hetero_cls_loss(y_true, y_pred):
-		rv = K.random_normal((1000,1), mean=0.0, stddev=1.0)
-		#rv = np.random.laplace(loc=0., scale=1.0, size=(1000,1))
-		y_hetero = K.stack([y_pred[:,0] + y_pred[:,-1]*rv,
-							y_pred[:,1] + y_pred[:,-1]*rv,
-							y_pred[:,2] + y_pred[:,-1]*rv], -1)
-		return K.categorical_crossentropy(y_true, y_hetero, from_logits=True)
 
 	def multi_loss(self, ys_true, ys_pred):
 		assert len(ys_true) == self.nb_outputs and len(ys_pred) == self.nb_outputs
