@@ -79,7 +79,7 @@ class Env(object):
 		crop_pred_seg = crop_pred_seg[..., :-1] #logits
 		crop_pred_cls = crop_pred_cls[0, :-1] #logits
 		w_seg = 1/crop_pred_seg_var
-		w_cls = action[-2] / crop_pred_cls_var
+		w_cls = action[6] / crop_pred_cls_var
 		#self.pred_seg[sl] += crop_pred_seg * np.tile(w_seg, (2,1,1,1)).transpose((1,2,3,0))
 		#self.pred_cls += crop_pred_cls * w_cls
 
@@ -96,6 +96,9 @@ class Env(object):
 		self.pred_seg_var[sl] = (self.pred_seg_var[sl] + crop_pred_seg_var * w_seg) / self.sum_w_seg[sl]
 		self.pred_cls = (self.pred_cls + crop_pred_cls * w_cls) / self.sum_w_cls
 		self.pred_cls_var = (self.pred_cls_var + crop_pred_cls_var * w_cls) / self.sum_w_cls
+
+		self.pred_seg_var = np.clip(self.pred_seg_var, 1e-3, 1e5)
+		self.pred_cls_var = np.clip(self.pred_cls_var, 1e-3, 1e5)
 
 		if train_unet:
 			return sl, cropI
@@ -125,7 +128,7 @@ class Env(object):
 		self.update_bbox(action)
 		if self.true_seg is None:
 			self.run_unet_cls(action)
-			return next_state, action[-1] > .9
+			return next_state, action[-1] > .95
 
 		sl, cropI = self.run_unet_cls(action, train_unet=True)
 		crop_true_seg = tr.rescale_img(self.true_seg[sl], C.dims)
@@ -134,12 +137,12 @@ class Env(object):
 
 		cur_loss = self.get_loss()
 
-		if action[-1] > .9:
+		if action[-1] > .95:
 			done = True
-			reward = 0
+			reward = -5
 		else:
 			done = False
-			reward = np.clip(10*(self.last_loss - cur_loss) - .1, -10,10)
+			reward = np.clip(5*(self.last_loss - cur_loss) - .5, -15,15)
 			self.last_loss = cur_loss
 
 		next_state = self.get_state()

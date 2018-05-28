@@ -66,9 +66,12 @@ def unet_cls(nb_segs=2, optimizer='adam', depth=3, base_f=32, dropout=.1, lr=.00
 	locnet = Sequential()
 	locnet.add(layers.MaxPooling3D(2))
 	locnet.add(layers.Conv3D(32, 3, activation='relu')) #input_shape=(C.dims[0], C.dims[1], C.dims[2], 1)
+	locnet.add(layers.BatchNormalization())
 	locnet.add(layers.Conv3D(32, 3, activation='relu'))
+	locnet.add(layers.BatchNormalization())
 	locnet.add(Flatten())
 	locnet.add(Dense(64, activation='relu'))
+	locnet.add(layers.BatchNormalization())
 	locnet.add(Dense(12, weights=weights))
 
 	v_Tx = Lambda(lambda x: K.expand_dims(x[...,1],-1))(img)
@@ -83,6 +86,7 @@ def unet_cls(nb_segs=2, optimizer='adam', depth=3, base_f=32, dropout=.1, lr=.00
 	for layer_depth in range(depth):
 		layer1 = cnnc.conv_block(current_layer, base_f*2**layer_depth, strides=1)
 		dropl = layers.Dropout(dropout)(layer1)
+		#bnl = layers.BatchNormalization()(layer1)
 		layer2 = cnnc.conv_block(dropl, base_f*2**(layer_depth+1))
 
 		if layer_depth < depth - 1:
@@ -94,7 +98,8 @@ def unet_cls(nb_segs=2, optimizer='adam', depth=3, base_f=32, dropout=.1, lr=.00
 
 	cls_layer = layers.Flatten()(current_layer)
 	cls_layer = layers.Dense(128, activation='relu')(cls_layer)
-	cls_layer = layers.Dense(len(C.cls_names)+1)(cls_layer)
+	cls_layer = layers.BatchNormalization()(cls_layer)
+	cls_layer = layers.Dense(len(C.cls_names)+1, activation='elu')(cls_layer)
 			
 	for layer_depth in range(depth-2, -1, -1):
 		up_convolution = cnnc.up_conv_block(pool_size=2, deconvolution=False,
@@ -102,9 +107,10 @@ def unet_cls(nb_segs=2, optimizer='adam', depth=3, base_f=32, dropout=.1, lr=.00
 		concat = layers.Concatenate(axis=-1)([up_convolution, levels[layer_depth][1]])
 		current_layer = cnnc.conv_block(concat, levels[layer_depth][1]._keras_shape[-1]//2)
 		current_layer = layers.Dropout(dropout)(current_layer)
+		#current_layer = layers.BatchNormalization()(current_layer)
 		current_layer = cnnc.conv_block(current_layer, levels[layer_depth][1]._keras_shape[-1]//2)
 
-	segs = layers.Conv3D(nb_segs+1, (1,1,1))(current_layer)
+	segs = layers.Conv3D(nb_segs+1, (1,1,1), activation='elu')(current_layer)
 
 	model = Model(img, [segs, cls_layer]) #logits + logvar
 
@@ -127,7 +133,7 @@ def hetero_cls_loss(true, pred_var, T=500, num_classes=3):
 	std_samples = K.transpose(dist.sample(num_classes))
 	distorted_loss = K.categorical_crossentropy(true, pred + std_samples, from_logits=True)
 
-	return K.mean(distorted_loss, axis=-1)
+	return K.mean(distorted_loss)
 
 	# shape: (N,)
 	variance = K.exp(pred_var[:, num_classes])
@@ -181,8 +187,8 @@ class CustomMultiLossLayer(Layer):
 		clss = [2,3]
 		for y_true, y_pred, log_var, num_classes in zip(ys_true, ys_pred, self.log_vars, clss):
 			precision = K.exp(-log_var[0])
-			loss += K.sum(precision * hetero_cls_loss(y_true, y_pred,
-					num_classes=num_classes) + log_var[0], -1)
+			loss += precision * hetero_cls_loss(y_true, y_pred,
+					num_classes=num_classes) + log_var[0]
 		return K.mean(loss)
 
 	def call(self, inputs):

@@ -34,8 +34,11 @@ class OU(object):
 	def function(self, x, mu, theta, sigma):
 		return theta * (mu - x) + sigma * np.random.randn(1)
 
+def huber_loss(target, pred):
+	return K.mean(K.sqrt(1+K.square(pred - target))-1, axis=-1)
+
 class ActorNetwork(object):
-	def __init__(self, sess, state_size, action_size, BATCH_SIZE, TAU, LEARNING_RATE):
+	def __init__(self, sess, state_size, action_size, BATCH_SIZE=32, TAU=.001, LEARNING_RATE=.0001):
 		self.sess = sess
 		self.BATCH_SIZE = BATCH_SIZE
 		self.TAU = TAU
@@ -105,37 +108,39 @@ class CriticNetwork(object):
 	def create_critic_network(self, state_size, action_dim):
 		S,x = common_network(state_size)
 		x = layers.Dense(64, activation='relu')(x)
-		x = layers.BatchNormalization()(x)
 		A = Input([action_dim])
 		a = Dense(64, activation='relu')(A)
+		a = layers.BatchNormalization()(a)
 		x = layers.Add()([x,a])
 		x = Dense(64, activation='relu')(x)
 		x = layers.BatchNormalization()(x)
 		V = Dense(action_dim)(x)
 		model = Model([S,A], V)
-		model.compile(loss='mse', optimizer=Adam(lr=self.LEARNING_RATE))
+		model.compile(loss=huber_loss, optimizer=Adam(lr=self.LEARNING_RATE))
 
 		return model, A, S
 
 def common_network(state_size):
 	S = layers.Input(state_size)
 	x = layers.Conv3D(64, 5, strides=2, activation='relu')(S)
-	x = layers.BatchNormalization(axis=-1)(x)
+	x = layers.BatchNormalization()(x)
 	x = layers.Conv3D(64, 3, activation='relu')(x)
+	x = layers.BatchNormalization()(x)
 	x = cnnc.SeparableConv3D(x, 128, 3, activation='relu')
-	x = layers.BatchNormalization(axis=-1)(x)
+	x = layers.BatchNormalization()(x)
 	x = layers.Conv3D(64, 3, activation='relu')(x)
+	x = layers.BatchNormalization()(x)
 	x = layers.MaxPooling3D((2,2,1))(x)
 	x = layers.Flatten()(x)
 	return S,x
 
-class ReplayBuffer(object):
+class UniformReplay(object):
     def __init__(self, buffer_size):
         self.buffer_size = buffer_size
         self.num_experiences = 0
         self.buffer = deque()
 
-    def getBatch(self, batch_size):
+    def sample(self, batch_size):
         # Randomly sample batch_size examples
         if self.num_experiences < batch_size:
             return random.sample(self.buffer, self.num_experiences)
@@ -145,7 +150,7 @@ class ReplayBuffer(object):
     def size(self):
         return self.buffer_size
 
-    def add(self, *args):
+    def store(self, *args):
         experience = tuple(args)
         if self.num_experiences < self.buffer_size:
             self.buffer.append(experience)
