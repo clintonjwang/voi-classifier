@@ -18,52 +18,32 @@ class SpatialTransformer(Layer):
 			Max Jaderberg, Karen Simonyan, Andrew Zisserman, Koray Kavukcuoglu
 			Submitted on 5 Jun 2015
 	.. [2]  https://github.com/skaae/transformer_network/blob/master/transformerlayer.py
-
 	.. [3]  https://github.com/EderSantana/seya/blob/keras1/seya/layers/attention.py
 	"""
 
 	def __init__(self,
 				 localization_net,
-				 downsample_factor=1,
-				 return_theta=False,
+				 output_size,
 				 **kwargs):
 		self.locnet = localization_net
-		self.downsample_factor = downsample_factor
-		self.return_theta = return_theta
+		self.output_size = output_size
 		super(SpatialTransformer, self).__init__(**kwargs)
 
 	def build(self, input_shape):
-		if hasattr(self, 'previous'):
-			self.locnet.set_previous(self.previous)
-		self.locnet.build()
+		self.locnet.build(input_shape)
 		self.trainable_weights = self.locnet.trainable_weights
-		#self.regularizers = self.locnet.regularizers
-		#self.constraints = self.locnet.constraints
-		#self.input = self.locnet.input  # This must be T.tensor4()
-		#self.input_shape = input_shape
 
 	def compute_output_shape(self, input_shape):
 		return (None,
-				int(input_shape[1] / self.downsample_factor),
-				int(input_shape[2] / self.downsample_factor),
-				int(input_shape[3] / self.downsample_factor),
-				input_shape[-1])
+				int(input_shape[1]),
+				int(input_shape[2]),
+				int(input_shape[3]),
+				int(input_shape[-1]))
 
-	def get_output(self, train=False):
-		X = self.get_input(train)
-		theta = apply_model(self.locnet, X)
-		theta = theta.reshape((X.shape[0], 3,4))
-		output = self._transform(theta, X, self.downsample_factor)
-
-		if self.return_theta:
-			return theta.reshape((X.shape[0], 12))
-		else:
-			return output
-
-	"""def call(self, X, mask=None):
-					affine_Tx = self.locnet.call(X)
-					output = self._transform(affine_Tx, X, self.output_size)
-					return output"""
+	def call(self, X, mask=None):
+		affine_transformation = self.locnet.call(X)
+		output = self._transform(affine_transformation, X, self.output_size)
+		return output
 
 	def _repeat(self, x, num_repeats):
 		ones = tf.ones((1, num_repeats), dtype='int32')

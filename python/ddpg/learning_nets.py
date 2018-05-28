@@ -106,6 +106,8 @@ class CriticNetwork(object):
 		self.target_model.set_weights(critic_target_weights)
 
 	def create_critic_network(self, state_size, action_dim):
+		#A = Input([C.context_dims+2])
+		#a = layers.Lambda(lambda x: K.reshape(x[:,:-2]))(A)
 		S,x = common_network(state_size)
 		x = layers.Dense(64, activation='relu')(x)
 		A = Input([action_dim])
@@ -122,15 +124,13 @@ class CriticNetwork(object):
 
 def common_network(state_size):
 	S = layers.Input(state_size)
-	x = layers.Conv3D(64, 5, strides=2, activation='relu')(S)
+	x = layers.Conv3D(64, 5, strides=(2,2,1), activation='relu')(S)
 	x = layers.BatchNormalization()(x)
-	x = layers.Conv3D(64, 3, activation='relu')(x)
+	x = cnnc.SeparableConv3D(x, 128, 3, strides=1, activation='relu')
 	x = layers.BatchNormalization()(x)
-	x = cnnc.SeparableConv3D(x, 128, 3, activation='relu')
+	x = layers.Conv3D(128, 3, activation='relu')(x)
 	x = layers.BatchNormalization()(x)
-	x = layers.Conv3D(64, 3, activation='relu')(x)
-	x = layers.BatchNormalization()(x)
-	x = layers.MaxPooling3D((2,2,1))(x)
+	x = layers.MaxPooling3D((2,2,2))(x)
 	x = layers.Flatten()(x)
 	return S,x
 

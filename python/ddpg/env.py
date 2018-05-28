@@ -53,23 +53,27 @@ class Env(object):
 		init_action = [.5]*3+[1]*3+[.1,0]
 		self.step(init_action)
 
-	def update_bbox(self, action):
+	def get_bbox(self, action):
 		"""Set focus bounding box based on the action."""
 		center = action[:3] * np.array(self.img.shape[:3])
 		dx = action[3:6] * np.array(self.img.shape[:3]) / 2
-		self.bbox = [[round(center[i]-dx[i]),
+		bbox = [[round(center[i]-dx[i]),
 			round(center[i]+dx[i])] for i in range(3)]
 		for i in range(3):
-			self.bbox[i][1] = max(self.min_x+1, min(self.img.shape[i] - 1, self.bbox[i][1]))
-			self.bbox[i][0] = max(1, min(self.bbox[i][1] - self.min_x, self.bbox[i][0]))
-		self.bbox = np.array(self.bbox, int).flatten()
+			bbox[i][1] = max(self.min_x+1, min(self.img.shape[i] - 1, bbox[i][1]))
+			bbox[i][0] = max(1, min(bbox[i][1] - self.min_x, bbox[i][0]))
+		return np.array(bbox, int).flatten()
 
 	def run_unet_cls(self, action, train_unet=False):
-		# Only for run mode
 		# For now, w_seg and w_cls formulas don't make sense. Needs Bayesian treatment
 		sl = [slice(self.bbox[i], self.bbox[i+1]) for i in [0,2,4]]
 		D = [self.bbox[i+1] - self.bbox[i] for i in [0,2,4]]
 		cropI = tr.rescale_img(self.img[sl], C.dims)
+		#action[6] is avg(T1,T2) in [-.5,.5], action[7] is T2-T1
+		T = [max(action[6] - action[7] - .55, -1), min(action[6] + action[7] - .45, 1)]
+		cropI[cropI < T[0]] = T[0]
+		cropI[cropI > T[1]] = T[1]
+		cropI = tr.normalize_intensity(cropI,1,-1, ignore_empty=True)
 
 		crop_pred_seg, crop_pred_cls = self.pred_model.predict(np.expand_dims(cropI, 0))
 		crop_pred_seg = tr.rescale_img(crop_pred_seg[0], D)
@@ -79,7 +83,7 @@ class Env(object):
 		crop_pred_seg = crop_pred_seg[..., :-1] #logits
 		crop_pred_cls = crop_pred_cls[0, :-1] #logits
 		w_seg = 1/crop_pred_seg_var
-		w_cls = action[6] / crop_pred_cls_var
+		w_cls = action[-2] / crop_pred_cls_var
 		#self.pred_seg[sl] += crop_pred_seg * np.tile(w_seg, (2,1,1,1)).transpose((1,2,3,0))
 		#self.pred_cls += crop_pred_cls * w_cls
 
@@ -125,10 +129,10 @@ class Env(object):
 		return np.mean(loss)
 
 	def step(self, action, get_crops=False):
-		self.update_bbox(action)
+		self.bbox = self.get_bbox(action)
 		if self.true_seg is None:
 			self.run_unet_cls(action)
-			return next_state, action[-1] > .95
+			return self.get_state(), action[-1] > .95
 
 		sl, cropI = self.run_unet_cls(action, train_unet=True)
 		crop_true_seg = tr.rescale_img(self.true_seg[sl], C.dims)
@@ -139,10 +143,10 @@ class Env(object):
 
 		if action[-1] > .95:
 			done = True
-			reward = -5
+			reward = 0
 		else:
 			done = False
-			reward = np.clip(5*(self.last_loss - cur_loss) - .5, -15,15)
+			reward = np.clip(2*(self.last_loss - cur_loss) - .5, -15,15)
 			self.last_loss = cur_loss
 
 		next_state = self.get_state()

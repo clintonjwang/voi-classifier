@@ -49,7 +49,7 @@ def get_models(lr):
 	return prediction_model, trainable_model
 
 def unet_cls(nb_segs=2, optimizer='adam', depth=3, base_f=32, dropout=.1, lr=.001):
-	importlib.reload(cnnc)
+	importlib.reload(st)
 	C = config.Config()
 	levels = []
 
@@ -63,21 +63,23 @@ def unet_cls(nb_segs=2, optimizer='adam', depth=3, base_f=32, dropout=.1, lr=.00
 	W = np.zeros((64, 12), dtype='float32')
 	weights = [W, b.flatten()]
 
-	locnet = Sequential()
-	locnet.add(layers.MaxPooling3D(2))
-	locnet.add(layers.Conv3D(32, 3, activation='relu')) #input_shape=(C.dims[0], C.dims[1], C.dims[2], 1)
-	locnet.add(layers.BatchNormalization())
-	locnet.add(layers.Conv3D(32, 3, activation='relu'))
-	locnet.add(layers.BatchNormalization())
-	locnet.add(Flatten())
-	locnet.add(Dense(64, activation='relu'))
-	locnet.add(layers.BatchNormalization())
-	locnet.add(Dense(12, weights=weights))
+	locnet = [Sequential(), Sequential()]
+	for i in range(2):
+		locnet[i].add(layers.Conv3D(64, 5, strides=(2,2,1), activation='relu', input_shape=(*C.dims,1)))
+		locnet[i].add(layers.BatchNormalization())
+		locnet[i].add(layers.MaxPooling3D(2))
+		locnet[i].add(layers.Conv3D(64, 3, activation='relu'))
+		locnet[i].add(layers.Conv3D(64, 3, activation='relu'))
+		locnet[i].add(layers.BatchNormalization())
+		locnet[i].add(Flatten())
+		locnet[i].add(Dense(64, activation='relu'))
+		locnet[i].add(layers.BatchNormalization())
+		locnet[i].add(Dense(12, weights=weights))
 
 	v_Tx = Lambda(lambda x: K.expand_dims(x[...,1],-1))(img)
 	e_Tx = Lambda(lambda x: K.expand_dims(x[...,2],-1))(img)
-	v_Tx = st.SpatialTransformer(localization_net=locnet, downsample_factor=1)(v_Tx)
-	e_Tx = st.SpatialTransformer(localization_net=locnet, downsample_factor=1)(e_Tx)
+	v_Tx = st.SpatialTransformer(localization_net=locnet[0], output_size=C.dims, input_shape=(*C.dims,1), name='st_vtx')(v_Tx)
+	e_Tx = st.SpatialTransformer(localization_net=locnet[1], output_size=C.dims, input_shape=(*C.dims,1), name='st_etx')(e_Tx)
 
 	reg_img = Lambda(lambda x: K.stack([x[0][...,0], x[1][...,0], x[2][...,0]], -1))([img, v_Tx, e_Tx])
 	reg_img = Lambda(lambda x: K.stack([x[...,0], x[...,1]-x[...,0], x[...,2]-x[...,0]], -1))(reg_img)
@@ -96,7 +98,10 @@ def unet_cls(nb_segs=2, optimizer='adam', depth=3, base_f=32, dropout=.1, lr=.00
 			current_layer = layer2
 			levels.append([layer1, layer2])
 
-	cls_layer = layers.Flatten()(current_layer)
+	cls_layer = layers.Conv3D(32, 1)(current_layer)
+	cls_layer = layers.MaxPooling3D((2,2,1))(cls_layer)
+	cls_layer = layers.BatchNormalization()(cls_layer)
+	cls_layer = layers.Flatten()(cls_layer)
 	cls_layer = layers.Dense(128, activation='relu')(cls_layer)
 	cls_layer = layers.BatchNormalization()(cls_layer)
 	cls_layer = layers.Dense(len(C.cls_names)+1, activation='elu')(cls_layer)
