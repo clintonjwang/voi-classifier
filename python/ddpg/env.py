@@ -142,7 +142,7 @@ class Env(object):
 			reward = -1
 		else:
 			done = False
-			reward = np.clip(3*(self.last_loss - cur_loss) - .1, -20,100)
+			reward = 25*(self.last_loss - cur_loss) - .1
 			self.last_loss = cur_loss
 
 		next_state = self.get_state()

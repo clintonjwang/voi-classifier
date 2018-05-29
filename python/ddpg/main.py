@@ -84,8 +84,8 @@ class CRSNet(object): #ClsRegSegNet
 	def load_models(self, replay_conf):
 		TAU = .01     #Target Network update weight
 		LRA = .0001    #Learning rate for Actor
-		LRC = .00015    #Learning rate for Critic
-		LRU = .00015    #Learning rate for Unet
+		LRC = .0002    #Learning rate for Critic
+		LRU = .0002    #Learning rate for Unet
 
 		BATCH_SIZE = replay_conf["batch_size"]
 
@@ -171,7 +171,7 @@ class CRSNet(object): #ClsRegSegNet
 
 		target_a = self.actor.target_model.predict(new_states)
 		#self.transform_action(self.actor.target_model.predict(new_states))
-		target_q_values = self.critic.target_model.predict([new_states, target_a]).flatten()
+		target_q = self.critic.target_model.predict([new_states, target_a]).flatten()
 
 		#temporal difference error for prioritized exp replay
 		TD = self.critic.model.predict([states, actions]).flatten()
@@ -179,7 +179,7 @@ class CRSNet(object): #ClsRegSegNet
 			if dones[k]:
 				y_t[k] = rewards[k]
 			else:
-				y_t[k] = rewards[k] + GAMMA*target_q_values[k]
+				y_t[k] = rewards[k] + GAMMA*target_q[k]
 		TD = np.abs(TD - y_t)
 		self.q_buff.update_priority(ixs, TD)
 

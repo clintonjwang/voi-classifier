@@ -30,7 +30,6 @@ from scipy.misc import imsave
 from skimage.transform import rescale, resize
 
 import config
-import dr_methods as drm
 import niftiutils.helper_fxns as hf
 import niftiutils.masks as masks
 import niftiutils.transforms as tr
@@ -48,7 +47,6 @@ def plot_check(accnum=None, normalize=None, cropped=False):
 
 	return img
 
-@drm.autofill_cls_arg
 def xref_dirs_with_excel(cls=None, fix_inplace=True):
 	pass
 

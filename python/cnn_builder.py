@@ -776,7 +776,7 @@ def _train_gen_ddpg(test_accnums=[]):
 		try:
 			liverM[tumorM > 0] = 0
 		except:
-			print(img_fn)
+			print(basename(img_fn[:-4]), end="','")
 			continue
 		seg = np.zeros((*C.context_dims, C.num_segs))
 		seg[...,-1] = tr.rescale_img(tumorM, C.context_dims)
@@ -941,7 +941,7 @@ def _collect_unaug_data():
 				patient_row = patient_info_df[patient_info_df["AccNum"] == voi_row["acc_num"]]
 				x2[index] = get_non_img_inputs(voi_row, patient_row)
 
-		x.resize((index+1, C.dims[0], C.dims[1], C.dims[2], C.nb_channels)) #shrink first dimension to fit
+		x.resize((index+1, *C.dims, C.nb_channels)) #shrink first dimension to fit
 		if C.dual_img_inputs or C.non_imaging_inputs:
 			x2.resize((index+1, *x2.shape[1:]))
 			orig_data_dict[cls] = [x, x2, np.array(z)]

@@ -60,7 +60,7 @@ class Config:
 			self.dims = [32,32,16]
 			self.context_dims = [64,64,32]
 			self.num_segs = 3
-			self.loss_weights = [[25,50,1000],[1,1,1]]
+			self.loss_weights = [[2,5,100],[1,1,1]]
 			self.state_dim = (*self.dims, 4)
 
 			self.base_dir = "D:\\Etiology"
