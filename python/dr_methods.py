@@ -35,6 +35,7 @@ import numpy as np
 import pandas as pd
 
 import config
+import seg_methods as sm
 import niftiutils.helper_fxns as hf
 import niftiutils.transforms as tr
 import niftiutils.masks as masks
@@ -177,7 +178,7 @@ def build_coords_df(accnum_xls_path, overwrite=False):
 		writer.save()
 
 @autofill_cls_arg
-def dcm2npy_batch(cls=None, accnums=None, overwrite=False, verbose=False, downsample=1):
+def dcm2npy(cls=None, accnums=None, overwrite=False, verbose=False, downsample=1):
 	"""Converts dcms to full-size npy, update dims_df. Requires coords_df."""
 	importlib.reload(config)
 	C = config.Config()
@@ -243,19 +244,11 @@ def dcm2npy_batch(cls=None, accnums=None, overwrite=False, verbose=False, downsa
 			print(accnum)
 			raise ValueError
 
-		M_paths = glob.glob(join(load_dir, 'Segs', 'tumor_20s_*.ids'))
-		M = masks.get_mask(M_paths[0], D, img.shape)
-		if len(M_paths) > 1:
-			for M_path in M_paths:
-				M = (M + masks.get_mask(M_path, D, img.shape)).astype(bool)
-
-		np.save(save_path, img)
-		np.save(join(C.full_img_dir, accnum+"_seg.npy"), M)
-
+		sm.save_segs([accnum])
 
 		if verbose:
 			print("%d out of %d accession numbers loaded" % (cnt+1, len(accnums)))
-		elif cnt % 5 == 2:
+		elif cnt % 3 == 2:
 			print(".", end="")
 
 		dims_df.loc[accnum] = list(D)
@@ -266,7 +259,7 @@ def dcm2npy_batch(cls=None, accnums=None, overwrite=False, verbose=False, downsa
 @autofill_cls_arg
 def load_vois_batch(cls=None, accnums=None, overwrite=False, downsample=1):
 	"""Updates the voi_dfs based on the raw spreadsheet.
-	dcm2npy_batch() must be run first to produce full size npy images."""
+	dcm2npy() must be run first to produce full size npy images."""
 
 	def _load_vois(cls, accnum):
 		"""Load all vois belonging to an accnum. Does not overwrite entries."""
@@ -510,7 +503,7 @@ if __name__ == '__main__':
 	args = parser.parse_args()
 
 	s = time.time()
-	dcm2npy_batch(cls=args.cls, verbose=args.verbose, overwrite=args.overwrite)
+	dcm2npy(cls=args.cls, verbose=args.verbose, overwrite=args.overwrite)
 	print("Time to convert dcm to npy: %s" % str(time.time() - s))
 
 	s = time.time()

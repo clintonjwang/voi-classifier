@@ -72,22 +72,41 @@ def make_dcms(cls=None, lesion_ids=None, save_dir=None):
 ### Data Creation
 #####################################
 
-def save_segs():
+def save_segs(accnums=None):
 	"""Save all segmentations as numpy."""
 	importlib.reload(hf)
 	C = config.Config()
-	accnums = [basename(fn[:-4]) for fn in glob.glob(join(C.full_img_dir, "*.npy")) if \
-				not fn.endswith("_seg.npy") and not exists(fn[:-4]+"_seg.npy")]
+
+	if accnums is None:
+		accnums = [basename(fn[:-4]) for fn in glob.glob(join(C.full_img_dir, "*.npy")) if \
+				not fn.endswith("seg.npy")]
 
 	for accnum in accnums:
 		load_dir = join(C.dcm_dirs[0], accnum)
-		M_path = join(load_dir, 'Segs', 'tumor_20s_0.ids')
-		if not exists(M_path):
+		if not exists(join(load_dir, "nii_dir", "20s.nii.gz")):
 			continue
-		M = masks.get_mask(M_path, img_path=join(load_dir, C.phases[0]))
+
+		M_paths = glob.glob(join(load_dir, 'Segs', 'tumor_20s_*.ids'))
+		if len(M_paths) == 0:
+			continue
+		M = masks.get_mask(M_paths[0], img_path=join(load_dir, "nii_dir", "20s.nii.gz"))
+		for path in M_paths[1:]:
+			try:
+				M += masks.get_mask(path, img_path=join(load_dir, "nii_dir", "20s.nii.gz"))
+			except:
+				os.remove(path)
+				os.remove(path[:-4]+".ics")
 		if np.product(M.shape) > C.max_size:
 			M = tr.scale3d(M, [.5]*3) > .5
-		np.save(join(C.full_img_dir, accnum+"_seg.npy"), M)
+		np.save(join(C.full_img_dir, accnum+"_tumorseg.npy"), M)
+
+		M_path = join(load_dir, 'Segs', 'liver.ids')
+		if not exists(M_path):
+			continue
+		M = masks.get_mask(M_path, img_path=join(load_dir, "nii_dir", "20s.nii.gz"))
+		if np.product(M.shape) > C.max_size:
+			M = tr.scale3d(M, [.5]*3) > .5
+		np.save(join(C.full_img_dir, accnum+"_liverseg.npy"), M)
 
 def crop_seg(accnum, coords):
 	"""Output the ground truth segmentation for an accnum."""

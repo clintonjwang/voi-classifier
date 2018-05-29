@@ -759,17 +759,29 @@ def _train_gen_ddpg(test_accnums=[]):
 
 	voi_df_art = drm.get_voi_dfs()[0]
 	voi_df_art.accnum = voi_df_art.accnum.astype(str)
-	img_fns = [fn for fn in glob.glob(join(C.full_img_dir, "*.npy")) if not fn.endswith("_seg.npy") \
+	img_fns = [fn for fn in glob.glob(join(C.full_img_dir, "*.npy")) if not fn.endswith("seg.npy") \
 				and basename(fn)[:-4] not in test_accnums]
 
 	while True:
 		img_fn = random.choice(img_fns)
+
+		if not exists(img_fn[:-4]+"_tumorseg.npy") or not exists(img_fn[:-4]+"_liverseg.npy"):
+			continue
+
 		img = np.load(img_fn)
 		img = tr.rescale_img(img, C.context_dims)
 		img = tr.normalize_intensity(img, 1, -1)
-		seg = np.load(img_fn[:-4]+"_seg.npy")
-		seg = tr.rescale_img(seg, C.context_dims) > .5
-		seg = np_utils.to_categorical(seg, 2).astype(int)
+		tumorM = np.load(img_fn[:-4]+"_tumorseg.npy")
+		liverM = np.load(img_fn[:-4]+"_liverseg.npy")
+		try:
+			liverM[tumorM > 0] = 0
+		except:
+			print(img_fn)
+			continue
+		seg = np.zeros((*C.context_dims, C.num_segs))
+		seg[...,-1] = tr.rescale_img(tumorM, C.context_dims)
+		seg[...,1] = tr.rescale_img(liverM, C.context_dims)
+		seg[...,0] = np.clip(1 - seg[...,1] - seg[...,-1], 0, 1)
 		cls = np_utils.to_categorical(C.cls_names.index(voi_df_art.loc[voi_df_art["accnum"] \
 			== basename(img_fn[:-4]), "cls"].values[0]), len(C.cls_names)).astype(int)
 

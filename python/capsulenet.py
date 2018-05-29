@@ -26,7 +26,6 @@ from keras import backend as K
 from keras.utils import to_categorical
 from keras_contrib.layers.normalization import InstanceNormalization
 import matplotlib.pyplot as plt
-import utils
 from PIL import Image
 from capsulelayers import CapsuleLayer, PrimaryCap, Length, Mask
 
@@ -400,7 +399,7 @@ def test(model, data, args, T=None):
 	print('Test acc:', np.sum(np.argmax(y_pred, 1) == np.argmax(y_test, 1))/y_test.shape[0])
 
 	nb_classes = 6
-	img = utils.combine_images(np.concatenate([x_test[:48],x_recon[:48]]), height=nb_classes*2, multislice=False)
+	img = combine_images(np.concatenate([x_test[:48],x_recon[:48]]), height=nb_classes*2, multislice=False)
 
 	for i in range(3):
 		plt.subplot(131+i)
@@ -440,7 +439,7 @@ def manipulate_latent(model, data, args, cls=None, multislice=False):
 
 	x_recons = np.concatenate(x_recons)
 
-	img = utils.combine_images(x_recons, height=dim_capsule, multislice=multislice)
+	img = combine_images(x_recons, height=dim_capsule, multislice=multislice)
 	if multislice:
 		img = np.concatenate([img[:,:,0,:], img[:,:,1,:], img[:,:,2,:]], axis=0)
 	img = np.concatenate([img[:,:,0], img[:,:,1], img[:,:,2]], axis=1)
@@ -488,6 +487,92 @@ def main(args, data=None):
 		test(model=eval_model, data=(x_test, y_test), args=args)
 
 	return model, eval_model
+
+import numpy as np
+from matplotlib import pyplot as plt
+import csv
+import math
+
+def plot_log(filename, show=True):
+	# load data
+	keys = []
+	values = []
+	with open(filename, 'r') as f:
+		reader = csv.DictReader(f)
+		for row in reader:
+			if keys == []:
+				for key, value in row.items():
+					keys.append(key)
+					values.append(float(value))
+				continue
+
+			for _, value in row.items():
+				values.append(float(value))
+
+		values = np.reshape(values, newshape=(-1, len(keys)))
+		values[:,0] += 1
+
+	fig = plt.figure(figsize=(4,6))
+	fig.subplots_adjust(top=0.95, bottom=0.05, right=0.95)
+	fig.add_subplot(211)
+	for i, key in enumerate(keys):
+		if key.find('loss') >= 0 and not key.find('val') >= 0:  # training loss
+			plt.plot(values[:, 0], values[:, i], label=key)
+	plt.legend()
+	plt.title('Training loss')
+
+	fig.add_subplot(212)
+	for i, key in enumerate(keys):
+		if key.find('acc') >= 0:  # acc
+			plt.plot(values[:, 0], values[:, i], label=key)
+	plt.legend()
+	plt.title('Training and validation accuracy')
+
+	# fig.savefig('result/log.png')
+	if show:
+		plt.show()
+
+def combine_images(generated_images, height=None, width=None, multislice=True):
+	num = generated_images.shape[0]
+	if width is None and height is None:
+		width = int(math.sqrt(num))
+		height = int(math.ceil(float(num)/width))
+	elif width is not None and height is None:  # height not given
+		height = int(math.ceil(float(num)/width))
+	elif height is not None and width is None:  # width not given
+		width = int(math.ceil(float(num)/height))
+
+	shape = generated_images.shape[1:3]
+	if multislice:
+		image = np.zeros((height*shape[0], width*shape[1], 3, 3),
+					 dtype=generated_images.dtype)
+	else:
+		image = np.zeros((height*shape[0], width*shape[1], 3),
+				 dtype=generated_images.dtype)
+
+	for index, img in enumerate(generated_images):
+		i = int(index/width)
+		j = index % width
+
+		if len(img.shape) == 4:
+			if multislice:
+				image[i*shape[0]:(i+1)*shape[0], j*shape[1]:(j+1)*shape[1], 0, :] = \
+					img[:, :, img.shape[2]//4, :]
+				image[i*shape[0]:(i+1)*shape[0], j*shape[1]:(j+1)*shape[1], 1, :] = \
+					img[:, :, img.shape[2]//2, :]
+				image[i*shape[0]:(i+1)*shape[0], j*shape[1]:(j+1)*shape[1], 2, :] = \
+					img[:, :, img.shape[2]*3//4, :]
+			else:	
+				image[i*shape[0]:(i+1)*shape[0], j*shape[1]:(j+1)*shape[1], :] = \
+					img[:, :, img.shape[2]//2, :]
+					
+		elif len(img.shape) == 3:
+			image[i*shape[0]:(i+1)*shape[0], j*shape[1]:(j+1)*shape[1]] = \
+				img[:, :, img.shape[2]//2]
+		else:
+			image[i*shape[0]:(i+1)*shape[0], j*shape[1]:(j+1)*shape[1]] = img
+
+	return image
 
 if __name__ == "__main__":
 	import win_unicode_console

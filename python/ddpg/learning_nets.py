@@ -30,30 +30,23 @@ import niftiutils.helper_fxns as hf
 import niftiutils.transforms as tr
 import voi_methods as vm
 
-class OU(object):
-	def function(self, x, mu, theta, sigma):
-		return theta * (mu - x) + sigma * np.random.randn(1)
-
 def huber_loss(target, pred):
+	#not exactly huber loss
 	return K.mean(K.sqrt(1+K.square(pred - target))-1, axis=-1)
 
 class ActorNetwork(object):
-	def __init__(self, sess, state_size, action_size, BATCH_SIZE=32, TAU=.001, LEARNING_RATE=.0001):
+	def __init__(self, sess, state_dim, action_size, batch_size=32, target_update_rate=.001, learn_rate=.0001):
 		self.sess = sess
-		self.BATCH_SIZE = BATCH_SIZE
-		self.TAU = TAU
-		self.LEARNING_RATE = LEARNING_RATE
+		self.batch_size = batch_size
+		self.target_update_rate = target_update_rate
+		self.learn_rate = learn_rate
 
-		K.set_session(sess)
-
-		#Now create the model
-		self.model, self.weights, self.state = self.create_actor_network(state_size, action_size)   
-		self.target_model, _, _ = self.create_actor_network(state_size, action_size) 
+		self.model, self.weights, self.state = self.create_actor_network(state_dim, action_size)   
+		self.target_model, _, _ = self.create_actor_network(state_dim, action_size) 
 		self.action_gradient = tf.placeholder(tf.float32,[None, action_size])
 		self.params_grad = tf.gradients(self.model.output, self.weights, -self.action_gradient)
 		grads = zip(self.params_grad, self.weights)
-		self.optimize = tf.train.AdamOptimizer(LEARNING_RATE).apply_gradients(grads)
-		self.sess.run(tf.global_variables_initializer())
+		self.optimize = tf.train.AdamOptimizer(learn_rate).apply_gradients(grads)
 
 	def train(self, states, action_grads):
 		self.sess.run(self.optimize, feed_dict={
@@ -63,13 +56,13 @@ class ActorNetwork(object):
 
 	def target_train(self):
 		actor_weights = self.model.get_weights()
-		actor_target_weights = self.target_model.get_weights()
+		target_w = self.target_model.get_weights()
 		for i in range(len(actor_weights)):
-			actor_target_weights[i] = self.TAU * actor_weights[i] + (1 - self.TAU)* actor_target_weights[i]
-		self.target_model.set_weights(actor_target_weights)
+			target_w[i] = self.target_update_rate * actor_weights[i] + (1 - self.target_update_rate)* target_w[i]
+		self.target_model.set_weights(target_w)
 
-	def create_actor_network(self, state_size, action_dim):
-		S,x = common_network(state_size)
+	def create_actor_network(self, state_dim, action_dim):
+		S,x = common_network(state_dim)
 		x = layers.Dense(128, activation='relu')(x)
 		x = layers.BatchNormalization()(x)
 		V = Dense(action_dim, activation='sigmoid')(x)
@@ -78,19 +71,16 @@ class ActorNetwork(object):
 		return model, model.trainable_weights, S
 
 class CriticNetwork(object):
-	def __init__(self, sess, state_size, action_size, BATCH_SIZE, TAU, LEARNING_RATE):
+	def __init__(self, sess, state_dim, action_size, batch_size, target_update_rate, learn_rate):
 		self.sess = sess
-		self.BATCH_SIZE = BATCH_SIZE
-		self.TAU = TAU
-		self.LEARNING_RATE = LEARNING_RATE
+		self.batch_size = batch_size
+		self.target_update_rate = target_update_rate
+		self.learn_rate = learn_rate
 		self.action_size = action_size
-		
-		K.set_session(sess)
 
-		self.model, self.action, self.state = self.create_critic_network(state_size, action_size)  
-		self.target_model, _, _ = self.create_critic_network(state_size, action_size)  
+		self.model, self.action, self.state = self.create_critic_network(state_dim, action_size)  
+		self.target_model, _, _ = self.create_critic_network(state_dim, action_size)  
 		self.action_grads = tf.gradients(self.model.output, self.action)  #GRADIENTS for policy update
-		self.sess.run(tf.global_variables_initializer())
 
 	def gradients(self, states, actions):
 		return self.sess.run(self.action_grads, feed_dict={
@@ -100,15 +90,15 @@ class CriticNetwork(object):
 
 	def target_train(self):
 		critic_weights = self.model.get_weights()
-		critic_target_weights = self.target_model.get_weights()
+		target_w = self.target_model.get_weights()
 		for i in range(len(critic_weights)):
-			critic_target_weights[i] = self.TAU * critic_weights[i] + (1 - self.TAU)* critic_target_weights[i]
-		self.target_model.set_weights(critic_target_weights)
+			target_w[i] = self.target_update_rate * critic_weights[i] + (1 - self.target_update_rate)* target_w[i]
+		self.target_model.set_weights(target_w)
 
-	def create_critic_network(self, state_size, action_dim):
+	def create_critic_network(self, state_dim, action_dim):
 		#A = Input([C.context_dims+2])
 		#a = layers.Lambda(lambda x: K.reshape(x[:,:-2]))(A)
-		S,x = common_network(state_size)
+		S,x = common_network(state_dim)
 		x = layers.Dense(64, activation='relu')(x)
 		A = Input([action_dim])
 		a = Dense(64, activation='relu')(A)
@@ -116,17 +106,17 @@ class CriticNetwork(object):
 		x = layers.Add()([x,a])
 		x = Dense(64, activation='relu')(x)
 		x = layers.BatchNormalization()(x)
-		V = Dense(action_dim)(x)
+		V = Dense(1)(x)
 		model = Model([S,A], V)
-		model.compile(loss=huber_loss, optimizer=Adam(lr=self.LEARNING_RATE))
+		model.compile(loss='mse', optimizer=Adam(lr=self.learn_rate))
 
 		return model, A, S
 
-def common_network(state_size):
-	S = layers.Input(state_size)
+def common_network(state_dim):
+	S = layers.Input(state_dim)
 	x = layers.Conv3D(64, 5, strides=(2,2,1), activation='relu')(S)
 	x = layers.BatchNormalization()(x)
-	x = cnnc.SeparableConv3D(x, 128, 3, strides=1, activation='relu')
+	x = cnnc.SeparableConv3D(x, 128, 3, activation='relu')
 	x = layers.BatchNormalization()(x)
 	x = layers.Conv3D(128, 3, activation='relu')(x)
 	x = layers.BatchNormalization()(x)

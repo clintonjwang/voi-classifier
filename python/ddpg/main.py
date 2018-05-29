@@ -34,17 +34,44 @@ importlib.reload(denv)
 importlib.reload(ln)
 
 def memory():
-    pid = os.getpid()
-    py = psutil.Process(pid)
-    print('Memory use:', py.memory_info()[0]/2.**30)
+	pid = os.getpid()
+	py = psutil.Process(pid)
+	gigs = py.memory_info()[0]/2.**30
+	print('Memory use:', gigs)
+	return gigs
+
+def augment_crops(cropI, crop_true_seg, true_cls):
+	batch_size = cropI.shape[0]
+	I = np.empty((batch_size*4, *cropI.shape[1:]))
+	S = np.empty((batch_size*4, *crop_true_seg.shape[1:]))
+	C = np.empty((batch_size*4, *true_cls.shape[1:]))
+
+	I[:batch_size] = cropI
+	S[:batch_size] = crop_true_seg
+	C[:] = true_cls[0]
+
+	ix = batch_size
+	for k in range(1,4):
+		for img, seg in zip(cropI, crop_true_seg):
+			axes = (1,0)#random.choice([(1,0),(2,0),(2,1)]) if fully symmetrical
+			sl = [slice(None, None, (-1)**(random.random() < .5)) for _ in range(3)]
+
+			I[ix] = np.rot90(img[sl], k, axes) + np.random.normal(size=cropI.shape[1:]) * random.random()/5
+			S[ix] = np.rot90(seg[sl], k, axes)
+
+			ix += 1
+
+	return I, S, C
 
 class CRSNet(object): #ClsRegSegNet
 	def __init__(self, eps=1):
 		self.epsilon = eps
 		self.action_dim = 10  #6 bbox coordinates, 2 thresholds, cls weight, trigger
 
-	def save_weights(self):
+	def save_models(self):
 		try:
+			hf.pickle_dump(self.q_buff, join(C.model_dir, "replay_buffer.bin"))
+			hf.pickle_dump(self.u_buff, join(C.model_dir, "unet_buffer.bin"))
 			self.actor.model.save_weights(join(C.model_dir, "actor.h5"))
 			self.critic.model.save_weights(join(C.model_dir, "critic.h5"))
 			self.actor.target_model.save_weights(join(C.model_dir, "actor_T.h5"))
@@ -54,9 +81,7 @@ class CRSNet(object): #ClsRegSegNet
 		except:
 			print("Unable to save weights")
 
-
 	def load_models(self, replay_conf):
-		state_dim = (*C.dims, 3)
 		TAU = .01     #Target Network update weight
 		LRA = .0001    #Learning rate for Actor
 		LRC = .00015    #Learning rate for Critic
@@ -69,15 +94,17 @@ class CRSNet(object): #ClsRegSegNet
 		sess = tf.Session(config=conf)
 		K.set_session(sess)
 
-		self.actor = ln.ActorNetwork(sess, state_dim, self.action_dim, BATCH_SIZE, TAU, LRA)
-		self.critic = ln.CriticNetwork(sess, state_dim, self.action_dim, BATCH_SIZE, TAU, LRC)
-		self.env = denv.Env(LRU)
-		unet_buff = ln.UniformReplay(1000)
+		self.actor = ln.ActorNetwork(sess, C.state_dim, self.action_dim, BATCH_SIZE, TAU, LRA)
+		self.critic = ln.CriticNetwork(sess, C.state_dim, self.action_dim, BATCH_SIZE, TAU, LRC)
+		self.env = denv.Env(sess, LRU)
+		self.u_buff = ln.UniformReplay(3000)
+
 		try:
 			self.load_weights()
-			buff = hf.pickle_load(join(C.model_dir, "replay_buffer.bin"))
 		except:
-			buff = rrep.Experience(replay_conf)    #Create replay buffer
+			pass
+
+		sess.run(tf.global_variables_initializer())
 
 	def load_weights(self):
 		try:
@@ -92,17 +119,17 @@ class CRSNet(object): #ClsRegSegNet
 			print("Models not initialized or weight files not found")
 
 	def run(self, img):
-		state_dim = (*C.dims, 3)
 		max_steps = 100
 
 		conf = tf.ConfigProto()
 		conf.gpu_options.allow_growth = True
 		sess = tf.Session(config=conf)
 		K.set_session(sess)
-		self.actor = ln.ActorNetwork(sess, state_dim, self.action_dim)
+		self.actor = ln.ActorNetwork(sess, C.state_dim, self.action_dim)
 		self.critic = None
-		self.env = denv.Env()
+		self.env = denv.Env(sess)
 		self.load_weights()
+		sess.run(tf.global_variables_initializer())
 
 		self.env.reset(img)
 		s_t = self.env.get_state()
@@ -118,10 +145,12 @@ class CRSNet(object): #ClsRegSegNet
 		print(step+1, "steps")
 
 		seg = self.env.pred_seg
-		seg = np.exp(seg[...,1]) / (np.exp(seg[...,0])+np.exp(seg[...,1]))
+		den = np.sum(np.exp(seg),-1)
+		liver_seg = np.exp(seg[...,1]) / den
+		tumor_seg = np.exp(seg[...,-1]) / den
 		cls = np.argmax(self.env.pred_cls)
 
-		return seg, self.env.pred_seg_var, cls
+		return liver_seg, tumor_seg, self.env.pred_seg_var, cls
 
 	def transform_action(self, action):
 		a_Tx = np.zeros(C.context_dims)
@@ -131,30 +160,30 @@ class CRSNet(object): #ClsRegSegNet
 
 		return np.concatenate([a_Tx.flatten(), action[6:]])
 
-	def replay_Q(self, buff, g_step, GAMMA=.99):
-		batch, _, ixs = buff.sample(g_step)
+	def replay_Q(self, g_step, GAMMA=.99):
+		batch, _, ixs = self.q_buff.sample(g_step)
 		states = np.asarray([e[0] for e in batch])
 		actions = np.asarray([e[1] for e in batch])
 		rewards = np.asarray([e[2] for e in batch])
 		new_states = np.asarray([e[3] for e in batch])
 		dones = np.asarray([e[4] for e in batch])
-		y_t = np.zeros(actions.shape)
+		y_t = np.zeros(actions.shape[0])
 
 		target_a = self.actor.target_model.predict(new_states)
 		#self.transform_action(self.actor.target_model.predict(new_states))
-		target_q_values = self.critic.target_model.predict([new_states, target_a])
+		target_q_values = self.critic.target_model.predict([new_states, target_a]).flatten()
 
 		#temporal difference error for prioritized exp replay
-		TD = self.critic.model.predict([states, actions])
+		TD = self.critic.model.predict([states, actions]).flatten()
 		for k in range(len(batch)):
 			if dones[k]:
 				y_t[k] = rewards[k]
 			else:
 				y_t[k] = rewards[k] + GAMMA*target_q_values[k]
-		TD = np.mean(np.abs(TD - y_t), -1)
-		buff.update_priority(ixs, TD)
+		TD = np.abs(TD - y_t)
+		self.q_buff.update_priority(ixs, TD)
 
-		closs = self.critic.model.train_on_batch([states,actions], y_t) 
+		closs = self.critic.model.train_on_batch([states,actions], np.expand_dims(y_t,-1))
 		a_for_grad = self.actor.model.predict(states)
 		grads = self.critic.gradients(states, a_for_grad)
 		self.actor.train(states, grads)
@@ -162,9 +191,8 @@ class CRSNet(object): #ClsRegSegNet
 		self.critic.target_train()
 
 	def train(self, dqn_generator, verbose=False):    #1 means Train, 0 means simply Run
-		state_dim = (*C.dims, 3)
 		max_steps = 50
-		OU = ln.OU()       #Ornstein-Uhlenbeck Process
+		noise_gen = OU()       #Ornstein-Uhlenbeck Process
 		EXPLORE = 10000.
 		episode_count = 2000
 
@@ -177,15 +205,18 @@ class CRSNet(object): #ClsRegSegNet
 
 		self.load_models(replay_conf)
 
-		unet_buff = ln.UniformReplay(1000)
-		try:
-			buff = hf.pickle_load(join(C.model_dir, "replay_buffer.bin"))
-		except:
-			buff = rrep.Experience(replay_conf)    #Create replay buffer
+		if exists(join(C.model_dir, "replay_buffer.bin")):
+			self.q_buff = hf.pickle_load(join(C.model_dir, "replay_buffer.bin"))
+		else:
+			self.q_buff = rrep.Experience(replay_conf)
+		if exists(join(C.model_dir, "unet_buffer.bin")):
+			self.u_buff = hf.pickle_load(join(C.model_dir, "unet_buffer.bin"))
+		else:
+			self.u_buff = ln.UniformReplay(1000)
 
 		g_step = 1
 		for i in range(episode_count):
-			print("Episode %d" % i, "Replay Buffer %d" % buff.record_size)
+			print("Episode %d" % i, "Replay self.q_buffer %d" % self.q_buff.record_size)
 
 			img, true_seg, true_cls = next(dqn_generator)
 			self.env.reset(img, true_seg, true_cls)
@@ -201,28 +232,31 @@ class CRSNet(object): #ClsRegSegNet
 				
 				a_t = self.actor.model.predict(np.expand_dims(s_t,0))[0]
 				a_log = -np.log(1/np.clip(a_t,.01,.99) - 1)
-				for ix in range(self.action_dim):
-					noise_t[ix] = self.epsilon * OU.function(a_log[ix], 0,.3,3.) #shift, scale, gaussian
+				for ix in list(range(6))+[-1]:
+					noise_t[ix] = self.epsilon * noise_gen.function(a_log[ix], 0,.7,1.5) #shift, scale, gaussian
+				for ix in [6,7,8]:
+					noise_t[ix] = self.epsilon * noise_gen.function(a_log[ix], 0,.5,1.5) #shift, scale, gaussian
 				a_t = 1/(1+np.exp(-a_log-noise_t))
 
 				s_t1, r_t, done, cropI, crop_true_seg = self.env.step(a_t, get_crops=True)
 
-				unet_buff.store(cropI, crop_true_seg, self.env.true_cls)
-				buff.store(s_t, a_t, r_t, s_t1, done)
+				if crop_true_seg.sum() > 0:
+					self.u_buff.store(cropI, crop_true_seg, self.env.true_cls)
+				self.q_buff.store(s_t, a_t, r_t, s_t1, done)
 
 				#"Replay" for UNet
 				if j % 2 == 0:
-					batch = unet_buff.sample(BATCH_SIZE)
+					batch = self.u_buff.sample(BATCH_SIZE)
 					cropI = np.asarray([e[0] for e in batch])
 					crop_true_seg = np.asarray([e[1] for e in batch])
 					true_cls = np.asarray([e[2] for e in batch])
 
-					#cropI, crop_true_seg, true_cls = augment_crops(cropI, crop_true_seg, true_cls)
+					cropI, crop_true_seg, true_cls = augment_crops(cropI, crop_true_seg, true_cls)
 					uloss = self.env.train_model.train_on_batch([cropI, crop_true_seg, true_cls], None)
 
 				#Replay for Q learning
-				if buff.record_size > buff.learn_start:
-					self.replay_Q(buff, g_step)
+				if self.q_buff.record_size > self.q_buff.learn_start:
+					self.replay_Q(g_step)
 
 				if verbose:
 					print("\tAction", a_t, "Reward %.1f" % r_t)
@@ -234,21 +268,19 @@ class CRSNet(object): #ClsRegSegNet
 					steps = j+1
 					break
 
-			if buff.record_size > buff.learn_start:
-				buff.rebalance()
+			if self.q_buff.record_size > self.q_buff.learn_start:
+				self.q_buff.rebalance()
 
-				if i % 3 == 2:
-					self.save_weights()
-					hf.pickle_dump(buff, join(C.model_dir, "replay_buffer.bin"))
+				memory()
+				if i % 2 == 0:
+					self.save_models()
 
-					del self.actor, self.critic
-					K.clear_session()
-
-					self.load_models(replay_conf)
-					memory()
-					
 			print("TOTAL REWARD: %.1f" % total_reward, "(%d steps)\n" % steps)
 
 				
-		self.save_weights()
+		self.save_models()
 		K.clear_session()
+
+class OU(object):
+	def function(self, x, mu, theta, sigma):
+		return theta * (mu - x) + sigma * np.random.randn(1)
