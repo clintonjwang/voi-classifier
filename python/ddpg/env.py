@@ -51,6 +51,7 @@ class Env(object):
 		self.true_seg = true_seg
 		self.true_cls = true_cls
 		self.last_loss = 1e50
+		self.last_var = 1e50
 
 		init_action = [.5]*3+[1]*3+[.5,.9,.1,0]
 		self.step(init_action)
@@ -59,18 +60,30 @@ class Env(object):
 		"""Set focus bounding box based on the action."""
 		center = action[:3] * np.array(self.img.shape[:3])
 		dx = action[3:6] * np.array(self.img.shape[:3]) / 2
+		#phase_shift = action[6:9] * 10
+
 		bbox = [[round(center[i]-dx[i]),
 			round(center[i]+dx[i])] for i in range(3)]
+
+		#wide_bbox = np.zeros((3,2))
 		for i in range(3):
 			bbox[i][1] = max(self.min_x+1, min(self.img.shape[i] - 1, bbox[i][1]))
 			bbox[i][0] = max(1, min(bbox[i][1] - self.min_x, bbox[i][0]))
-		return np.array(bbox, int).flatten()
+			#dx[i] = (bbox[i][1] - bbox[i][0])//2
+			#wide_bbox[i][1] = bbox[i][1] + dx[i]
+			#wide_bbox[i][0] = bbox[i][0] - dx[i]
+
+		return np.array(bbox, int).flatten()#, np.array(wide_bbox, int).flatten()
 
 	def run_unet_cls(self, action):
 		# For now, w_seg and w_cls formulas don't make sense. Needs Bayesian treatment
 		sl = [slice(self.bbox[i], self.bbox[i+1]) for i in [0,2,4]]
 		D = [self.bbox[i+1] - self.bbox[i] for i in [0,2,4]]
 		cropI = tr.rescale_img(self.img[sl], C.dims)
+
+		#sl = [slice(self.wide_bbox[i], self.wide_bbox[i+1]) for i in [0,2,4]]
+		#cropI_pveq = tr.rescale_img(self.img[sl][1:], C.dims)
+
 		#action[6] ~ avg(T1,T2) in [-.5,.5], action[7] ~ T2-T1
 		T = [max(action[6] - action[7]**.5 - .55, -1), min(action[6] + action[7]**.5 - .45, 1)]
 		cropI[cropI < T[0]] = T[0]
@@ -136,14 +149,16 @@ class Env(object):
 		#	np.expand_dims(crop_true_seg,0), np.expand_dims(self.true_cls,0)], None)
 
 		cur_loss = self.get_loss()
+		cur_uncertainty = np.sum(self.pred_seg_var)
 
 		if action[-1] > .95:
 			done = True
 			reward = -1
 		else:
 			done = False
-			reward = 25*(self.last_loss - cur_loss) - .1
+			reward = (self.last_loss - cur_loss) + 20*(self.last_var - cur_var) - .1
 			self.last_loss = cur_loss
+			self.last_var = cur_var
 
 		next_state = self.get_state()
 		if get_crops:

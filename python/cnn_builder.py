@@ -44,6 +44,9 @@ import niftiutils.helper_fxns as hf
 import niftiutils.transforms as tr
 import voi_methods as vm
 
+importlib.reload(config)
+C = config.Config()
+
 def aleatoric_xentropy(y_true, y_pred):
 	eps = 1e-8
 	rv = K.random_normal((1000,1), mean=0.0, stddev=1.0)
@@ -58,7 +61,7 @@ def acc_logit(y_true, y_pred):
 	return acc
 
 def build_cnn_hyperparams(hyperparams):
-	C = config.Config()
+
 	if C.probabilistic:
 		return build_prob_cnn(optimizer=hyperparams.optimizer,
 			padding=hyperparams.padding, pool_sizes=hyperparams.pool_sizes, dropout=hyperparams.dropout,
@@ -90,7 +93,7 @@ def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same','same'], 
 	"""Main class for setting up a CNN. Returns the compiled model."""
 
 	importlib.reload(config)
-	C = config.Config()
+
 
 	if activation_type == 'elu':
 		ActivationLayer = ELU
@@ -187,9 +190,6 @@ def build_prob_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same','sam
 	dropout=[.1,.1], activation_type='lrelu', f=[64,128,128], dense_units=100, kernel_size=(3,3,2)):
 	"""Main class for setting up a CNN. Returns the compiled model."""
 
-	importlib.reload(config)
-	C = config.Config()
-
 	if activation_type == 'elu':
 		ActivationLayer = ELU
 		activation_args = 1
@@ -244,7 +244,7 @@ def build_rcnn(optimizer='adam', padding=['same','same'], pool_sizes = [(2,2,2),
 	dual_inputs=False, skip_con=False, trained_model=None, first_layer=0, last_layer=0, add_activ=False, debug=False):
 	"""Main class for setting up a CNN. Returns the compiled model."""
 
-	C = config.Config()
+
 
 	if activation_type == 'elu':
 		ActivationLayer = ELU
@@ -332,7 +332,7 @@ def build_dual_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same','sam
 	dropout=[0.1,0.1], activation_type='relu', f=[64,128,128], dense_units=100, kernel_size=(3,3,2), stride=(1,1,1)):
 	"""Main class for setting up a CNN. Returns the compiled model."""
 
-	C = config.Config()
+
 	ActivationLayer = Activation
 	activation_args = 'relu'
 
@@ -394,7 +394,7 @@ def pretrain_cnn(trained_model, padding=['same','same'], pool_sizes=[(2,2,2), (2
 	last_layer=-2, add_activ=False, training=True, debug=False):
 	"""Sets up CNN with pretrained weights"""
 
-	C = config.Config()
+
 	dilation_rate=(1,1,1)
 
 	ActivationLayer = Activation
@@ -478,7 +478,7 @@ def pretrain_model_back(trained_model, dilation_rate=(1,1,1), padding=['same', '
 	activation_type='relu', f=[64,128,128], kernel_size=(3,3,2), dense_units=100, first_layer=-3):
 	"""Sets up CNN with pretrained weights"""
 
-	C = config.Config()
+
 
 	ActivationLayer = Activation
 	activation_args = 'relu'
@@ -522,10 +522,9 @@ def pretrain_model_back(trained_model, dilation_rate=(1,1,1), padding=['same', '
 
 	return model_pretrain
 
-
 """def build_model_dropout(trained_model, dropout, last_layer="final", dilation_rate=(1,1,1), padding=['same', 'valid'], pool_sizes = [(2,2,2), (2,2,1)],
 	activation_type='relu', f=[64,128,128], kernel_size=(3,3,2), dense_units=100):
-	C = config.Config()
+
 
 	ActivationLayer = Activation
 	activation_args = 'relu'
@@ -590,7 +589,7 @@ def get_cnn_data(n=4, n_art=0, run_2d=False, Z_test_fixed=None, verbose=False):
 	n is number of real samples, n_art is number of artificial samples
 	Z_test is filenames"""
 	importlib.reload(config)
-	C = config.Config()
+
 
 	nb_classes = len(C.cls_names)
 	orig_data_dict, num_samples = _collect_unaug_data()
@@ -661,7 +660,7 @@ def get_cnn_data(n=4, n_art=0, run_2d=False, Z_test_fixed=None, verbose=False):
 	return X_test, Y_test, train_generator, num_samples, [X_train_orig, Y_train_orig], [Z_test, Z_train_orig]
 
 def load_data_capsnet(n=2, Z_test_fixed=None):
-	C = config.Config()
+
 
 	nb_classes = len(C.cls_names)
 	orig_data_dict, num_samples = _collect_unaug_data()
@@ -706,7 +705,7 @@ def load_data_capsnet(n=2, Z_test_fixed=None):
 def _train_gen_capsnet(test_ids, n=4):
 	"""n is the number of samples from each class, n_art is the number of artificial samples"""
 
-	C = config.Config()
+
 
 	num_classes = len(C.cls_names)
 	while True:
@@ -734,7 +733,7 @@ def _train_gen_capsnet(test_ids, n=4):
 
 def _train_gen_unet(test_accnums=[]):
 	"""X is the whole abdominal MR (20s only), ; Y is the set of true bboxes"""
-	C = config.Config()
+
 
 	voi_df_art = drm.get_voi_dfs()[0]
 	voi_df_art.accnum = voi_df_art.accnum.astype(str)
@@ -755,7 +754,6 @@ def _train_gen_unet(test_accnums=[]):
 
 def _train_gen_ddpg(test_accnums=[]):
 	"""X is the whole abdominal MR (20s only), ; Y is the set of true bboxes"""
-	C = config.Config()
 
 	voi_df_art = drm.get_voi_dfs()[0]
 	voi_df_art.accnum = voi_df_art.accnum.astype(str)
@@ -789,7 +787,6 @@ def _train_gen_ddpg(test_accnums=[]):
 
 def _train_gen_cls(test_accnums):
 	"""X is the whole abdominal MR (20s only); Y is the set of true bboxes"""
-	C = config.Config()
 
 	voi_df_art = drm.get_voi_dfs()[0]
 	voi_df_art.accnum = voi_df_art.accnum.astype(str)
@@ -811,7 +808,7 @@ def _train_gen_cls(test_accnums):
 def _train_generator_func(test_ids, n=12):
 	"""n is the number of samples from each class, n_art is the number of artificial samples"""
 
-	C = config.Config()
+
 
 	voi_df = drm.get_voi_dfs()[0]
 
@@ -901,7 +898,7 @@ def _separate_phases(X, non_imaging_inputs=False):
 def _collect_unaug_data():
 	"""Return dictionary pointing to X (img data) and Z (filenames) and dictionary storing number of samples of each class."""
 
-	C = config.Config()
+
 	orig_data_dict = {}
 	num_samples = {}
 	voi_df = drm.get_voi_dfs()[0]
@@ -966,7 +963,7 @@ def get_non_img_inputs(voi_info, patient_info):
 
 def build_cnn_demogr(optimizer='adam', dropout=[0.1,0.1], pool_sizes=[(2,2,2), (2,2,2)],
 			f=[32,32,64,64,64,64], dense_units=100, kernel_size=(3,3,2), trained_model=None):
-	C = config.Config()
+
 	ActivationLayer = Activation
 	activation_args = 'relu'
 
@@ -1006,7 +1003,7 @@ def build_cnn_demogr(optimizer='adam', dropout=[0.1,0.1], pool_sizes=[(2,2,2), (
 	return model
 
 def get_cnn_demogr(n=4):
-	C = config.Config()
+
 	orig_data_dict, num_samples = _collect_unaug_demogr()
 
 	test_ids = {} #filenames of test set
@@ -1048,7 +1045,7 @@ def get_cnn_demogr(n=4):
 def _collect_unaug_demogr():
 	"""Return dictionary pointing to X (img data) and Z (filenames) and dictionary storing number of samples of each class."""
 
-	C = config.Config()
+
 	orig_data_dict = {}
 	voi_df = drm.get_voi_dfs()[0]
 	voi_df = voi_df[voi_df["run_num"] <= C.test_run_num]
@@ -1091,7 +1088,7 @@ def _collect_unaug_demogr():
 def _train_gen_demogr(test_ids, n):
 	"""n is the number of samples from each class, n_art is the number of artificial samples"""
 
-	C = config.Config()
+
 	voi_df = drm.get_voi_dfs()[0]
 	voi_df = voi_df[voi_df["run_num"] <= C.test_run_num]
 	patient_info_df = pd.read_csv(C.patient_info_path)

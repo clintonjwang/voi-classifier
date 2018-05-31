@@ -41,13 +41,16 @@ import niftiutils.transforms as tr
 import niftiutils.masks as masks
 import niftiutils.registration as reg
 
+importlib.reload(sm)
+importlib.reload(masks)
+C = config.Config("etiology")
+
 def autofill_cls_arg(func):
 	"""Decorator that autofills the first argument with the classes
 	specified by C if it is not included."""
 
 	def wrapper(*args, **kwargs):
 		if (len(args) == 0 or args[0] is None) and ('cls' not in kwargs or kwargs['cls'] is None):
-			C = config.Config()
 			kwargs.pop('cls', None)
 			for cls in C.cls_names:
 				result = func(cls, *args[1:], **kwargs)
@@ -64,8 +67,6 @@ def autofill_cls_arg(func):
 @autofill_cls_arg
 def check_dims_df(cls=None):
 	"""Checks to see if dims_df is missing any accession numbers."""
-
-	C = config.Config()
 	df = get_coords_df(cls)
 	accnums = set(df['acc #'].astype(str).tolist())
 	dims_df = pd.read_csv(C.dims_df_path, index_col=0)
@@ -76,10 +77,6 @@ def check_dims_df(cls=None):
 @autofill_cls_arg
 def report_missing_folders(cls=None):
 	"""Checks to see if any image phases are missing from the DICOM directories"""
-
-	import importlib
-	importlib.reload(config)
-	C = config.Config()
 	df = get_coords_df(cls)
 	accnums = list(set(df['acc #'].tolist()))
 
@@ -97,38 +94,32 @@ def report_missing_folders(cls=None):
 ### METHODS FOR EXTRACTING VOIS FROM THE SPREADSHEET
 ###########################
 
-def off2ids_batch(accnum_xls_path):
-	importlib.reload(masks)
-	C = config.Config("etiology")
-
-	input_df = pd.read_excel(accnum_xls_path,
-	             sheetname="Prelim Analysis Patients", index_col=0, parse_cols="A,J")
-	accnum_dict = {category: list(input_df[input_df["Category"] == category].index.astype(str)) for category in C.sheetnames}
+def off2ids_batch(accnum_xls_path=None, accnum_dict=None):
+	if accnum_dict is None:
+		input_df = pd.read_excel(accnum_xls_path,
+					 sheetname="Prelim Analysis Patients", index_col=0, parse_cols="A,J")
+		accnum_dict = {category: list(input_df[input_df["Category"] == category].index.astype(str)) for category in C.sheetnames}
 
 	for category in C.sheetnames:
-	    print(category)
-	    for ix,accnum in enumerate(accnum_dict[category]):
-	        load_dir = join(C.dcm_dirs[0], accnum)
-	        masks.off2ids(join(load_dir, 'Segs', 'tumor_20s.off'), R=[1,1,2.5])
-	        if ix%5==2:
-	            print('.',end='')
+		print(category)
+		if category not in accnum_dict:
+			continue
+		for ix,accnum in enumerate(accnum_dict[category]):
+			print('.',end='')
+			load_dir = join(C.dcm_dirs[0], accnum)
+			for fn in glob.glob(join(load_dir, 'Segs', 'tumor_20s_*')):
+				os.remove(fn)
+			masks.off2ids(join(load_dir, 'Segs', 'tumor_20s.off'), R=[2,2,3])
+			masks.off2ids(join(load_dir, 'Segs', 'liver.off'), R=[3,3,4], num_foci=1)
 
 def build_coords_df(accnum_xls_path, overwrite=False):
 	"""Builds all coords from scratch, without the ability to add or change individual coords"""
-	importlib.reload(masks)
-	C = config.Config("etiology")
 	input_df = pd.read_excel(accnum_xls_path,
 				 sheetname="Prelim Analysis Patients", index_col=0, parse_cols="A,J")
 
 	accnum_dict = {category: list(input_df[input_df["Category"] == category].index.astype(str)) for category in C.sheetnames}
 
 	writer = pd.ExcelWriter(C.coord_xls_path)
-	dfs = {}
-	if exists(C.coord_xls_path):
-		for category in C.sheetnames:
-			dfs[category] = pd.read_excel(C.coord_xls_path, sheet_name=category, index_col=0)
-			dfs[category].to_excel(writer, category)
-	del dfs
 
 	for category in C.sheetnames:
 		print(category)
@@ -140,7 +131,6 @@ def build_coords_df(accnum_xls_path, overwrite=False):
 			coords_df = pd.DataFrame(columns=['acc #', 'Run', 'Flipped', 
 				  'x1', 'y1', 'z1', 'x2', 'y2', 'z2'])
 
-		#print(accnum_dict[category])
 		for ix,accnum in enumerate(accnum_dict[category]):
 			load_dir = join(C.dcm_dirs[0], accnum)
 			if not exists(join(load_dir, 'Segs', 'tumor_20s_0.ids')):
@@ -159,7 +149,7 @@ def build_coords_df(accnum_xls_path, overwrite=False):
 			#save_path = join(r"D:\Multiphase-color", accnum)
 			#hf.save_tricolor_dcm(save_path, imgs=I)
 
-			for fn in glob.glob(join(load_dir, 'Segs', 'tumor_20s_*.ids')):
+			for fn in glob.glob(join(load_dir, 'Segs', 'tumor_20s_0.ids')):
 				try:
 					_,coords = masks.crop_img_to_mask_vicinity([art,D], fn[:-4], return_crops=True)
 				except:
@@ -169,8 +159,8 @@ def build_coords_df(accnum_xls_path, overwrite=False):
 				#	M = masks.get_mask(fn, D, img.shape)
 				#	M = hf.crop_nonzero(M, C)[0]
 
+			print('.', end='')
 			if ix % 5 == 2:
-				print('.', end='')
 				coords_df.to_excel(writer, sheet_name=category)
 				writer.save()
 
@@ -180,9 +170,6 @@ def build_coords_df(accnum_xls_path, overwrite=False):
 @autofill_cls_arg
 def dcm2npy(cls=None, accnums=None, overwrite=False, verbose=False, downsample=1):
 	"""Converts dcms to full-size npy, update dims_df. Requires coords_df."""
-	importlib.reload(config)
-	C = config.Config()
-
 	if exists(C.dims_df_path):
 		dims_df = pd.read_csv(C.dims_df_path, index_col=0)
 		dims_df.index = dims_df.index.map(str)
@@ -217,16 +204,16 @@ def dcm2npy(cls=None, accnums=None, overwrite=False, verbose=False, downsample=1
 
 		load_dir = join(C.dcm_dirs[cls_num], accnum)
 		try:
-			art,D = hf.dcm_load(join(load_dir, C.phases[0]))
-			ven = hf.dcm_load(join(load_dir, C.phases[1]))[0]
-			eq = hf.dcm_load(join(load_dir, C.phases[2]))[0]
+			art,D = hf.load_img(join(load_dir, "nii_dir", "20s.nii.gz"))#hf.dcm_load(join(load_dir, C.phases[0]))
+			ven = hf.load_img(join(load_dir, "nii_dir", "70s.nii.gz")) #hf.dcm_load(join(load_dir, C.phases[1]))[0]
+			eq = hf.load_img(join(load_dir, "nii_dir", "3min.nii.gz")) #hf.dcm_load(join(load_dir, C.phases[2]))[0]
 		except ValueError:
 			raise ValueError(load_dir + " cannot be loaded")
 
-		#if 'x3' in info and np.all([np.isnan(x) for x in info['x3'].values]):
-		#	ven, _ = reg.reg_elastix(moving=ven, fixed=art)
-		#if 'x5' in info and np.all([np.isnan(x) for x in info['x5'].values]):
-		#	eq, _ = reg.reg_elastix(moving=eq, fixed=art)
+		#if 'x3' not in info or np.all([np.isnan(x) for x in info['x3'].values]):
+		ven, _ = reg.reg_elastix(moving=ven, fixed=art, reg_type="rigid")
+		#if 'x5' not in info or np.all([np.isnan(x) for x in info['x5'].values]):
+		eq, _ = reg.reg_elastix(moving=eq, fixed=art, reg_type="rigid")
 
 		try:
 			img = np.stack((art, ven, eq), -1)
@@ -244,8 +231,6 @@ def dcm2npy(cls=None, accnums=None, overwrite=False, verbose=False, downsample=1
 			print(accnum)
 			raise ValueError
 
-		sm.save_segs([accnum])
-
 		if verbose:
 			print("%d out of %d accession numbers loaded" % (cnt+1, len(accnums)))
 		elif cnt % 3 == 2:
@@ -254,10 +239,10 @@ def dcm2npy(cls=None, accnums=None, overwrite=False, verbose=False, downsample=1
 		dims_df.loc[accnum] = list(D)
 		dims_df.to_csv(C.dims_df_path)
 
-	load_vois_batch(cls, accnums, overwrite, downsample)
+	load_vois(cls, accnums, overwrite)
 
 @autofill_cls_arg
-def load_vois_batch(cls=None, accnums=None, overwrite=False, downsample=1):
+def load_vois(cls=None, accnums=None, overwrite=False):
 	"""Updates the voi_dfs based on the raw spreadsheet.
 	dcm2npy() must be run first to produce full size npy images."""
 
@@ -266,6 +251,17 @@ def load_vois_batch(cls=None, accnums=None, overwrite=False, downsample=1):
 
 		voi_df_art, voi_df_ven, voi_df_eq = voi_dfs
 		df_subset = src_data_df.loc[src_data_df['acc #'].astype(str) == accnum]
+
+		load_dir = join(C.dcm_dirs[0], accnum)
+		I,_ = hf.nii_load(join(load_dir, "nii_dir", "20s.nii.gz"))
+
+		downsample = 1
+		if np.product(I.shape) > C.max_size:
+			downsample = 2
+			for i in ['x','y']:
+				for j in ['1','2']:
+					df_subset[i+j] = df_subset[i+j]/downsample
+		sm.save_segs([accnum], downsample)
 
 		for _, row in df_subset.iterrows():
 			coords = [[int(row[char+'1']), int(row[char+'2'])] for char in ['x','y','z']]
@@ -317,11 +313,10 @@ def load_vois_batch(cls=None, accnums=None, overwrite=False, downsample=1):
 
 		return voi_df_art, voi_df_ven, voi_df_eq
 
-	C = config.Config()
-
 	dims_df = pd.read_csv(C.dims_df_path, index_col=0)
 	dims_df.index = dims_df.index.map(str)
-	src_data_df = get_coords_df(cls, downsample)
+
+	src_data_df = get_coords_df(cls)
 	if accnums is None:
 		accnums = list(set(src_data_df['acc #'].astype(str).values))
 	else:
@@ -337,9 +332,10 @@ def load_vois_batch(cls=None, accnums=None, overwrite=False, downsample=1):
 	voi_dfs = voi_df_art, voi_df_ven, voi_df_eq
 	for cnt, accnum in enumerate(accnums):
 		voi_dfs = _load_vois(cls, str(accnum))
+		M = join(C.full_img_dir, accnum+"_tumorseg.npy")
 
-		if cnt % 20 == 2:
-			print(".", end="")
+		print(".", end="")
+		if cnt % 5 == 2:
 			write_voi_dfs(voi_dfs)
 
 	write_voi_dfs(voi_dfs)
@@ -388,7 +384,6 @@ def load_patient_info(cls=None, accnums=None, overwrite=False, verbose=False):
 
 		return [mrn, sex, accnum, age, ethnicity, cls]
 
-	C = config.Config()
 	df = get_coords_df(cls)
 
 	if accnums is None:
@@ -436,8 +431,6 @@ def load_patient_info(cls=None, accnums=None, overwrite=False, verbose=False):
 ###########################
 
 def get_voi_dfs():
-	C = config.Config()
-
 	try:
 		voi_df_art = pd.read_csv(C.art_voi_path, index_col=0)
 		voi_df_ven = pd.read_csv(C.ven_voi_path, index_col=0)
@@ -452,8 +445,6 @@ def get_voi_dfs():
 	return voi_df_art, voi_df_ven, voi_df_eq
 
 def write_voi_dfs(*args):
-	C = config.Config()
-
 	if len(args) == 1:
 		voi_df_art, voi_df_ven, voi_df_eq = args[0]
 	else:
@@ -467,16 +458,10 @@ def write_voi_dfs(*args):
 ### Subroutines
 ###########################
 
-def get_coords_df(cls, downsample=1):
-	C = config.Config()
+def get_coords_df(cls):
 	df = pd.read_excel(C.coord_xls_path, C.sheetnames[C.cls_names.index(cls)])
 	df = df[df['Run'] <= C.run_num].dropna(subset=["x1"])
 	df['acc #'] = df['acc #'].astype(str)
-
-	if downsample != 1:
-		for i in ['x','y','z']:
-			for j in ['1','2']:
-				df[i+j] = df[i+j]/downsample
 	
 	return df.drop(set(df.columns).difference(['acc #', 'Run', 'Flipped', 
 		  'x1', 'x2', 'y1', 'y2', 'z1', 'z2',

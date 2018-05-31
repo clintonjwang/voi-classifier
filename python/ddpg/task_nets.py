@@ -54,36 +54,7 @@ def unet_cls(optimizer='adam', depth=3, base_f=32, dropout=.1, lr=.001):
 	C = config.Config()
 
 	img = Input(shape=(*C.dims, 3))
-
-	# initial weights
-	b = np.zeros((3, 4), dtype='float32')
-	b[0, 0] = 1
-	b[1, 1] = 1
-	b[2, 2] = 1
-	W = np.zeros((64, 12), dtype='float32')
-	weights = [W, b.flatten()]
-
-	locnet = [Sequential(), Sequential()]
-	for i in range(2):
-		locnet[i].add(layers.Conv3D(64, 5, strides=(2,2,1), activation='relu', input_shape=(*C.dims,1)))
-		locnet[i].add(layers.BatchNormalization())
-		locnet[i].add(layers.MaxPooling3D(2))
-		locnet[i].add(layers.Conv3D(64, 3, activation='relu'))
-		locnet[i].add(layers.Conv3D(64, 3, activation='relu'))
-		locnet[i].add(layers.BatchNormalization())
-		locnet[i].add(Flatten())
-		locnet[i].add(Dense(64, activation='relu'))
-		locnet[i].add(layers.BatchNormalization())
-		locnet[i].add(Dense(12, weights=weights))
-
-	v_Tx = Lambda(lambda x: K.expand_dims(x[...,1],-1))(img)
-	e_Tx = Lambda(lambda x: K.expand_dims(x[...,2],-1))(img)
-	v_Tx = st.SpatialTransformer(localization_net=locnet[0], output_size=C.dims, input_shape=(*C.dims,1), name='st_vtx')(v_Tx)
-	e_Tx = st.SpatialTransformer(localization_net=locnet[1], output_size=C.dims, input_shape=(*C.dims,1), name='st_etx')(e_Tx)
-
-	reg_img = Lambda(lambda x: K.stack([x[0][...,0], x[1][...,0], x[2][...,0]], -1))([img, v_Tx, e_Tx])
-	reg_img = Lambda(lambda x: K.stack([x[...,0], x[...,1]-x[...,0], x[...,2]-x[...,0]], -1))(reg_img)
-	bottom_layer, end_layer = cnnc.UNet(reg_img)
+	bottom_layer, end_layer = cnnc.UNet(img)
 
 	cls_layer = layers.Conv3D(32, 1)(bottom_layer)
 	cls_layer = layers.MaxPooling3D((2,2,1))(cls_layer)

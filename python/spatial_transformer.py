@@ -34,15 +34,13 @@ class SpatialTransformer(Layer):
 		self.trainable_weights = self.locnet.trainable_weights
 
 	def compute_output_shape(self, input_shape):
-		return (None,
-				int(input_shape[1]),
+		return (None, int(input_shape[1]),
 				int(input_shape[2]),
-				int(input_shape[3]),
-				int(input_shape[-1]))
+				int(input_shape[3]), 1)
 
 	def call(self, X, mask=None):
 		affine_transformation = self.locnet.call(X)
-		output = self._transform(affine_transformation, X, self.output_size)
+		output = self._transform(affine_transformation, X[...,-1:], self.output_size)
 		return output
 
 	def _repeat(self, x, num_repeats):
@@ -190,5 +188,3 @@ class SpatialTransformer(Layer):
 																*output_size,
 																num_channels))
 		return transformed_image
-
-

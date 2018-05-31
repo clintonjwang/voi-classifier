@@ -97,7 +97,7 @@ class CRSNet(object): #ClsRegSegNet
 		self.actor = ln.ActorNetwork(sess, C.state_dim, self.action_dim, BATCH_SIZE, TAU, LRA)
 		self.critic = ln.CriticNetwork(sess, C.state_dim, self.action_dim, BATCH_SIZE, TAU, LRC)
 		self.env = denv.Env(sess, LRU)
-		self.u_buff = ln.UniformReplay(3000)
+		self.u_buff = ln.UniformReplay(2500)
 
 		try:
 			self.load_weights()
@@ -196,9 +196,9 @@ class CRSNet(object): #ClsRegSegNet
 		EXPLORE = 10000.
 		episode_count = 2000
 
-		replay_conf = {'size': 10000,
+		replay_conf = {'size': 2000,
 				'learn_start': 100,
-				'partition_num': 100,
+				'partition_num': 50,
 				'total_step': 10000,
 				'batch_size': 4}
 		BATCH_SIZE = replay_conf["batch_size"]
@@ -214,7 +214,7 @@ class CRSNet(object): #ClsRegSegNet
 		else:
 			self.u_buff = ln.UniformReplay(1000)
 
-		g_step = 1
+		g_step = self.q_buff.record_size + 1
 		for i in range(episode_count):
 			print("Episode %d" % i, "Replay self.q_buffer %d" % self.q_buff.record_size)
 

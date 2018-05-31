@@ -29,11 +29,15 @@ from joblib import Parallel, delayed
 from scipy.misc import imsave
 from skimage.transform import rescale, resize
 
+from joblib import Parallel, delayed
 import config
 import niftiutils.helper_fxns as hf
 import niftiutils.masks as masks
 import niftiutils.transforms as tr
 import niftiutils.visualization as vis
+
+importlib.reload(hf)
+C = config.Config()
 
 #####################################
 ### QC methods
@@ -70,10 +74,11 @@ def make_dcms(cls=None, lesion_ids=None, save_dir=None):
 ### Data Creation
 #####################################
 
-def save_segs(accnums=None):
+def save_segs(accnums=None, downsample=None):
 	"""Save all segmentations as numpy."""
-	importlib.reload(hf)
-	C = config.Config()
+	#input_df = pd.read_excel(accnum_xls_path,
+	#			 sheetname="Prelim Analysis Patients", index_col=0, parse_cols="A,J")
+	#accnums = np.array([list(input_df[input_df["Category"] == category].index.astype(str)) for category in C.sheetnames]).flatten()
 
 	if accnums is None:
 		accnums = [basename(fn[:-4]) for fn in glob.glob(join(C.full_img_dir, "*.npy")) if \
@@ -89,21 +94,21 @@ def save_segs(accnums=None):
 			continue
 		M = masks.get_mask(M_paths[0], img_path=join(load_dir, "nii_dir", "20s.nii.gz"))
 		for path in M_paths[1:]:
-			try:
-				M += masks.get_mask(path, img_path=join(load_dir, "nii_dir", "20s.nii.gz"))
-			except:
-				os.remove(path)
-				os.remove(path[:-4]+".ics")
-		if np.product(M.shape) > C.max_size:
-			M = tr.scale3d(M, [.5]*3) > .5
+			#try:
+			M += masks.get_mask(path, img_path=join(load_dir, "nii_dir", "20s.nii.gz"))
+			#except:
+			#	os.remove(path)
+			#	os.remove(path[:-4]+".ics")
+		if downsample is not None:
+			M = tr.scale3d(M, [1/downsample, 1/downsample, 1]) > .5
 		np.save(join(C.full_img_dir, accnum+"_tumorseg.npy"), M)
 
 		M_path = join(load_dir, 'Segs', 'liver.ids')
 		if not exists(M_path):
 			continue
 		M = masks.get_mask(M_path, img_path=join(load_dir, "nii_dir", "20s.nii.gz"))
-		if np.product(M.shape) > C.max_size:
-			M = tr.scale3d(M, [.5]*3) > .5
+		if downsample is not None:
+			M = tr.scale3d(M, [1/downsample, 1/downsample, 1]) > .5
 		np.save(join(C.full_img_dir, accnum+"_liverseg.npy"), M)
 
 def crop_seg(accnum, coords):
