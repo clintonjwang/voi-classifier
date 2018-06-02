@@ -213,10 +213,14 @@ def save_vois_as_imgs(cls=None, lesion_ids=None, save_dir=None, normalize=None, 
 	if not exists(save_dir):
 		os.makedirs(save_dir)
 
+	small_voi_df = pd.read_csv(C.small_voi_path, index_col=0)
+
 	if lesion_ids is not None:
-		fns = [lesion_id+".npy" for lesion_id in lesion_ids if lesion_id+".npy" in os.listdir(C.unaug_dir)]
+		fns = [lesion_id+".npy" for lesion_id in lesion_ids if lesion_id+".npy" in os.listdir(C.unaug_dir) \
+				and small_voi_df.loc[lesion_id,"cls"] == cls]
 	else:
-		fns = os.listdir(C.unaug_dir)
+		fns = [fn for fn in os.listdir(C.unaug_dir) if fn[:-4] in small_voi_df.index and \
+				small_voi_df.loc[fn[:-4],"cls"] == cls]
 
 	for fn in fns:
 		img = np.load(join(C.unaug_dir, fn))
@@ -366,13 +370,14 @@ def extract_vois(cls=None, accnums=None, overwrite=False):
 				cropped_img, coords = _extract_voi(img, copy.deepcopy(voi_row), C.dims, ven_voi=ven_voi, eq_voi=eq_voi)
 				cropped_img = tr.normalize_intensity(cropped_img, max_intensity=1, min_intensity=-1)
 			except:
+				continue
 				raise ValueError(lesion_id)
 
 			np.save(join(C.crops_dir, lesion_id), cropped_img)
 			small_voi_df.loc[lesion_id] = [accnum, cls] + coords
 
+		print(".", end="")
 		if img_num % 20 == 0:
-			print(".", end="")
 			small_voi_df.to_csv(C.small_voi_path)
 	
 	small_voi_df.to_csv(C.small_voi_path)

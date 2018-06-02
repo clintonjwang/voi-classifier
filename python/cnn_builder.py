@@ -332,7 +332,6 @@ def build_dual_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same','sam
 	dropout=[0.1,0.1], activation_type='relu', f=[64,128,128], dense_units=100, kernel_size=(3,3,2), stride=(1,1,1)):
 	"""Main class for setting up a CNN. Returns the compiled model."""
 
-
 	ActivationLayer = Activation
 	activation_args = 'relu'
 
@@ -762,26 +761,32 @@ def _train_gen_ddpg(test_accnums=[]):
 
 	while True:
 		img_fn = random.choice(img_fns)
+		accnum = img_fn[:-4]
 
-		if not exists(img_fn[:-4]+"_tumorseg.npy") or not exists(img_fn[:-4]+"_liverseg.npy"):
+		if not exists(accnum+"_tumorseg.npy") or not exists(accnum+"_liverseg.npy"):
 			continue
 
 		img = np.load(img_fn)
 		img = tr.rescale_img(img, C.context_dims)
 		img = tr.normalize_intensity(img, 1, -1)
-		tumorM = np.load(img_fn[:-4]+"_tumorseg.npy")
-		liverM = np.load(img_fn[:-4]+"_liverseg.npy")
+		tumorM = np.load(accnum+"_tumorseg.npy")
+		liverM = np.load(accnum+"_liverseg.npy")
 		try:
 			liverM[tumorM > 0] = 0
 		except:
-			print(basename(img_fn[:-4]), end="','")
+			print(basename(accnum), end="','")
 			continue
 		seg = np.zeros((*C.context_dims, C.num_segs))
 		seg[...,-1] = tr.rescale_img(tumorM, C.context_dims)
 		seg[...,1] = tr.rescale_img(liverM, C.context_dims)
 		seg[...,0] = np.clip(1 - seg[...,1] - seg[...,-1], 0, 1)
-		cls = np_utils.to_categorical(C.cls_names.index(voi_df_art.loc[voi_df_art["accnum"] \
-			== basename(img_fn[:-4]), "cls"].values[0]), len(C.cls_names)).astype(int)
+
+		if basename(accnum) in voi_df_art["accnum"].values:
+			cls_num = C.cls_names.index(voi_df_art.loc[voi_df_art["accnum"] \
+				== basename(accnum), "cls"].values[0])
+		else:
+			cls_num = 0
+		cls = np_utils.to_categorical(cls_num, len(C.cls_names)).astype(int)
 
 		yield (img, seg, cls)
 
@@ -807,8 +812,6 @@ def _train_gen_cls(test_accnums):
 
 def _train_generator_func(test_ids, n=12):
 	"""n is the number of samples from each class, n_art is the number of artificial samples"""
-
-
 
 	voi_df = drm.get_voi_dfs()[0]
 

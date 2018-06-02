@@ -149,16 +149,16 @@ class Env(object):
 		#	np.expand_dims(crop_true_seg,0), np.expand_dims(self.true_cls,0)], None)
 
 		cur_loss = self.get_loss()
-		cur_uncertainty = np.sum(self.pred_seg_var)
+		#cur_var = np.mean(self.pred_seg_var)
 
 		if action[-1] > .95:
 			done = True
-			reward = -1
+			reward = 0
 		else:
 			done = False
-			reward = (self.last_loss - cur_loss) + 20*(self.last_var - cur_var) - .1
+			reward = 5*(self.last_loss - cur_loss) - .1 # + 20*(self.last_var - cur_var)
 			self.last_loss = cur_loss
-			self.last_var = cur_var
+			#self.last_var = cur_var
 
 		next_state = self.get_state()
 		if get_crops:

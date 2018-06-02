@@ -25,11 +25,9 @@ from os.path import *
 
 import numpy as np
 import pandas as pd
-from joblib import Parallel, delayed
 from scipy.misc import imsave
 from skimage.transform import rescale, resize
 
-from joblib import Parallel, delayed
 import config
 import niftiutils.helper_fxns as hf
 import niftiutils.masks as masks

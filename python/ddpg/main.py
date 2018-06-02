@@ -85,7 +85,7 @@ class CRSNet(object): #ClsRegSegNet
 		TAU = .01     #Target Network update weight
 		LRA = .0001    #Learning rate for Actor
 		LRC = .0002    #Learning rate for Critic
-		LRU = .0002    #Learning rate for Unet
+		LRU = .0003    #Learning rate for Unet
 
 		BATCH_SIZE = replay_conf["batch_size"]
 
@@ -165,13 +165,13 @@ class CRSNet(object): #ClsRegSegNet
 		states = np.asarray([e[0] for e in batch])
 		actions = np.asarray([e[1] for e in batch])
 		rewards = np.asarray([e[2] for e in batch])
-		new_states = np.asarray([e[3] for e in batch])
+		#new_states = np.asarray([e[3] for e in batch])
 		dones = np.asarray([e[4] for e in batch])
 		y_t = np.zeros(actions.shape[0])
 
-		target_a = self.actor.target_model.predict(new_states)
+		#target_a = self.actor.target_model.predict(new_states)
 		#self.transform_action(self.actor.target_model.predict(new_states))
-		target_q = self.critic.target_model.predict([new_states, target_a]).flatten()
+		#target_q = self.critic.target_model.predict([new_states, target_a]).flatten()
 
 		#temporal difference error for prioritized exp replay
 		TD = self.critic.model.predict([states, actions]).flatten()
@@ -179,7 +179,7 @@ class CRSNet(object): #ClsRegSegNet
 			if dones[k]:
 				y_t[k] = rewards[k]
 			else:
-				y_t[k] = rewards[k] + GAMMA*target_q[k]
+				y_t[k] = rewards[k]# + GAMMA*target_q[k]
 		TD = np.abs(TD - y_t)
 		self.q_buff.update_priority(ixs, TD)
 
@@ -187,18 +187,17 @@ class CRSNet(object): #ClsRegSegNet
 		a_for_grad = self.actor.model.predict(states)
 		grads = self.critic.gradients(states, a_for_grad)
 		self.actor.train(states, grads)
-		self.actor.target_train()
-		self.critic.target_train()
+		#self.actor.target_train()
+		#self.critic.target_train()
 
-	def train(self, dqn_generator, verbose=False):    #1 means Train, 0 means simply Run
-		max_steps = 50
+	def train(self, dqn_generator, verbose=False):
 		noise_gen = OU()       #Ornstein-Uhlenbeck Process
 		EXPLORE = 10000.
 		episode_count = 2000
 
-		replay_conf = {'size': 2000,
-				'learn_start': 100,
-				'partition_num': 50,
+		replay_conf = {'size': 3000,
+				'learn_start': 30,
+				'partition_num': 100,
 				'total_step': 10000,
 				'batch_size': 4}
 		BATCH_SIZE = replay_conf["batch_size"]
@@ -212,7 +211,7 @@ class CRSNet(object): #ClsRegSegNet
 		if exists(join(C.model_dir, "unet_buffer.bin")):
 			self.u_buff = hf.pickle_load(join(C.model_dir, "unet_buffer.bin"))
 		else:
-			self.u_buff = ln.UniformReplay(1000)
+			self.u_buff = ln.UniformReplay(250)
 
 		g_step = self.q_buff.record_size + 1
 		for i in range(episode_count):
@@ -224,7 +223,9 @@ class CRSNet(object): #ClsRegSegNet
 			s_t = self.env.get_state()
 
 			total_reward = 0.
+			max_steps = 10 + min(i // 3, 30)
 			steps = max_steps
+			t = time.time()
 			for j in range(max_steps):
 				if self.epsilon > 0:
 					self.epsilon -= 1.0 / EXPLORE
@@ -242,7 +243,7 @@ class CRSNet(object): #ClsRegSegNet
 
 				if crop_true_seg.sum() > 0:
 					self.u_buff.store(cropI, crop_true_seg, self.env.true_cls)
-				self.q_buff.store(s_t, a_t, r_t, s_t1, done)
+				self.q_buff.store(s_t, a_t, r_t, None, done) #s_t1
 
 				#"Replay" for UNet
 				if j % 2 == 0:
@@ -275,8 +276,7 @@ class CRSNet(object): #ClsRegSegNet
 				if i % 2 == 0:
 					self.save_models()
 
-			print("TOTAL REWARD: %.1f" % total_reward, "(%d steps)\n" % steps)
-
+			print("TOTAL REWARD: %.1f" % total_reward, "(%d steps," % steps, "%.1f sec/step)\n" % ((time.time()-t)/steps))
 				
 		self.save_models()
 		K.clear_session()

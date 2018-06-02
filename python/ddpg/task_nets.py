@@ -81,10 +81,10 @@ def hetero_cls_loss(true, pred, num_classes=3, weights=[1,1,1], T=500):
 	true = K.reshape(true, [-1, num_classes])
 	pred = K.reshape(pred, [-1, num_classes+1])
 	weights = K.cast(weights, tf.float32)
-	pred_std = K.sqrt(K.exp(pred[:, num_classes:])) # shape: (N,1)
+	pred_scale = K.sqrt(K.exp(pred[:, num_classes:])) # shape: (N,1)
 	pred = pred[:, :num_classes] # shape: (N, C)
 
-	dist = distributions.Normal(loc=K.zeros_like(pred_std), scale=pred_std)
+	dist = distributions.Normal(loc=K.zeros_like(pred_scale), scale=pred_scale)
 	#std_samples = K.transpose(dist.sample(num_classes))
 	#distorted_loss = K.categorical_crossentropy(true, pred + std_samples, from_logits=True) * weights
 	

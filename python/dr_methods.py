@@ -137,7 +137,7 @@ def build_coords_df(accnum_xls_path, overwrite=False):
 				masks.off2ids(join(load_dir, 'Segs', 'tumor_20s.off'))
 
 			try:
-				art,D = hf.dcm_load(join(load_dir, C.phases[0]))
+				art,D = hf.nii_load(join(load_dir, "nii_dir", "20s.nii.gz"))
 			except:
 				raise ValueError(load_dir)
 			#ven,_ = hf.dcm_load(join(load_dir, C.phases[1]))
@@ -149,7 +149,7 @@ def build_coords_df(accnum_xls_path, overwrite=False):
 			#save_path = join(r"D:\Multiphase-color", accnum)
 			#hf.save_tricolor_dcm(save_path, imgs=I)
 
-			for fn in glob.glob(join(load_dir, 'Segs', 'tumor_20s_0.ids')):
+			for fn in glob.glob(join(load_dir, 'Segs', 'tumor_20s_*.ids')):
 				try:
 					_,coords = masks.crop_img_to_mask_vicinity([art,D], fn[:-4], return_crops=True)
 				except:
@@ -205,8 +205,8 @@ def dcm2npy(cls=None, accnums=None, overwrite=False, verbose=False, downsample=1
 		load_dir = join(C.dcm_dirs[cls_num], accnum)
 		try:
 			art,D = hf.load_img(join(load_dir, "nii_dir", "20s.nii.gz"))#hf.dcm_load(join(load_dir, C.phases[0]))
-			ven = hf.load_img(join(load_dir, "nii_dir", "70s.nii.gz")) #hf.dcm_load(join(load_dir, C.phases[1]))[0]
-			eq = hf.load_img(join(load_dir, "nii_dir", "3min.nii.gz")) #hf.dcm_load(join(load_dir, C.phases[2]))[0]
+			ven,_ = hf.load_img(join(load_dir, "nii_dir", "70s.nii.gz")) #hf.dcm_load(join(load_dir, C.phases[1]))
+			eq,_ = hf.load_img(join(load_dir, "nii_dir", "3min.nii.gz")) #hf.dcm_load(join(load_dir, C.phases[2]))
 		except ValueError:
 			raise ValueError(load_dir + " cannot be loaded")
 
@@ -332,7 +332,6 @@ def load_vois(cls=None, accnums=None, overwrite=False):
 	voi_dfs = voi_df_art, voi_df_ven, voi_df_eq
 	for cnt, accnum in enumerate(accnums):
 		voi_dfs = _load_vois(cls, str(accnum))
-		M = join(C.full_img_dir, accnum+"_tumorseg.npy")
 
 		print(".", end="")
 		if cnt % 5 == 2:
