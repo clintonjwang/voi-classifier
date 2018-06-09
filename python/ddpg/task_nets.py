@@ -35,6 +35,7 @@ import spatial_transformer as st
 import voi_methods as vm
 
 importlib.reload(config)
+importlib.reload(cnnc)
 C = config.Config()
 
 def get_models(sess, lr=.001):
@@ -49,15 +50,12 @@ def get_models(sess, lr=.001):
 
 	return pred_model, train_model
 
-def unet_cls(optimizer='adam', depth=3, base_f=32, dropout=.1, lr=.001):
-	importlib.reload(cnnc)
-	C = config.Config()
-
+def unet_cls(optimizer='adam'): #, depth=3, base_f=32, dropout=.1, lr=.001
 	img = Input(shape=(*C.dims, 3))
 	bottom_layer, end_layer = cnnc.UNet(img)
 
 	cls_layer = layers.Conv3D(32, 1)(bottom_layer)
-	cls_layer = layers.MaxPooling3D((2,2,1))(cls_layer)
+	cls_layer = layers.AveragePooling3D((2,2,1))(cls_layer)
 	cls_layer = layers.BatchNormalization()(cls_layer)
 	cls_layer = layers.Flatten()(cls_layer)
 	cls_layer = layers.Dense(128, activation='relu')(cls_layer)

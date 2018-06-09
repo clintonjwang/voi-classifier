@@ -72,7 +72,7 @@ def make_dcms(cls=None, lesion_ids=None, save_dir=None):
 ### Data Creation
 #####################################
 
-def save_segs(accnums=None, downsample=None):
+def save_segs(accnums=None, downsample=None, slice_shift=0, target_depth=None):
 	"""Save all segmentations as numpy."""
 	#input_df = pd.read_excel(accnum_xls_path,
 	#			 sheetname="Prelim Analysis Patients", index_col=0, parse_cols="A,J")
@@ -91,12 +91,14 @@ def save_segs(accnums=None, downsample=None):
 		if len(M_paths) == 0:
 			continue
 		M = masks.get_mask(M_paths[0], img_path=join(load_dir, "nii_dir", "20s.nii.gz"))
+		z = target_depth if target_depth is not None else M.shape[-1]
 		for path in M_paths[1:]:
 			#try:
 			M += masks.get_mask(path, img_path=join(load_dir, "nii_dir", "20s.nii.gz"))
 			#except:
 			#	os.remove(path)
 			#	os.remove(path[:-4]+".ics")
+		M = M[...,slice_shift:slice_shift + z]
 		if downsample is not None:
 			M = tr.scale3d(M, [1/downsample, 1/downsample, 1]) > .5
 		np.save(join(C.full_img_dir, accnum+"_tumorseg.npy"), M)
@@ -105,6 +107,7 @@ def save_segs(accnums=None, downsample=None):
 		if not exists(M_path):
 			continue
 		M = masks.get_mask(M_path, img_path=join(load_dir, "nii_dir", "20s.nii.gz"))
+		M = M[...,slice_shift:slice_shift + z]
 		if downsample is not None:
 			M = tr.scale3d(M, [1/downsample, 1/downsample, 1]) > .5
 		np.save(join(C.full_img_dir, accnum+"_liverseg.npy"), M)

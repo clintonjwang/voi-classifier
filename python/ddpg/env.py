@@ -153,12 +153,12 @@ class Env(object):
 
 		if action[-1] > .95:
 			done = True
-			reward = 0
+			reward = -.3
 		else:
 			done = False
-			reward = 5*(self.last_loss - cur_loss) - .1 # + 20*(self.last_var - cur_var)
+			reward = np.clip(self.last_loss - cur_loss - .1, -100,100) # + 20*(self.last_var - cur_var)
 			self.last_loss = cur_loss
-			#self.last_var = cur_var
+			#self.last_var = cur_varf
 
 		next_state = self.get_state()
 		if get_crops:

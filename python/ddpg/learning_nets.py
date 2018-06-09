@@ -42,7 +42,7 @@ class ActorNetwork(object):
 		self.learn_rate = learn_rate
 
 		self.model, self.weights, self.state = self.create_actor_network(state_dim, action_size)   
-		self.target_model, _, _ = self.create_actor_network(state_dim, action_size) 
+		#self.target_model, _, _ = self.create_actor_network(state_dim, action_size) 
 		self.action_gradient = tf.placeholder(tf.float32,[None, action_size])
 		self.params_grad = tf.gradients(self.model.output, self.weights, -self.action_gradient)
 		grads = zip(self.params_grad, self.weights)
@@ -79,7 +79,7 @@ class CriticNetwork(object):
 		self.action_size = action_size
 
 		self.model, self.action, self.state = self.create_critic_network(state_dim, action_size)  
-		self.target_model, _, _ = self.create_critic_network(state_dim, action_size)  
+		#self.target_model, _, _ = self.create_critic_network(state_dim, action_size)  
 		self.action_grads = tf.gradients(self.model.output, self.action)  #GRADIENTS for policy update
 
 	def gradients(self, states, actions):
@@ -127,33 +127,25 @@ def common_network(state_dim):
 class UniformReplay(object):
     def __init__(self, buffer_size):
         self.buffer_size = buffer_size
-        self.num_experiences = 0
+        self.record_size = 0
         self.buffer = deque()
 
     def sample(self, batch_size):
         # Randomly sample batch_size examples
-        if self.num_experiences < batch_size:
-            return random.sample(self.buffer, self.num_experiences)
+        if self.record_size < batch_size:
+            return random.sample(self.buffer, self.record_size)
         else:
             return random.sample(self.buffer, batch_size)
 
-    def size(self):
-        return self.buffer_size
-
     def store(self, *args):
         experience = tuple(args)
-        if self.num_experiences < self.buffer_size:
+        if self.record_size < self.buffer_size:
             self.buffer.append(experience)
-            self.num_experiences += 1
+            self.record_size += 1
         else:
             self.buffer.popleft()
             self.buffer.append(experience)
 
-    def count(self):
-        # if buffer is full, return buffer size
-        # otherwise, return experience counter
-        return self.num_experiences
-
     def erase(self):
         self.buffer = deque()
-        self.num_experiences = 0
+        self.record_size = 0

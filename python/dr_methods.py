@@ -41,8 +41,9 @@ import niftiutils.transforms as tr
 import niftiutils.masks as masks
 import niftiutils.registration as reg
 
-importlib.reload(sm)
+importlib.reload(reg)
 importlib.reload(masks)
+importlib.reload(sm)
 C = config.Config("etiology")
 
 def autofill_cls_arg(func):
@@ -89,6 +90,26 @@ def report_missing_folders(cls=None):
 			if not exists(join(subfolder, ph)):
 				print(subfolder, "is missing")
 				break
+
+@autofill_cls_arg
+def tricolorize(cls=None, accnums=None, save_path="D:\\Etiology\\imgs\\tricolor"):
+	if not exists(save_path):
+		os.makedirs(save_path)
+
+	accnums = [x[:-4] for x in os.listdir(C.full_img_dir) if not x.endswith("seg.npy")]
+	for accnum in accnums:
+		I = np.load(join(C.full_img_dir, accnum+".npy"))
+		hf.save_tricolor_dcm(join(save_path, accnum), imgs=I)
+
+@autofill_cls_arg
+def tumor_cont(cls=None, accnums=None, save_path="D:\\Etiology\\imgs\\contours"):
+	if not exists(save_path):
+		os.makedirs(save_path)
+
+	accnums = [x[:-4] for x in os.listdir(C.full_img_dir) if not x.endswith("seg.npy")]
+	for accnum in accnums:
+		I = np.load(join(C.full_img_dir, accnum+".npy"))
+		hf.save_tricolor_dcm(join(save_path, accnum), imgs=I)
 
 ###########################
 ### METHODS FOR EXTRACTING VOIS FROM THE SPREADSHEET
@@ -145,9 +166,6 @@ def build_coords_df(accnum_xls_path, overwrite=False):
 			#ven,d = reg.reg_elastix(ven, art)
 			#equ,d = reg.reg_elastix(equ, art)
 
-			#I = np.stack([art, ven, equ],-1)
-			#save_path = join(r"D:\Multiphase-color", accnum)
-			#hf.save_tricolor_dcm(save_path, imgs=I)
 
 			for fn in glob.glob(join(load_dir, 'Segs', 'tumor_20s_*.ids')):
 				try:
@@ -168,8 +186,9 @@ def build_coords_df(accnum_xls_path, overwrite=False):
 		writer.save()
 
 @autofill_cls_arg
-def dcm2npy(cls=None, accnums=None, overwrite=False, verbose=False, downsample=1):
+def dcm2npy(cls=None, accnums=None, overwrite=False, verbose=False, exec_reg=True, save_seg=True, downsample=1):
 	"""Converts dcms to full-size npy, update dims_df. Requires coords_df."""
+
 	if exists(C.dims_df_path):
 		dims_df = pd.read_csv(C.dims_df_path, index_col=0)
 		dims_df.index = dims_df.index.map(str)
@@ -191,11 +210,6 @@ def dcm2npy(cls=None, accnums=None, overwrite=False, verbose=False, downsample=1
 	cls_num = C.cls_names.index(cls)
 
 	for cnt, accnum in enumerate(accnums):
-		#info = src_data_df.loc[src_data_df['acc #'].astype(str) == accnum]
-
-		#if len(info) == 0:
-		#	print(accnum, "not properly marked in the spreadsheet.")
-		#	continue
 		accnum = str(accnum)
 
 		save_path = join(C.full_img_dir, accnum + ".npy")
@@ -204,16 +218,16 @@ def dcm2npy(cls=None, accnums=None, overwrite=False, verbose=False, downsample=1
 
 		load_dir = join(C.dcm_dirs[cls_num], accnum)
 		try:
-			art,D = hf.load_img(join(load_dir, "nii_dir", "20s.nii.gz"))#hf.dcm_load(join(load_dir, C.phases[0]))
-			ven,_ = hf.load_img(join(load_dir, "nii_dir", "70s.nii.gz")) #hf.dcm_load(join(load_dir, C.phases[1]))
-			eq,_ = hf.load_img(join(load_dir, "nii_dir", "3min.nii.gz")) #hf.dcm_load(join(load_dir, C.phases[2]))
+			art,D = hf.load_img(join(load_dir, "nii_dir", "20s.nii.gz"))
+			ven,_ = hf.load_img(join(load_dir, "nii_dir", "70s.nii.gz"))
+			eq,_ = hf.load_img(join(load_dir, "nii_dir", "3min.nii.gz"))
 		except ValueError:
 			raise ValueError(load_dir + " cannot be loaded")
 
-		#if 'x3' not in info or np.all([np.isnan(x) for x in info['x3'].values]):
-		ven, _ = reg.reg_elastix(moving=ven, fixed=art, reg_type="rigid")
-		#if 'x5' not in info or np.all([np.isnan(x) for x in info['x5'].values]):
-		eq, _ = reg.reg_elastix(moving=eq, fixed=art, reg_type="rigid")
+		if exec_reg:
+			art, ven, eq, slice_shift = reg.crop_reg(art, ven, eq)
+		else:
+			slice_shift = 0
 
 		try:
 			img = np.stack((art, ven, eq), -1)
@@ -231,15 +245,17 @@ def dcm2npy(cls=None, accnums=None, overwrite=False, verbose=False, downsample=1
 			print(accnum)
 			raise ValueError
 
-		if verbose:
-			print("%d out of %d accession numbers loaded" % (cnt+1, len(accnums)))
-		elif cnt % 3 == 2:
-			print(".", end="")
+		np.save(join(C.full_img_dir, accnum+".npy"), img)
 
+		if save_seg:
+			sm.save_segs([accnum], downsample, slice_shift, art.shape[-1])
+
+		if cnt % 3 == 2:
+			print(".", end="")
 		dims_df.loc[accnum] = list(D)
 		dims_df.to_csv(C.dims_df_path)
 
-	load_vois(cls, accnums, overwrite)
+	#load_vois(cls, accnums, overwrite)
 
 @autofill_cls_arg
 def load_vois(cls=None, accnums=None, overwrite=False):
@@ -424,6 +440,7 @@ def load_patient_info(cls=None, accnums=None, overwrite=False, verbose=False):
 			patient_info_df.to_csv(C.patient_info_path, index=False)
 
 	patient_info_df.to_csv(C.patient_info_path, index=False)
+
 
 ###########################
 ### Public Subroutines
