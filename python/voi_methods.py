@@ -36,7 +36,7 @@ import niftiutils.masks as masks
 import niftiutils.transforms as tr
 import niftiutils.visualization as vis
 
-importlib.reload(tr)
+importlib.reload(drm)
 importlib.reload(masks)
 C = config.Config()
 
@@ -255,6 +255,41 @@ def save_vois_as_imgs(cls=None, lesion_ids=None, save_dir=None, normalize=None, 
 		imsave("%s\\%s%s%s.png" % (save_dir, fn_prefix, fn[:-4], suffix), rescale(ret, rescale_factor, mode='constant'))
 
 @drm.autofill_cls_arg
+def save_segs_as_imgs(cls=None, lesion_ids=None, save_dir=None, normalize=None, rescale_factor=3, fn_prefix="", fn_suffix=None, separate_by_cls=True):
+	"""Save all voi images as jpg."""
+	if separate_by_cls:
+		save_dir = join(save_dir, cls)
+		if fn_suffix is None:
+			fn_suffix = ""
+	if not exists(save_dir):
+		os.makedirs(save_dir)
+			
+	src_data_df = drm.get_coords_df(cls)
+	accnums = src_data_df["acc #"].values
+	lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir) if x[:x.find('_')] in accnums]
+
+	for fn in lesion_ids:
+		img = np.load(join(C.unaug_dir, fn+".npy"))
+		img_slice = img[:,:, img.shape[2]//2].astype(float)
+		img_slice = vis.normalize_img(img_slice, normalize)
+			
+		ch1 = np.transpose(img_slice[:,::-1,0], (1,0))
+		ch2 = np.transpose(img_slice[:,::-1,1], (1,0))
+		ch3 = np.transpose(img_slice[:,::-1,2], (1,0))
+
+		ret = np.empty([ch1.shape[0]*C.nb_channels, ch1.shape[1]])
+		ret[:ch1.shape[0],:] = ch1
+		ret[ch1.shape[0]:ch1.shape[0]*2,:] = ch2
+		ret[ch1.shape[0]*2:,:] = ch3
+		
+		if fn_suffix is None:
+			suffix = " (%s)" % cls
+		else:
+			suffix = fn_suffix
+
+		imsave("%s\\%s%s%s.png" % (save_dir, fn_prefix, fn, suffix), rescale(ret, rescale_factor, mode='constant'))
+
+@drm.autofill_cls_arg
 def save_imgs_with_bbox(cls=None, lesion_ids=None, save_dir=None, normalize=None, fixed_width=100, fn_prefix="", fn_suffix=None, separate_by_cls=True):
 	"""Save images of grossly cropped lesions with a bounding box around the tighter crop.
 	If fixed_width is None, the images are not scaled.
@@ -326,6 +361,7 @@ def save_imgs_with_bbox(cls=None, lesion_ids=None, save_dir=None, normalize=None
 			imsave("%s\\%s%s%s.png" % (save_dir, fn_prefix, lesion_id, suffix), ret)
 
 def padded_coords(small_voi_df, lesion_id):
+	"""Ideally should place the voi in the same place in the image"""
 	return _get_voi_coords(small_voi_df.loc[lesion_id])
 
 #####################################
@@ -338,20 +374,26 @@ def extract_seg_vois(accnums=None):
 	if accnums is None:
 		accnums = [x[:-4] for x in os.listdir(C.full_img_dir) if not x.endswith("seg.npy")]
 
+	dims_df = pd.read_csv(C.dims_df_path, index_col=0)
+	dims_df.index = dims_df.index.map(str)
+
 	for accnum in accnums:
 		if not exists(join(C.full_img_dir, accnum+"_tumorseg.npy")):
 			continue
-		I = np.load(join(C.full_img_dir, accnum+".npy"))
-		M_all = np.load(join(C.full_img_dir, accnum+"_tumorseg.npy"))
-		M_all = masks.split_mask(M_all)
-		for m_ix, M in enumerate(M_all):
-			if M.sum() < 50:
-				continue
-			try:
-				crop_img = masks.crop_vicinity(I,M, padding=.2)
+		try:
+			D = np.product(dims_df.loc[accnum].values)
+			I = np.load(join(C.full_img_dir, accnum+".npy"))
+			M_all = np.load(join(C.full_img_dir, accnum+"_tumorseg.npy"))
+			M_all = masks.split_mask(M_all)
+			for m_ix, M in enumerate(M_all):
+				V = M.sum()*D
+				if V < 1000 or V > 1000000: #1cc to 1000cc
+					continue
+				crop_img = masks.crop_vicinity(I,M, padding=.2, min_pad=10)
+				crop_img = tr.normalize_intensity(crop_img, max_intensity=1, min_intensity=-1)
 				np.save(join(C.crops_dir, accnum+"_%d.npy"%m_ix), crop_img)
-			except:
-				raise ValueError(accnum)
+		except:
+			print(accnum)
 
 def save_seg_set(accnums=None, overwrite=True, unaug=True, aug=True, num_cores=None):
 	if not exists(C.unaug_dir):
@@ -561,9 +603,12 @@ def _draw_bbox(img_slice, voi):
 	
 	return img_slice[dx:-dx,dy:-dy,:,:]
 
-def _augment_img(img, num_samples, voi=None, add_refl=False, save_name=None, overwrite=True):
-	"""For rescaling an img to final_dims while scaling to make sure the image contains the voi.
-	add_reflections and save_name cannot be used simultaneously"""
+def _augment_img(img, num_samples, voi=None, save_name=None, overwrite=True):
+	"""For rescaling an img to final_dims while scaling to make sure the image contains the voi."""
+	if np.min(img.shape[:-1]) < 8:
+		return
+	if C.pre_scale > 0:
+		img = tr.normalize_intensity(img, 1., -1., fraction=C.pre_scale)
 
 	if type(overwrite) == int:
 		start=overwrite
@@ -583,19 +628,13 @@ def _augment_img(img, num_samples, voi=None, add_refl=False, save_name=None, ove
 	
 	for img_num in range(start, num_samples):
 		if voi is not None:
-			scales = [random.uniform(scale_ratios[0]*buffer1, scale_ratios[0]*buffer2),
-					 random.uniform(scale_ratios[1]*buffer1, scale_ratios[1]*buffer2),
-					 random.uniform(scale_ratios[2]*buffer1, scale_ratios[2]*buffer2)]
-			
 			angle = random.randint(0, 359)
-		else:
 			scales = [random.uniform(scale_ratios[0]*buffer1, scale_ratios[0]*buffer2),
 					 random.uniform(scale_ratios[1]*buffer1, scale_ratios[1]*buffer2),
 					 random.uniform(scale_ratios[2]*buffer1, scale_ratios[2]*buffer2)]
-
-		trans = [random.randint(-C.translate[0], C.translate[0]),
-				 random.randint(-C.translate[1], C.translate[1]),
-				 random.randint(-C.translate[2], C.translate[2])]
+			trans = [random.randint(-C.translate[0], C.translate[0]),
+					 random.randint(-C.translate[1], C.translate[1]),
+					 random.randint(-C.translate[2], C.translate[2])]
 		
 		flip = [random.choice([-1, 1]), random.choice([-1, 1]), random.choice([-1, 1])]
 
@@ -631,9 +670,6 @@ def _augment_img(img, num_samples, voi=None, add_refl=False, save_name=None, ove
 			aug_imgs.append(temp_img)
 		else:
 			np.save(save_name + "_" + str(img_num), temp_img)
-		
-		if add_refl:
-			aug_imgs.append(tr.generate_reflected_img(temp_img))
 	
 	return aug_imgs
 
@@ -645,8 +681,6 @@ def _save_augmented_img(lesion_id, voi=None, overwrite=True):
 		return
 
 	img = np.load(join(C.crops_dir, lesion_id + ".npy"))
-	if C.pre_scale > 0:
-		img = tr.normalize_intensity(img, 1., -1., fraction=C.pre_scale)
 	_augment_img(img, C.aug_factor, voi=voi, save_name=join(C.aug_dir, lesion_id), overwrite=overwrite)
 
 def _get_voi_coords(small_voi_df_row):

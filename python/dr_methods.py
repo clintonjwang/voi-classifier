@@ -172,7 +172,7 @@ def build_coords_df(accnum_xls_path, overwrite=False):
 				  'x1', 'y1', 'z1', 'x2', 'y2', 'z2'])
 
 		for ix,accnum in enumerate(accnum_dict[category]):
-			load_dir = join(C.dcm_dirs[0], accnum)
+			"""load_dir = join(C.dcm_dirs[0], accnum)
 			if not exists(join(load_dir, 'Segs', 'tumor_20s_0.ids')):
 				masks.off2ids(join(load_dir, 'Segs', 'tumor_20s.off'))
 
@@ -194,7 +194,8 @@ def build_coords_df(accnum_xls_path, overwrite=False):
 				lesion_id = accnum + fn[fn.rfind('_'):-4]
 				coords_df.loc[lesion_id] = [accnum, "1", ""] + coords[0] + coords[1]
 				#	M = masks.get_mask(fn, D, img.shape)
-				#	M = hf.crop_nonzero(M, C)[0]
+				#	M = hf.crop_nonzero(M, C)[0]"""
+			coords_df.loc[accnum+"_0"] = [accnum, "1", ""] + [0]*6
 
 			print('.', end='')
 			if ix % 5 == 2:
@@ -223,8 +224,8 @@ def dcm2npy(cls=None, accnums=None, overwrite=False, verbose=False, exec_reg=Tru
 		accnums = list(set(src_data_df['acc #'].values))
 	elif type(accnums) != list:
 		accnums = list(accnums)
-	else:
-		accnums = set(accnums).intersection(src_data_df['acc #'].values)
+	#else:
+	#	accnums = set(accnums).intersection(src_data_df['acc #'].values)
 
 	cls_num = C.cls_names.index(cls)
 
@@ -240,29 +241,22 @@ def dcm2npy(cls=None, accnums=None, overwrite=False, verbose=False, exec_reg=Tru
 			art,D = hf.load_img(join(load_dir, "nii_dir", "20s.nii.gz"))
 			ven,_ = hf.load_img(join(load_dir, "nii_dir", "70s.nii.gz"))
 			eq,_ = hf.load_img(join(load_dir, "nii_dir", "3min.nii.gz"))
-		except ValueError:
-			raise ValueError(load_dir + " cannot be loaded")
 
-		if exec_reg:
-			art, ven, eq, slice_shift = reg.crop_reg(art, ven, eq)
-		else:
-			slice_shift = 0
+			if exec_reg:
+				art, ven, eq, slice_shift = reg.crop_reg(art, ven, eq)
+			else:
+				slice_shift = 0
 
-		try:
 			img = np.stack((art, ven, eq), -1)
-		except ValueError:
-			raise ValueError(accnum + " has a bad header")
 
-		if np.product(art.shape) > C.max_size:
-			downsample = 2
+			if np.product(art.shape) > C.max_size:
+				downsample = 2
 
-		try:
 			if downsample != 1:
 				img = tr.scale3d(img, [1/downsample, 1/downsample, 1])
 				D = [D[0]*downsample, D[1]*downsample, D[2]]
 		except:
-			print(accnum)
-			raise ValueError
+			raise ValueError(accnum)
 
 		np.save(join(C.full_img_dir, accnum+".npy"), img)
 

@@ -13,7 +13,7 @@ class Config:
 		self.test_run_num = 2
 		self.dims = [24,24,12]
 		self.nb_channels = 3
-		self.aug_factor = 10
+		self.aug_factor = 20
 
 		self.max_size = 350*350*100
 
@@ -113,6 +113,7 @@ class Hyperparams:
 	def __init__(self):
 		self.n = 4
 		self.n_art = 0
+		self.global_pool = True
 		self.steps_per_epoch = 750
 		self.epochs = 20
 		self.run_2d = False

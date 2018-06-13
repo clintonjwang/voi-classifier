@@ -60,36 +60,34 @@ def acc_logit(y_true, y_pred):
 	acc = K.abs(y_true[:,0] - K.cast(y_pred[:,0] < 0, 'float32'))
 	return acc
 
-def build_cnn_hyperparams(hyperparams):
-
+def build_cnn_hyperparams(T):
 	if C.probabilistic:
-		return build_prob_cnn(optimizer=hyperparams.optimizer,
-			padding=hyperparams.padding, pool_sizes=hyperparams.pool_sizes, dropout=hyperparams.dropout,
-			activation_type=hyperparams.activation_type, f=hyperparams.f, dense_units=hyperparams.dense_units,
-			kernel_size=hyperparams.kernel_size)
+		return build_prob_cnn(optimizer=T.optimizer,
+			padding=T.padding, pool_sizes=T.pool_sizes, dropout=T.dropout,
+			activation_type=T.activation_type, f=T.f, dense_units=T.dense_units,
+			kernel_size=T.kernel_size)
 	elif C.dual_img_inputs:
-		return build_dual_cnn(optimizer=hyperparams.optimizer,
-			padding=hyperparams.padding, pool_sizes=hyperparams.pool_sizes, dropout=hyperparams.dropout,
-			activation_type=hyperparams.activation_type, f=hyperparams.f, dense_units=hyperparams.dense_units,
-			kernel_size=hyperparams.kernel_size)
-	elif hyperparams.rcnn:
-		return build_rcnn(optimizer=hyperparams.optimizer,
-			padding=hyperparams.padding, pool_sizes=hyperparams.pool_sizes, dropout=hyperparams.dropout,
-			activation_type=hyperparams.activation_type, f=hyperparams.f, dense_units=hyperparams.dense_units,
-			kernel_size=hyperparams.kernel_size,
+		return build_dual_cnn(optimizer=T.optimizer,
+			padding=T.padding, pool_sizes=T.pool_sizes, dropout=T.dropout,
+			activation_type=T.activation_type, f=T.f, dense_units=T.dense_units,
+			kernel_size=T.kernel_size)
+	elif T.rcnn:
+		return build_rcnn(optimizer=T.optimizer,
+			padding=T.padding, pool_sizes=T.pool_sizes, dropout=T.dropout,
+			activation_type=T.activation_type, f=T.f, dense_units=T.dense_units,
+			kernel_size=T.kernel_size,
 			dual_inputs=C.non_imaging_inputs,
-			skip_con=hyperparams.skip_con)
+			skip_con=T.skip_con)
 	else:
-		return build_cnn(optimizer=hyperparams.optimizer,
-			padding=hyperparams.padding, pool_sizes=hyperparams.pool_sizes, dropout=hyperparams.dropout,
-			activation_type=hyperparams.activation_type, f=hyperparams.f, dense_units=hyperparams.dense_units,
-			kernel_size=hyperparams.kernel_size,
-			dual_inputs=C.non_imaging_inputs, run_2d=hyperparams.run_2d,
-			skip_con=hyperparams.skip_con)
+		return build_cnn(optimizer=T.optimizer,
+			padding=T.padding, pool_sizes=T.pool_sizes, dropout=T.dropout,
+			activation_type=T.activation_type, f=T.f, dense_units=T.dense_units,
+			kernel_size=T.kernel_size, dual_inputs=C.non_imaging_inputs,
+			skip_con=T.skip_con, global_pool=T.global_pool)
 
-def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same','same'], pool_sizes = [(2,2,2),(2,2,1)],
+def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same','same'], pool_sizes=[(2,2,2),(2,2,1)],
 	dropout=[0.1,0.1], activation_type='relu', f=[64,128,128], dense_units=100, kernel_size=(3,3,2),
-	dual_inputs=False, run_2d=False, stride=(1,1,1), skip_con=False, trained_model=None):
+	dual_inputs=False, global_pool=False, stride=(1,1,1), skip_con=False, trained_model=None):
 	"""Main class for setting up a CNN. Returns the compiled model."""
 
 	importlib.reload(config)
@@ -128,17 +126,14 @@ def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same','same'], 
 		return model
 
 
-	if not run_2d:
-		img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 3))
-	else:
-		img = Input(shape=(C.dims[0], C.dims[1], 3))
+	img = Input(shape=(*C.dims, 3))
 
 	art_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,0], axis=4))(img)
-	art_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0])(art_x)
+	art_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, padding=padding[0])(art_x)
 	ven_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,1], axis=4))(img)
-	ven_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0])(ven_x)
+	ven_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, padding=padding[0])(ven_x)
 	eq_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,2], axis=4))(img)
-	eq_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0])(eq_x)
+	eq_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, padding=padding[0])(eq_x)
 
 	x = Concatenate(axis=4)([art_x, ven_x, eq_x])
 	x = ActivationLayer(activation_args)(x)
@@ -157,13 +152,16 @@ def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same','same'], 
 		x = BatchNormalization()(x)
 		x = ActivationLayer(activation_args)(x)
 		x = Dropout(dropout[0])(x)
-	x = layers.MaxPooling3D(pool_sizes[1])(x)
-	x = Flatten()(x)
 
-	x = Dense(dense_units)(x)
-	x = BatchNormalization()(x)
-	x = Dropout(dropout[1])(x)
-	x = ActivationLayer(activation_args)(x)
+	if global_pool:
+		x = layers.GlobalAveragePooling3D()(x)
+	else:
+		x = layers.MaxPooling3D(pool_sizes[1])(x)
+		x = Flatten()(x)
+		x = Dense(dense_units)(x)
+		x = BatchNormalization()(x)
+		x = Dropout(dropout[1])(x)
+		x = ActivationLayer(activation_args)(x)
 
 	if dual_inputs:
 		non_img_inputs = Input(shape=(C.num_non_image_inputs,))
@@ -203,11 +201,11 @@ def build_prob_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same','sam
 	img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 3))
 
 	art_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,0], axis=4))(img)
-	art_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0])(art_x)
+	art_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, padding=padding[0])(art_x)
 	ven_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,1], axis=4))(img)
-	ven_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0])(ven_x)
+	ven_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, padding=padding[0])(ven_x)
 	eq_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,2], axis=4))(img)
-	eq_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0])(eq_x)
+	eq_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, padding=padding[0])(eq_x)
 
 	x = Concatenate(axis=4)([art_x, ven_x, eq_x])
 	x = ActivationLayer(activation_args)(x)
@@ -326,6 +324,54 @@ def build_rcnn(optimizer='adam', padding=['same','same'], pool_sizes = [(2,2,2),
 
 	return model
 
+def build_dense_ccn(f=[32,16,16,16], pool_sizes=[(2,2,2),(2,2,2)], dropout=[.1,.1]):
+	ActivationLayer = Activation
+	activation_args = 'relu'
+
+	inputs = Input(shape=(C.dims[0], C.dims[1], C.dims[2], C.nb_channels))
+	x = Reshape((*C.dims, C.nb_channels, 1))(inputs)
+	x = Permute((4,1,2,3,5))(x)
+
+	x = layers.TimeDistributed(layers.Conv3D(f[0], kernel_size=kernel_size, padding='same'))(x)
+	x = layers.BatchNormalization()(x)
+	x = ActivationLayer(activation_args)(x)
+
+	for layer_num in range(len(f)):
+		x = layers.TimeDistributed(layers.Conv3D(f[layer_num], kernel_size=kernel_size, padding='same'))(x)
+		x = layers.TimeDistributed(layers.Dropout(dropout[0]))(x)
+		x = ActivationLayer(activation_args)(x)
+		x = layers.TimeDistributed(layers.BatchNormalization(axis=4))(x)
+		if layer_num == 0:
+			x = TimeDistributed(layers.MaxPooling3D(pool_sizes[0]))(x)
+
+	x = layers.TimeDistributed(layers.MaxPooling3D(pool_sizes[1]))(x)
+	x = layers.TimeDistributed(Flatten())(x)
+
+	#x = SimpleRNN(128, return_sequences=True)(x)
+	x = layers.SimpleRNN(dense_units)(x)
+	x = layers.BatchNormalization()(x)
+	x = layers.Dropout(dropout[1])(x)
+	x = Dense(dense_units)(x)
+	x = BatchNormalization()(x)
+	x = Dropout(dropout[1])(x)
+	x = ActivationLayer(activation_args)(x)
+
+	if dual_inputs:
+		non_img_inputs = Input(shape=(C.num_non_image_inputs,))
+		#y = Dense(20)(non_img_inputs)
+		#y = BatchNormalization()(y)
+		#y = Dropout(dropout[1])(y)
+		#y = ActivationLayer(activation_args)(y)
+		x = Concatenate(axis=1)([x, non_img_inputs])
+		model = Model([inputs, non_img_inputs], pred_class)
+		
+	else:
+		pred_class = Dense(nb_classes, activation='softmax')(x)
+		model = Model(inputs, pred_class)
+
+	if first_layer == 0:
+		model.compile(optimizer=optimizer, loss='categorical_crossentropy', metrics=['accuracy'])
+
 def build_dual_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same','same'], pool_sizes = [(2,2,2), (2,2,2)],
 	dropout=[0.1,0.1], activation_type='relu', f=[64,128,128], dense_units=100, kernel_size=(3,3,2), stride=(1,1,1)):
 	"""Main class for setting up a CNN. Returns the compiled model."""
@@ -391,7 +437,6 @@ def pretrain_cnn(trained_model, padding=['same','same'], pool_sizes=[(2,2,2), (2
 	last_layer=-2, add_activ=False, training=True, debug=False):
 	"""Sets up CNN with pretrained weights"""
 
-
 	dilation_rate=(1,1,1)
 
 	ActivationLayer = Activation
@@ -402,13 +447,13 @@ def pretrain_cnn(trained_model, padding=['same','same'], pool_sizes=[(2,2,2), (2
 	img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 3))
 
 	art_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,0], axis=4))(img)
-	art_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0], trainable=False)(art_x)
+	art_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, padding=padding[0], trainable=False)(art_x)
 
 	ven_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,1], axis=4))(img)
-	ven_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0], trainable=False)(ven_x)
+	ven_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, padding=padding[0], trainable=False)(ven_x)
 
 	eq_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,2], axis=4))(img)
-	eq_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0], trainable=False)(eq_x)
+	eq_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, padding=padding[0], trainable=False)(eq_x)
 
 	#if padding != ['same', 'same']:
 	#   art_x = BatchNormalization(trainable=False)(art_x, training=training)
@@ -531,17 +576,17 @@ def pretrain_model_back(trained_model, dilation_rate=(1,1,1), padding=['same', '
 	img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 3))
 
 	art_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,0], axis=4))(img)
-	art_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0], trainable=False)(art_x)
+	art_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, padding=padding[0], trainable=False)(art_x)
 	art_x = BatchNormalization(trainable=False)(art_x)
 	art_x = ActivationLayer(activation_args)(art_x)
 
 	ven_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,1], axis=4))(img)
-	ven_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0], trainable=False)(ven_x)
+	ven_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, padding=padding[0], trainable=False)(ven_x)
 	ven_x = BatchNormalization(trainable=False)(ven_x)
 	ven_x = ActivationLayer(activation_args)(ven_x)
 
 	eq_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,2], axis=4))(img)
-	eq_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, dilation_rate=dilation_rate, padding=padding[0], trainable=False)(eq_x)
+	eq_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, padding=padding[0], trainable=False)(eq_x)
 	eq_x = BatchNormalization(trainable=False)(eq_x)
 	eq_x = ActivationLayer(activation_args)(eq_x)
 
@@ -581,15 +626,11 @@ def pretrain_model_back(trained_model, dilation_rate=(1,1,1), padding=['same', '
 ### Load Data
 ####################################
 
-def get_cnn_data(n=4, n_art=0, run_2d=False, Z_test_fixed=None, verbose=False):
+def get_cnn_data(n=4, use_vois=True, Z_test_fixed=None, verbose=False):
 	"""Subroutine to run CNN
-	n is number of real samples, n_art is number of artificial samples
+	n is number of real samples
 	Z_test is filenames"""
-	importlib.reload(config)
-
-
-	nb_classes = len(C.cls_names)
-	orig_data_dict, num_samples = _collect_unaug_data()
+	orig_data_dict, num_samples = _collect_unaug_data(use_vois)
 
 	train_ids = {} #filenames of training set originals
 	test_ids = {} #filenames of test set
@@ -637,8 +678,8 @@ def get_cnn_data(n=4, n_art=0, run_2d=False, Z_test_fixed=None, verbose=False):
 				  (cls, train_samples[cls], train_samples[cls] * C.aug_factor, num_samples[cls] - train_samples[cls]))
 
 
-	Y_test = np_utils.to_categorical(Y_test, nb_classes)
-	Y_train_orig = np_utils.to_categorical(Y_train_orig, nb_classes)
+	Y_test = np_utils.to_categorical(Y_test, C.nb_classes)
+	Y_train_orig = np_utils.to_categorical(Y_train_orig, C.nb_classes)
 	if C.dual_img_inputs or C.non_imaging_inputs:
 		X_test = [np.array(X_test), np.array(X2_test)]
 		X_train_orig = [np.array(X_train_orig), np.array(X2_train_orig)]
@@ -652,13 +693,11 @@ def get_cnn_data(n=4, n_art=0, run_2d=False, Z_test_fixed=None, verbose=False):
 	Z_test = np.array(Z_test)
 	Z_train_orig = np.array(Z_train_orig)
 
-	train_generator = _train_generator_func(test_ids, n=n)
+	train_generator = _train_generator_func(test_ids, n=n, use_vois=use_vois)
 
 	return X_test, Y_test, train_generator, num_samples, [X_train_orig, Y_train_orig], [Z_test, Z_train_orig]
 
 def load_data_capsnet(n=2, Z_test_fixed=None):
-
-
 	nb_classes = len(C.cls_names)
 	orig_data_dict, num_samples = _collect_unaug_data()
 
@@ -668,7 +707,6 @@ def load_data_capsnet(n=2, Z_test_fixed=None):
 	Z_test = []
 
 	train_samples = {}
-
 
 	if Z_test_fixed is not None:
 		orders = {cls: np.where(np.isin(orig_data_dict[cls][1], Z_test_fixed)) for cls in orig_data_dict}
@@ -700,7 +738,7 @@ def load_data_capsnet(n=2, Z_test_fixed=None):
 ####################################
 
 def _train_gen_capsnet(test_ids, n=4):
-	"""n is the number of samples from each class, n_art is the number of artificial samples"""
+	"""n is the number of samples from each class"""
 
 
 
@@ -711,12 +749,12 @@ def _train_gen_capsnet(test_ids, n=4):
 
 		train_cnt = 0
 		for cls in C.cls_names:
-			img_fns = os.listdir(C.aug_dir+cls)
+			img_fns = os.listdir(C.aug_dir)
 			while n > 0:
 				img_fn = random.choice(img_fns)
 				lesion_id = img_fn[:img_fn.rfind('_')]
 				if lesion_id not in test_ids[cls]:
-					x1[train_cnt] = np.load(C.aug_dir+cls+"\\"+img_fn)
+					x1[train_cnt] = np.load(join(C.aug_dir, img_fn))
 					
 					y[train_cnt][C.cls_names.index(cls)] = 1
 					
@@ -808,10 +846,16 @@ def _train_gen_cls(test_accnums):
 
 		yield (x, np.array(y), voi["cls"].values[0])
 
-def _train_generator_func(test_ids, n=12):
-	"""n is the number of samples from each class, n_art is the number of artificial samples"""
+def _train_generator_func(test_ids, n=12, use_vois=True):
+	"""n is the number of samples from each class"""
 
-	voi_df = drm.get_voi_dfs()[0]
+	if use_vois:
+		voi_df = drm.get_voi_dfs()[0]
+	else:
+		accnums = {}
+		for cls in C.cls_names:
+			src_data_df = drm.get_coords_df(cls)
+			accnums[cls] = src_data_df["acc #"].values
 
 	#avg_X2 = {}
 	#for cls in orig_data_dict:
@@ -823,7 +867,7 @@ def _train_generator_func(test_ids, n=12):
 
 	num_classes = len(C.cls_names)
 	while True:
-		x1 = np.empty((n*num_classes, C.dims[0], C.dims[1], C.dims[2], C.nb_channels))
+		x1 = np.empty((n*num_classes, *C.dims, C.nb_channels))
 		y = np.zeros((n*num_classes, num_classes))
 
 		if C.dual_img_inputs:
@@ -833,12 +877,14 @@ def _train_generator_func(test_ids, n=12):
 
 		train_cnt = 0
 		for cls in C.cls_names:
-			img_fns = os.listdir(C.aug_dir+cls)
+			if use_vois:
+				raise ValueError("Not ready")
+			img_fns = [fn for fn in os.listdir(C.aug_dir) if fn[:fn.find('_')] in accnums[cls]]
 			while n > 0:
 				img_fn = random.choice(img_fns)
 				lesion_id = img_fn[:img_fn.rfind('_')]
 				if lesion_id not in test_ids[cls]:
-					x1[train_cnt] = np.load(C.aug_dir+cls+"\\"+img_fn)
+					x1[train_cnt] = np.load(join(C.aug_dir, img_fn))
 					try:
 						if C.post_scale > 0:
 							x1[train_cnt] = tr.normalize_intensity(x1[train_cnt], 1., -1., C.post_scale)
@@ -846,7 +892,7 @@ def _train_generator_func(test_ids, n=12):
 						vm.reset_accnum(lesion_id[:lesion_id.find('_')])
 
 					if C.dual_img_inputs:
-						tmp = np.load(os.path.join(C.crops_dir, cls, lesion_id+".npy"))
+						tmp = np.load(join(C.crops_dir, lesion_id+".npy"))
 						x2[train_cnt] = tr.rescale_img(tmp, C.context_dims)[0]
 
 					elif C.non_imaging_inputs:
@@ -896,21 +942,20 @@ def _separate_phases(X, non_imaging_inputs=False):
 
 	return X
 
-def _collect_unaug_data():
+def _collect_unaug_data(use_vois=True):
 	"""Return dictionary pointing to X (img data) and Z (filenames) and dictionary storing number of samples of each class."""
-
-
 	orig_data_dict = {}
 	num_samples = {}
-	voi_df = drm.get_voi_dfs()[0]
-	voi_df = voi_df[voi_df["run_num"] <= C.test_run_num]
+	if use_vois:
+		voi_df = drm.get_voi_dfs()[0]
+		voi_df = voi_df[voi_df["run_num"] <= C.test_run_num]
 
 	if C.non_imaging_inputs:
 		patient_info_df = pd.read_csv(C.patient_info_path)
 		patient_info_df["AccNum"] = patient_info_df["AccNum"].astype(str)
 
 	for cls in C.cls_names:
-		x = np.empty((10000, C.dims[0], C.dims[1], C.dims[2], C.nb_channels))
+		x = np.empty((10000, *C.dims, C.nb_channels))
 		z = []
 
 		if C.dual_img_inputs:
@@ -918,10 +963,16 @@ def _collect_unaug_data():
 		elif C.non_imaging_inputs:
 			x2 = np.empty((10000, C.num_non_image_inputs))
 
-		lesion_ids = [x for x in voi_df[voi_df["cls"] == cls].index if exists(os.path.join(C.unaug_dir, cls, x+".npy"))]
+		if use_vois:
+			lesion_ids = [x for x in voi_df[voi_df["cls"] == cls].index if exists(join(C.unaug_dir, x+".npy"))]
+		else:
+			src_data_df = drm.get_coords_df(cls)
+			accnums = src_data_df["acc #"].values
+			lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir) if x[:x.find('_')] in accnums]
 
+		index = 0
 		for index, lesion_id in enumerate(lesion_ids):
-			img_path = os.path.join(C.unaug_dir, cls, lesion_id+".npy")
+			img_path = join(C.unaug_dir, lesion_id+".npy")
 			try:
 				x[index] = np.load(img_path)
 				if C.post_scale > 0:
@@ -931,7 +982,7 @@ def _collect_unaug_data():
 			z.append(lesion_id)
 			
 			if C.dual_img_inputs:
-				tmp = np.load(os.path.join(C.crops_dir, cls, lesion_id+".npy"))
+				tmp = np.load(join(C.crops_dir, lesion_id+".npy"))
 				x2[index] = tr.rescale_img(tmp, C.context_dims)[0]
 
 			elif C.non_imaging_inputs:
@@ -1060,7 +1111,7 @@ def _collect_unaug_demogr():
 		z = []
 
 		for index, lesion_id in enumerate(voi_df[voi_df["cls"] == cls].index):
-			img_path = os.path.join(C.unaug_dir, cls, lesion_id+".npy")
+			img_path = join(C.unaug_dir, lesion_id+".npy")
 			try:
 				x[index] = np.load(img_path)
 				if C.post_scale > 0:
@@ -1087,7 +1138,7 @@ def _collect_unaug_demogr():
 	return orig_data_dict, num_samples
 
 def _train_gen_demogr(test_ids, n):
-	"""n is the number of samples from each class, n_art is the number of artificial samples"""
+	"""n is the number of samples from each class"""
 
 
 	voi_df = drm.get_voi_dfs()[0]
@@ -1101,12 +1152,12 @@ def _train_gen_demogr(test_ids, n):
 
 		train_cnt = 0
 		for cls in C.cls_names:
-			img_fns = os.listdir(C.aug_dir+cls)
+			img_fns = os.listdir(C.aug_dir)
 			while n > train_cnt:
 				img_fn = random.choice(img_fns)
 				lesion_id = img_fn[:img_fn.rfind('_')]
 				if lesion_id not in test_ids[cls] and lesion_id in voi_df.index:
-					x1[train_cnt] = np.load(C.aug_dir+cls+"\\"+img_fn)
+					x1[train_cnt] = np.load(join(C.aug_dir, img_fn))
 
 					voi_row = voi_df.loc[lesion_id]
 					patient_row = patient_info_df[patient_info_df["AccNum"] == voi_row["acc_num"]]
@@ -1129,5 +1180,3 @@ if __name__ == '__main__':
 	parser.add_argument('-m', '--max_runs', type=int, help='max number of runs to allow')
 	#parser.add_argument('-o', '--overwrite', action='store_true', help='overwrite')
 	args = parser.parse_args()
-
-	run_fixed_hyperparams(max_runs=args.max_runs)
