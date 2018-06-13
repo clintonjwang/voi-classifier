@@ -244,8 +244,6 @@ def build_rcnn(optimizer='adam', padding=['same','same'], pool_sizes = [(2,2,2),
 	dual_inputs=False, skip_con=False, trained_model=None, first_layer=0, last_layer=0, add_activ=False, debug=False):
 	"""Main class for setting up a CNN. Returns the compiled model."""
 
-
-
 	if activation_type == 'elu':
 		ActivationLayer = ELU
 		activation_args = 1

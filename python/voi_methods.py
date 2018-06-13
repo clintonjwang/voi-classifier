@@ -32,11 +32,14 @@ from skimage.transform import rescale, resize
 import config
 import dr_methods as drm
 import niftiutils.helper_fxns as hf
+import niftiutils.masks as masks
 import niftiutils.transforms as tr
 import niftiutils.visualization as vis
 
-importlib.reload(hf)
+importlib.reload(tr)
+importlib.reload(masks)
 C = config.Config()
+
 #####################################
 ### QC methods
 #####################################
@@ -329,6 +332,55 @@ def padded_coords(small_voi_df, lesion_id):
 ### Data Creation
 #####################################
 
+def extract_seg_vois(accnums=None):
+	if not exists(C.crops_dir):
+		os.makedirs(C.crops_dir)
+	if accnums is None:
+		accnums = [x[:-4] for x in os.listdir(C.full_img_dir) if not x.endswith("seg.npy")]
+
+	for accnum in accnums:
+		if not exists(join(C.full_img_dir, accnum+"_tumorseg.npy")):
+			continue
+		I = np.load(join(C.full_img_dir, accnum+".npy"))
+		M_all = np.load(join(C.full_img_dir, accnum+"_tumorseg.npy"))
+		M_all = masks.split_mask(M_all)
+		for m_ix, M in enumerate(M_all):
+			if M.sum() < 50:
+				continue
+			try:
+				crop_img = masks.crop_vicinity(I,M, padding=.2)
+				np.save(join(C.crops_dir, accnum+"_%d.npy"%m_ix), crop_img)
+			except:
+				raise ValueError(accnum)
+
+def save_seg_set(accnums=None, overwrite=True, unaug=True, aug=True, num_cores=None):
+	if not exists(C.unaug_dir):
+		os.makedirs(C.unaug_dir)
+	if not exists(C.aug_dir):
+		os.makedirs(C.aug_dir)
+
+	if accnums is None:
+		lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir)]
+	else:
+		lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir) if x[:x.find('_')] in accnums]
+
+	if unaug:
+		for ix, lesion_id in enumerate(lesion_ids):
+			if not overwrite and exists(join(C.unaug_dir, lesion_id+".npy")):
+				continue
+			I = np.load(join(C.crops_dir, lesion_id+".npy"))
+			I = tr.rescale_img(I, C.dims)
+			np.save(join(C.unaug_dir, lesion_id), I)
+
+	if aug:
+		if num_cores is None:
+			num_cores = multiprocessing.cpu_count() - 1
+		if num_cores > 1:
+			Parallel(n_jobs=num_cores)(delayed(_save_augmented_img)(lesion_id, overwrite=overwrite) for lesion_id in lesion_ids)
+		else:
+			for lesion_id in lesion_ids:
+				_save_augmented_img(lesion_id, overwrite=overwrite)
+
 @drm.autofill_cls_arg
 def extract_vois(cls=None, accnums=None, overwrite=False):
 	"""Produces grossly cropped but unscaled versions of the images.
@@ -425,7 +477,7 @@ def save_augmented_set(cls=None, accnums=None, num_cores=None, overwrite=True):
 	if accnums is not None:
 		lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir) if x[:x.find('_')] in accnums]
 		for lesion_id in lesion_ids:
-			_save_augmented_img(lesion_id, cls, _get_voi_coords(small_voi_df.loc[lesion_id]), overwrite=overwrite)
+			_save_augmented_img(lesion_id, _get_voi_coords(small_voi_df.loc[lesion_id]), overwrite=overwrite)
 
 	else:
 		lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir) if x[:-4] in small_voi_df.index]
@@ -435,12 +487,12 @@ def save_augmented_set(cls=None, accnums=None, num_cores=None, overwrite=True):
 			num_cores = multiprocessing.cpu_count() - 1
 
 		if num_cores > 1:
-			Parallel(n_jobs=num_cores)(delayed(_save_augmented_img)(lesion_id, cls,
+			Parallel(n_jobs=num_cores)(delayed(_save_augmented_img)(lesion_id,
 				_get_voi_coords(small_voi_df.loc[lesion_id]),
 				overwrite=overwrite) for lesion_id in lesion_ids)
 		else:
 			for lesion_id in lesion_ids:
-				_save_augmented_img(lesion_id, cls, _get_voi_coords(small_voi_df.loc[lesion_id]), overwrite=overwrite)
+				_save_augmented_img(lesion_id, _get_voi_coords(small_voi_df.loc[lesion_id]), overwrite=overwrite)
 
 		print(cls, time.time()-t)
 
@@ -509,7 +561,7 @@ def _draw_bbox(img_slice, voi):
 	
 	return img_slice[dx:-dx,dy:-dy,:,:]
 
-def _augment_img(img, voi, num_samples, add_reflections=False, save_name=None, overwrite=True):
+def _augment_img(img, num_samples, voi=None, add_refl=False, save_name=None, overwrite=True):
 	"""For rescaling an img to final_dims while scaling to make sure the image contains the voi.
 	add_reflections and save_name cannot be used simultaneously"""
 
@@ -517,42 +569,59 @@ def _augment_img(img, voi, num_samples, add_reflections=False, save_name=None, o
 		start=overwrite
 	else:
 		start=0
-
-	final_dims = C.dims
 	
-	buffer1 = C.lesion_ratio-.1
-	buffer2 = C.lesion_ratio+.1
-	scale_ratios = get_scale_ratios(voi, lesion_ratio=1)
+	if voi is not None:
+		buffer1 = C.lesion_ratio-.1
+		buffer2 = C.lesion_ratio+.1
+		scale_ratios = get_scale_ratios(voi, lesion_ratio=1)
+	else:
+		scale_ratios = [1]*3
+		buffer1 = 1.
+		buffer2 = 1.2
 
 	aug_imgs = []
 	
 	for img_num in range(start, num_samples):
-		scales = [random.uniform(scale_ratios[0]*buffer1, scale_ratios[0]*buffer2),
-				 random.uniform(scale_ratios[1]*buffer1, scale_ratios[1]*buffer2),
-				 random.uniform(scale_ratios[2]*buffer1, scale_ratios[2]*buffer2)]
-		
-		angle = random.randint(0, 359)
-		
+		if voi is not None:
+			scales = [random.uniform(scale_ratios[0]*buffer1, scale_ratios[0]*buffer2),
+					 random.uniform(scale_ratios[1]*buffer1, scale_ratios[1]*buffer2),
+					 random.uniform(scale_ratios[2]*buffer1, scale_ratios[2]*buffer2)]
+			
+			angle = random.randint(0, 359)
+		else:
+			scales = [random.uniform(scale_ratios[0]*buffer1, scale_ratios[0]*buffer2),
+					 random.uniform(scale_ratios[1]*buffer1, scale_ratios[1]*buffer2),
+					 random.uniform(scale_ratios[2]*buffer1, scale_ratios[2]*buffer2)]
+
 		trans = [random.randint(-C.translate[0], C.translate[0]),
 				 random.randint(-C.translate[1], C.translate[1]),
 				 random.randint(-C.translate[2], C.translate[2])]
 		
 		flip = [random.choice([-1, 1]), random.choice([-1, 1]), random.choice([-1, 1])]
 
-		temp_img = tr.scale3d(img, scales)
-		temp_img = tr.rotate(temp_img, angle)
+		if voi is None:
+			temp_img = img[::flip[0], ::flip[1], ::flip[2], ...]
+			temp_img = temp_img[random.randint(0,2):random.randint(-3,-1),
+								random.randint(0,2):random.randint(-3,-1),
+								random.randint(0,2):random.randint(-3,-1), ...]
+			temp_img = tr.rescale_img(temp_img, C.dims)
+			temp_img = tr.rotate(temp_img, random.choice([0, 90, 180, 270]), axis=0)
+			temp_img = tr.rotate(temp_img, random.choice([0, 90, 180, 270]), axis=1)
+			temp_img = tr.rotate(temp_img, random.choice([0, 90, 180, 270]), axis=-1)
+		else:
+			temp_img = tr.scale3d(img, scales)
 
-		crops = [temp_img.shape[i] - final_dims[i] for i in range(3)]
-	
-		for i in range(3):
-			assert crops[i]>=0
+			crops = [temp_img.shape[i] - C.dims[i] for i in range(3)]
+		
+			for i in range(3):
+				assert crops[i]>=0
 
-		#temp_img = add_noise(temp_img)
+			#temp_img = add_noise(temp_img)
 
-		temp_img = tr.offset_phases(temp_img, max_offset=2, max_z_offset=1)
-		temp_img = temp_img[crops[0]//2 *flip[0] + trans[0] : -crops[0]//2 *flip[0] + trans[0] : flip[0],
-							crops[1]//2 *flip[1] + trans[1] : -crops[1]//2 *flip[1] + trans[1] : flip[1],
-							crops[2]//2 *flip[2] + trans[2] : -crops[2]//2 *flip[2] + trans[2] : flip[2], :]
+			temp_img = tr.offset_phases(temp_img, max_offset=2, max_z_offset=1)
+			temp_img = temp_img[crops[0]//2 *flip[0] + trans[0] : -crops[0]//2 *flip[0] + trans[0] : flip[0],
+								crops[1]//2 *flip[1] + trans[1] : -crops[1]//2 *flip[1] + trans[1] : flip[1],
+								crops[2]//2 *flip[2] + trans[2] : -crops[2]//2 *flip[2] + trans[2] : flip[2], :]
 		
 		temp_img[:,:,:,0] = temp_img[:,:,:,0] * random.gauss(1,C.intensity_scaling[0]) + random.gauss(0,C.intensity_scaling[1])
 		temp_img[:,:,:,1] = temp_img[:,:,:,1] * random.gauss(1,C.intensity_scaling[0]) + random.gauss(0,C.intensity_scaling[1])
@@ -563,24 +632,22 @@ def _augment_img(img, voi, num_samples, add_reflections=False, save_name=None, o
 		else:
 			np.save(save_name + "_" + str(img_num), temp_img)
 		
-		if add_reflections:
+		if add_refl:
 			aug_imgs.append(tr.generate_reflected_img(temp_img))
 	
 	return aug_imgs
 
-def _save_augmented_img(lesion_id, cls, voi_coords, overwrite=True):
+def _save_augmented_img(lesion_id, voi=None, overwrite=True):
 	"""Written in a way to allow partial overwriting"""
-
 	if lesion_id.find('.') != -1:
 		lesion_id = lesion_id[:-4]
-
 	if not overwrite and exists(join(C.aug_dir, lesion_id + "_0.npy")):
 		return
 
 	img = np.load(join(C.crops_dir, lesion_id + ".npy"))
 	if C.pre_scale > 0:
 		img = tr.normalize_intensity(img, 1., -1., fraction=C.pre_scale)
-	_augment_img(img, voi_coords, num_samples=C.aug_factor, save_name=join(C.aug_dir, lesion_id), overwrite=overwrite)
+	_augment_img(img, C.aug_factor, voi=voi, save_name=join(C.aug_dir, lesion_id), overwrite=overwrite)
 
 def _get_voi_coords(small_voi_df_row):
 	return small_voi_df_row[["x1","x2","y1","y2","z1","z2"]].values

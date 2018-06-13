@@ -83,8 +83,8 @@ class CRSNet(object): #ClsRegSegNet
 
 	def load_models(self, replay_conf):
 		TAU = .01     #Target Network update weight
-		LRA = .0001    #Learning rate for Actor
-		LRC = .0002    #Learning rate for Critic
+		LRA = .0002    #Learning rate for Actor
+		LRC = .0003    #Learning rate for Critic
 		LRU = .0007    #Learning rate for Unet
 
 		BATCH_SIZE = replay_conf["batch_size"]

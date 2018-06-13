@@ -33,6 +33,7 @@ from os.path import *
 
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 
 import config
 import seg_methods as sm
@@ -40,6 +41,7 @@ import niftiutils.helper_fxns as hf
 import niftiutils.transforms as tr
 import niftiutils.masks as masks
 import niftiutils.registration as reg
+import niftiutils.visualization as vis
 
 importlib.reload(reg)
 importlib.reload(masks)
@@ -91,25 +93,42 @@ def report_missing_folders(cls=None):
 				print(subfolder, "is missing")
 				break
 
-@autofill_cls_arg
-def tricolorize(cls=None, accnums=None, save_path="D:\\Etiology\\imgs\\tricolor"):
+def tricolorize(accnums=None, save_path="D:\\Etiology\\imgs\\tricolor"):
 	if not exists(save_path):
 		os.makedirs(save_path)
 
-	accnums = [x[:-4] for x in os.listdir(C.full_img_dir) if not x.endswith("seg.npy")]
+	if accnums is None:
+		accnums = [x[:-4] for x in os.listdir(C.full_img_dir) if not x.endswith("seg.npy")]
 	for accnum in accnums:
 		I = np.load(join(C.full_img_dir, accnum+".npy"))
 		hf.save_tricolor_dcm(join(save_path, accnum), imgs=I)
 
-@autofill_cls_arg
-def tumor_cont(cls=None, accnums=None, save_path="D:\\Etiology\\imgs\\contours"):
+def tumor_cont(accnums=None, save_path="D:\\Etiology\\imgs\\contours"):
 	if not exists(save_path):
 		os.makedirs(save_path)
 
-	accnums = [x[:-4] for x in os.listdir(C.full_img_dir) if not x.endswith("seg.npy")]
+	if accnums is None:
+		accnums = [x[:-4] for x in os.listdir(C.full_img_dir) if not x.endswith("seg.npy")]
 	for accnum in accnums:
-		I = np.load(join(C.full_img_dir, accnum+".npy"))
-		hf.save_tricolor_dcm(join(save_path, accnum), imgs=I)
+		if not exists(join(C.full_img_dir, accnum+"_tumorseg.npy")):
+			continue
+		I = np.load(join(C.full_img_dir, accnum+".npy"))[...,0]
+		M = np.load(join(C.full_img_dir, accnum+"_tumorseg.npy"))
+		M = masks.get_largest_mask(M)
+		
+		try:
+			#Z = masks.crop_vicinity(I,M, padding=.1, add_mask_cont=True)
+			I,crops = masks.crop_vicinity(I,M, padding=.1, return_crops=True)
+			M = hf.crop_nonzero(M, crops)[0]
+			sl = I.shape[2]//2
+			Z = vis.create_contour_img(I[...,sl], M[...,sl])
+
+			fig = plt.imshow(np.transpose(Z, (1,0,2)))
+			fig.axes.get_xaxis().set_visible(False)
+			fig.axes.get_yaxis().set_visible(False)
+			plt.savefig(join(save_path, accnum+".png"), dpi=150)
+		except:
+			print(accnum)
 
 ###########################
 ### METHODS FOR EXTRACTING VOIS FROM THE SPREADSHEET

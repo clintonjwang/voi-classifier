@@ -153,10 +153,14 @@ class Env(object):
 
 		if action[-1] > .95:
 			done = True
-			reward = -.3
+			reward = -.7
 		else:
 			done = False
-			reward = np.clip(self.last_loss - cur_loss - .1, -100,100) # + 20*(self.last_var - cur_var)
+			if self.last_loss > cur_loss:
+				reward = 5*(self.last_loss - cur_loss) # + 20*(self.last_var - cur_var)
+			else:
+				reward = self.last_loss - cur_loss - .1 # + 20*(self.last_var - cur_var)
+
 			self.last_loss = cur_loss
 			#self.last_var = cur_varf
 
