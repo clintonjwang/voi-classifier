@@ -13,7 +13,8 @@ class Config:
 		self.test_run_num = 2
 		self.dims = [24,24,12]
 		self.nb_channels = 3
-		self.aug_factor = 20
+		self.aug_factor = 25
+		self.aleatoric = False
 
 		self.max_size = 350*350*100
 

@@ -907,9 +907,11 @@ def _train_generator_func(test_ids, n=12, use_vois=True):
 						break
 
 		if C.dual_img_inputs or C.non_imaging_inputs:
-			yield [np.array(x1), np.array(x2)], np.array(y) #[np.array(x1), np.array(x2)], np.array(y) #
+			yield [np.array(x1), np.array(x2)], np.array(y)
+		elif C.aleatoric:
+			yield [np.array(x1), np.array(y)], None
 		else:
-			yield np.array(x1), np.array(y) #[np.array(x1), np.array(x2)], np.array(y) #
+			yield np.array(x1), np.array(y)
 
 def _separate_phases(X, non_imaging_inputs=False):
 	"""Assumes X[0] contains imaging and X[1] contains dimension data.

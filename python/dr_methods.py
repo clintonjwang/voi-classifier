@@ -152,7 +152,7 @@ def off2ids_batch(accnum_xls_path=None, accnum_dict=None):
 			masks.off2ids(join(load_dir, 'Segs', 'tumor_20s.off'), R=[2,2,3])
 			masks.off2ids(join(load_dir, 'Segs', 'liver.off'), R=[3,3,4], num_foci=1)
 
-def build_coords_df(accnum_xls_path, overwrite=False):
+def build_coords_df(accnum_xls_path):
 	"""Builds all coords from scratch, without the ability to add or change individual coords"""
 	input_df = pd.read_excel(accnum_xls_path,
 				 sheetname="Prelim Analysis Patients", index_col=0, parse_cols="A,J")
@@ -163,13 +163,13 @@ def build_coords_df(accnum_xls_path, overwrite=False):
 
 	for category in C.sheetnames:
 		print(category)
-		if exists(C.coord_xls_path):
-			coords_df = pd.read_excel(C.coord_xls_path, sheet_name=category, index_col=0)
-			if not overwrite:
-				accnum_dict[category] = list(set(accnum_dict[category]).difference(coords_df['acc #'].values.astype(str)))
-		else:
-			coords_df = pd.DataFrame(columns=['acc #', 'Run', 'Flipped', 
-				  'x1', 'y1', 'z1', 'x2', 'y2', 'z2'])
+		#if exists(C.coord_xls_path):
+		#	coords_df = pd.read_excel(C.coord_xls_path, sheet_name=category, index_col=0)
+		#	if not overwrite:
+		#		accnum_dict[category] = list(set(accnum_dict[category]).difference(coords_df['acc #'].values.astype(str)))
+		#else:
+		coords_df = pd.DataFrame(columns=['acc #', 'Run', 'Flipped', 
+			  'x1', 'y1', 'z1', 'x2', 'y2', 'z2'])
 
 		for ix,accnum in enumerate(accnum_dict[category]):
 			"""load_dir = join(C.dcm_dirs[0], accnum)
@@ -243,7 +243,7 @@ def dcm2npy(cls=None, accnums=None, overwrite=False, verbose=False, exec_reg=Tru
 			eq,_ = hf.load_img(join(load_dir, "nii_dir", "3min.nii.gz"))
 
 			if exec_reg:
-				art, ven, eq, slice_shift = reg.crop_reg(art, ven, eq)
+				art, ven, eq, slice_shift = reg.crop_reg(art, ven, eq)#, "bspline", num_iter=30)
 			else:
 				slice_shift = 0
 

@@ -33,28 +33,28 @@ import scipy.stats
 import dr_methods as drm
 import voi_methods as vm
 
+importlib.reload(cbuild)
+C = config.Config()
+
 ###########################
 ### Higher-level methods
 ###########################
 
 def feature_id_bulk(model_nums):
-	importlib.reload(cbuild)
-	C = config.Config()
-
 	orig_data_dict, num_samples = cbuild._collect_unaug_data()
-
+	#num_annotations = 10
+	
 	features_by_cls, feat_count = collect_features()
-	feat_count.pop("homogeneous texture")
+	#feat_count.pop("homogeneous texture")
 	#feat_count.pop("central scar")
 	all_features = sorted(list(feat_count.keys()))
 	cls_features = {f: [c for c in C.cls_names if f in features_by_cls[c]] for f in all_features}
 
 	Z_features = get_annotated_files(features_by_cls)
-	Z_features.pop("homogeneous texture")
+	#Z_features.pop("homogeneous texture")
 	#Z_features.pop("central scar")
 
 	Z_test = ['E103312835_1','12823036_0','12569915_0','E102093118_0','E102782525_0','12799652_0','E100894274_0','12874178_3','E100314676_0','12842070_0','13092836_2','12239783_0','12783467_0','13092966_0','E100962970_0','E100183257_1','E102634440_0','E106182827_0','12582632_0','E100121654_0','E100407633_0','E105310461_0','12788616_0','E101225606_0','12678910_1','E101083458_1','12324408_0','13031955_0','E101415263_0','E103192914_0','12888679_2','E106096969_0','E100192709_1','13112385_1','E100718398_0','12207268_0','E105244287_0','E102095465_0','E102613189_0','12961059_0','11907521_0','E105311123_0','12552705_0','E100610622_0','12975280_0','E105918926_0','E103020139_1','E101069048_1','E105427046_0','13028374_0','E100262351_0','12302576_0','12451831_0','E102929168_0','E100383453_0','E105344747_0','12569826_0','E100168661_0','12530153_0','E104697262_0']
-	num_annotations = 10
 	num_features = len(all_features) # number of features
 
 	all_imgs = [orig_data_dict[cls][0] for cls in C.cls_names]
@@ -67,9 +67,9 @@ def feature_id_bulk(model_nums):
 	x_test = all_imgs[test_indices]
 	z_test = all_lesionids[test_indices]
 
-	voi_df = drm.get_voi_dfs()[0]
-	lesion_sizes = [np.product(voi_df.loc[z, ["real_dx","real_dy","real_dz"]].values)**(1/3) for z in z_test]
-	size_cutoff = np.percentile(np.product(voi_df.loc[voi_df["cls"]=="fnh", ["real_dx","real_dy","real_dz"]].values,1)**(1/3), 75)
+	#voi_df = drm.get_voi_dfs()[0]
+	#lesion_sizes = [np.product(voi_df.loc[z, ["real_dx","real_dy","real_dz"]].values)**(1/3) for z in z_test]
+	#size_cutoff = np.percentile(np.product(voi_df.loc[voi_df["cls"]=="fnh", ["real_dx","real_dy","real_dz"]].values,1)**(1/3), 75)
 
 	full_dfs = []
 
@@ -77,23 +77,21 @@ def feature_id_bulk(model_nums):
 		model = keras.models.load_model(join(C.model_dir, "model_reader_new%d.hdf5" % model_ix)) #models_305
 		model_dense = cbuild.pretrain_cnn(model, padding=['same','valid'], last_layer=-2, add_activ=True)
 
-		fixed_indices = np.empty([num_features, num_annotations])
+		"""fixed_indices = np.empty([num_features, num_annotations])
 		for f_ix,f in enumerate(all_features):
 			if not np.all(np.isin(Z_features[f], all_lesionids)):
 				print(f,set(Z_features[f]).difference(all_lesionids))
 			fixed_indices[f_ix, :] = np.where(np.isin(all_lesionids, random.sample(set(Z_features[f]), num_annotations)))[0]
-		fixed_indices = fixed_indices.astype(int)
+		fixed_indices = fixed_indices.astype(int)"""
 
 		all_dense = get_overall_activations(model_dense, orig_data_dict)
 		feature_dense = get_feature_activations(model_dense, Z_features, all_features)
-		df = predict_test_features(model, model_dense, all_dense, feature_dense, x_test, z_test, size_cutoff, lesion_sizes)
+		df = predict_test_features(model, model_dense, all_dense, feature_dense, x_test, z_test)#, size_cutoff, lesion_sizes)
 		full_dfs.append(df)
 
 	return full_dfs
 
 def process_feat_id_dfs(all_features, DFs):
-	C = config.Config()
-	
 	num_features = len(all_features) # number of features
 	data_dir = r"C:\Users\Clinton\Documents\voi-classifier\data"
 	answer_key = join(data_dir, "ground_truth.xlsx")
@@ -386,9 +384,6 @@ def get_rotations(x, front_model, rcnn=False):
 ###########################
 
 def get_overall_activations(model_dense, orig_data_dict, models_conv=None, aug_factor=20, dense_u=100, L=[64,128,128]):
-	C = config.Config()
-
-	voi_df = drm.get_voi_dfs()[0]
 	Z = np.concatenate([orig_data_dict[cls][1] for cls in C.cls_names], 0)
 	num_samples = aug_factor*len(Z)
 
@@ -401,9 +396,8 @@ def get_overall_activations(model_dense, orig_data_dict, models_conv=None, aug_f
 	all_conv1_ch = np.empty([num_samples,L[0]*3])
 
 	for img_id in range(len(Z)):
-		voi_row = voi_df.loc[Z[img_id]]
 		for aug_id in range(aug_factor):
-			img = np.load(join(C.aug_dir, voi_row['cls'], "%s_%d.npy" % (Z[img_id], aug_id)))
+			img = np.load(join(C.aug_dir, "%s_%d.npy" % (Z[img_id], aug_id)))
 			img = np.expand_dims(img, 0)
 			ix = img_id*aug_factor + aug_id
 			
@@ -433,9 +427,6 @@ def get_overall_activations(model_dense, orig_data_dict, models_conv=None, aug_f
 		return all_dense, all_conv3_ch, all_conv3_sh, all_conv2_ch, all_conv2_sh, all_conv1_ch, all_conv1_sh
 
 def get_feature_activations(model_dense, Z_features, all_features, models_conv=None, aug_factor=100, dense_u=100, L=[64,128,128]):
-	C = config.Config()
-
-	voi_df = drm.get_voi_dfs()[0]
 	feature_dense = {f:np.empty([0,dense_u]) for f in all_features}
 	feature_conv3_sh = {f:np.empty([0,L[2]*4]) for f in all_features}
 	feature_conv3_ch = {f:np.empty([0,L[2]]) for f in all_features}
@@ -445,9 +436,8 @@ def get_feature_activations(model_dense, Z_features, all_features, models_conv=N
 	for f in all_features:
 		Z = Z_features[f]
 		for img_id in range(len(Z)):
-			voi_row = voi_df.loc[Z[img_id]]
 			for aug_id in range(aug_factor):
-				img = np.load(os.path.join(C.aug_dir, voi_row['cls'], "%s_%d.npy" % (Z[img_id], aug_id)))
+				img = np.load(os.path.join(C.aug_dir, "%s_%d.npy" % (Z[img_id], aug_id)))
 				
 				activ = model_dense.predict(np.expand_dims(img, 0))
 				feature_dense[f] = np.concatenate([feature_dense[f], activ], axis=0)
@@ -470,14 +460,13 @@ def get_feature_activations(model_dense, Z_features, all_features, models_conv=N
 
 def predict_test_features(full_model, model_dense, all_dense, feature_dense, x_test, z_test,
 		size_cutoff=None, lesion_sizes=None, models_conv=None, dense_u=100, L=[64,128,128]):
-	C = config.Config()
+	
 	df = pd.DataFrame(columns=['true_cls', 'pred_cls'] + \
 				[s for i in range(1,5) for s in ['feature_%d' % i,'strength_%d' % i]])
 
 	all_features = list(feature_dense.keys())
 	num_features = len(all_features)
 
-	voi_df = drm.get_voi_dfs()[0]
 	all_neurons = all_dense #np.concatenate([all_conv1_ch, all_conv2_ch, all_conv3_ch, all_dense], axis=1)
 	m = all_neurons.mean(axis=0)
 	all_cov = np.cov(all_neurons.T)
@@ -507,9 +496,6 @@ def predict_test_features(full_model, model_dense, all_dense, feature_dense, x_t
 		test_conv2_ch = np.empty([0,L[1]])
 		test_conv1_ch = np.empty([0,L[0]*3])
 		z = z_test[img_ix]
-		voi_row = voi_df.loc[z]
-		cls = voi_row['cls']
-		row = [cls]
 
 		x = np.expand_dims(x_test[img_ix], axis=0)
 		preds = full_model.predict(x, verbose=False)[0]
@@ -519,7 +505,7 @@ def predict_test_features(full_model, model_dense, all_dense, feature_dense, x_t
 		p_f = np.empty(num_features)
 		aug_factor = 100
 		for aug_id in range(aug_factor):
-			img = np.load(os.path.join(C.aug_dir, cls, "%s_%d.npy" % (z, aug_id)))
+			img = np.load(os.path.join(C.aug_dir, "%s_%d.npy" % (z, aug_id)))
 
 			activ = model_dense.predict(np.expand_dims(img, 0))
 			test_dense = np.concatenate([test_dense, activ], axis=0)
@@ -551,27 +537,28 @@ def predict_test_features(full_model, model_dense, all_dense, feature_dense, x_t
 			
 		evidence = {all_features[f_ix]: p_f[f_ix] for f_ix in range(num_features)}
 		
-		f1='infiltrative growth'
-		f2='nodular growth'
-		evidence[f1] -= 40
-		evidence[f2] -= 40
-		if evidence[f1] < evidence[f2]:
+		if False:
+			f1='infiltrative growth'
+			f2='nodular growth'
 			evidence[f1] -= 40
-		else:
-			evidence[f2] -= 20
+			evidence[f2] -= 40
+			if evidence[f1] < evidence[f2]:
+				evidence[f1] -= 40
+			else:
+				evidence[f2] -= 20
 
-		f3='central scar'
-		if lesion_sizes[img_ix] < size_cutoff:
-			evidence[f3] -= 150
-		else:
-			evidence[f3] -= 35
-		
-		f4='isointense on venous/delayed phase'
-		f5='washout'
-		if evidence[f4] < evidence[f5]:
-			evidence.pop(f4)
-		else:
-			evidence.pop(f5)
+			f3='central scar'
+			if lesion_sizes[img_ix] < size_cutoff:
+				evidence[f3] -= 150
+			else:
+				evidence[f3] -= 35
+			
+			f4='isointense on venous/delayed phase'
+			f5='washout'
+			if evidence[f4] < evidence[f5]:
+				evidence.pop(f4)
+			else:
+				evidence.pop(f5)
 
 		#top4 = np.array(sorted(evidence.items(), key=lambda x:x[1], reverse=True)[:4])[:,0]
 		#if 'heterogeneous lesion' not in top4:
@@ -596,7 +583,7 @@ def predict_test_features(full_model, model_dense, all_dense, feature_dense, x_t
 ###########################
 
 def tsne(filter_results):
-	C = config.Config()
+	
 
 	X = []
 	z = [0]
@@ -627,8 +614,10 @@ def tsne(filter_results):
 ###########################
 
 def collect_features():
-	C = config.Config()
-	feature_sheet = pd.read_excel(C.coord_xls_path, "Descriptions")
+	try:
+		feature_sheet = pd.read_excel(C.coord_xls_path, "Descriptions")
+	except:
+		feature_sheet = pd.read_excel(r"D:\Etiology\excel\features.xlsx")
 
 	features_by_cls = {}
 	feat_count = {}
@@ -642,9 +631,11 @@ def collect_features():
 
 	return features_by_cls, feat_count
 
-def get_annotated_files(features_by_cls, num_samples=10):
-	C = config.Config()
-	feature_sheet = pd.read_excel(C.coord_xls_path, "Descriptions")
+def get_annotated_files(features_by_cls):
+	try:
+		feature_sheet = pd.read_excel(C.coord_xls_path, "Descriptions")
+	except:
+		feature_sheet = pd.read_excel(r"D:\Etiology\excel\features.xlsx")
 
 	Z_features_by_cls = {cls: {} for cls in features_by_cls}
 	Z_features = {}
@@ -740,7 +731,7 @@ def visualize_activations(model, save_path, target_values, init_img=None, rotate
 	channel_ixs is the set of channels to optimize over; keep as None to use the whole layer
 	Original code by the Keras Team at
 	https://github.com/keras-team/keras/blob/master/examples/conv_filter_visualization.py"""
-	C = config.Config()
+	
 
 	layer_dict = dict([(layer.name, layer) for layer in model.layers[1:]])
 
@@ -805,7 +796,7 @@ def visualize_layer_weighted(model, layer_name, save_path, channel_weights=None,
 	channel_ixs is the set of channels to optimize over; keep as None to use the whole layer
 	Original code by the Keras Team at
 	https://github.com/keras-team/keras/blob/master/examples/conv_filter_visualization.py"""
-	C = config.Config()
+	
 
 	layer_dict = dict([(layer.name, layer) for layer in model.layers[1:]])
 
@@ -856,7 +847,7 @@ def visualize_layer(model, layer_name, save_path, channel_ixs=None, init_img=Non
 	from keras import backend as K
 	K.set_learning_phase(0)
 
-	C = config.Config()
+	
 
 	layer_dict = dict([(layer.name, layer) for layer in model.layers[1:]])
 
@@ -908,7 +899,7 @@ def visualize_channel(model, layer_name, save_path, num_ch=None):
 	num_ch is the number of channels to optimize over; keep as None to use the whole layer
 	Original code by the Keras Team at
 	https://github.com/keras-team/keras/blob/master/examples/conv_filter_visualization.py"""
-	C = config.Config()
+	
 
 	layer_dict = dict([(layer.name, layer) for layer in model.layers[1:]])
 
@@ -952,13 +943,11 @@ def visualize_channel(model, layer_name, save_path, num_ch=None):
 ### FOR OUTPUTTING IMAGES AFTER TRAINING
 ###########################
 
-def save_output(Z, y_pred, y_true, C=None, save_dir=None):
+def save_output(Z, y_pred, y_true, save_dir=None):
 	"""Saves large and small cropped images of all lesions in Z.
 	Uses y_true and y_pred to separate correct and incorrect predictions.
 	Requires C.cls_names, C.output_img_dir, C.crops_dir, C.orig_dir"""
 
-	if C is None:
-		C = config.Config()
 	if save_dir is None:
 		save_dir = C.output_img_dir
 
@@ -982,7 +971,7 @@ def save_output(Z, y_pred, y_true, C=None, save_dir=None):
 
 def merge_classes(y_true, y_pred, cls_mapping=None):
 	"""From lists y_true and y_pred with class numbers, """
-	C = config.Config()
+	
 
 	if cls_mapping is None:
 		cls_mapping = C.cls_names

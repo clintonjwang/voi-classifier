@@ -44,15 +44,13 @@ C = config.Config()
 ### QC methods
 #####################################
 
-def plot_check(num, lesion_id=None, cls=None, normalize=[-.8,.5]):
+def plot_check(num, lesion_id=None, normalize=[-.8,.5]):
 	"""Plot the unscaled, cropped or augmented versions of a lesion.
 	Lesion selected at random from cls if lesion_id is None.
 	Either lesion_id or cls must be specified.
 	If accession number is put instead of lesion_id, picks the first lesion."""
 	if lesion_id.find('_') == -1:
 		lesion_id += '_0'
-
-	cls = pd.read_csv(C.small_voi_path, index_col=0).loc[lesion_id, "cls"].values[0]
 		
 	if num == 0:
 		img = np.load(join(C.full_img_dir, lesion_id[:lesion_id.find('_')] + ".npy"))
@@ -67,6 +65,14 @@ def plot_check(num, lesion_id=None, cls=None, normalize=[-.8,.5]):
 	vis.draw_slices(img, normalize=normalize)
 
 	return img
+
+def remove_lesion_id(lesion_id):
+	for fn in glob.glob(join(C.crops_dir, lesion_id+"*")):
+		os.remove(fn)
+	for fn in glob.glob(join(C.unaug_dir, lesion_id+"*")):
+		os.remove(fn)
+	for fn in glob.glob(join(C.aug_dir, lesion_id+"*")):
+		os.remove(fn)
 
 @drm.autofill_cls_arg
 def xref_dirs_with_excel(cls=None, fix_inplace=True):
@@ -255,7 +261,7 @@ def save_vois_as_imgs(cls=None, lesion_ids=None, save_dir=None, normalize=None, 
 		imsave("%s\\%s%s%s.png" % (save_dir, fn_prefix, fn[:-4], suffix), rescale(ret, rescale_factor, mode='constant'))
 
 @drm.autofill_cls_arg
-def save_segs_as_imgs(cls=None, lesion_ids=None, save_dir=None, normalize=None, rescale_factor=3, fn_prefix="", fn_suffix=None, separate_by_cls=True):
+def save_segs_as_imgs(cls=None, lesion_ids=None, save_dir="D:\\Etiology\\screenshots", normalize=None, rescale_factor=3, fn_prefix="", fn_suffix=None, separate_by_cls=True):
 	"""Save all voi images as jpg."""
 	if separate_by_cls:
 		save_dir = join(save_dir, cls)
@@ -273,9 +279,9 @@ def save_segs_as_imgs(cls=None, lesion_ids=None, save_dir=None, normalize=None, 
 		img_slice = img[:,:, img.shape[2]//2].astype(float)
 		img_slice = vis.normalize_img(img_slice, normalize)
 			
-		ch1 = np.transpose(img_slice[:,::-1,0], (1,0))
-		ch2 = np.transpose(img_slice[:,::-1,1], (1,0))
-		ch3 = np.transpose(img_slice[:,::-1,2], (1,0))
+		ch1 = np.transpose(img_slice[:,:,0], (1,0))
+		ch2 = np.transpose(img_slice[:,:,1], (1,0))
+		ch3 = np.transpose(img_slice[:,:,2], (1,0))
 
 		ret = np.empty([ch1.shape[0]*C.nb_channels, ch1.shape[1]])
 		ret[:ch1.shape[0],:] = ch1
@@ -605,8 +611,6 @@ def _draw_bbox(img_slice, voi):
 
 def _augment_img(img, num_samples, voi=None, save_name=None, overwrite=True):
 	"""For rescaling an img to final_dims while scaling to make sure the image contains the voi."""
-	if np.min(img.shape[:-1]) < 8:
-		return
 	if C.pre_scale > 0:
 		img = tr.normalize_intensity(img, 1., -1., fraction=C.pre_scale)
 
@@ -640,9 +644,12 @@ def _augment_img(img, num_samples, voi=None, save_name=None, overwrite=True):
 
 		if voi is None:
 			temp_img = img[::flip[0], ::flip[1], ::flip[2], ...]
-			temp_img = temp_img[random.randint(0,2):random.randint(-3,-1),
-								random.randint(0,2):random.randint(-3,-1),
-								random.randint(0,2):random.randint(-3,-1), ...]
+			
+			if np.min(img.shape[:-1]) > 8:
+				temp_img = temp_img[random.randint(0,2):random.randint(-3,-1),
+									random.randint(0,2):random.randint(-3,-1),
+									random.randint(0,2):random.randint(-3,-1), ...]
+
 			temp_img = tr.rescale_img(temp_img, C.dims)
 			temp_img = tr.rotate(temp_img, random.choice([0, 90, 180, 270]), axis=0)
 			temp_img = tr.rotate(temp_img, random.choice([0, 90, 180, 270]), axis=1)
