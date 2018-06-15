@@ -698,7 +698,6 @@ def get_cnn_data(n=4, use_vois=True, Z_test_fixed=None, verbose=False):
 	return X_test, Y_test, train_generator, num_samples, [X_train_orig, Y_train_orig], [Z_test, Z_train_orig]
 
 def load_data_capsnet(n=2, Z_test_fixed=None):
-	nb_classes = len(C.cls_names)
 	orig_data_dict, num_samples = _collect_unaug_data()
 
 	test_ids = {} #filenames of test set
@@ -727,7 +726,7 @@ def load_data_capsnet(n=2, Z_test_fixed=None):
 		Y_test += [cls_num] * (num_samples[cls] - train_samples[cls])
 		Z_test = Z_test + test_ids[cls]
 
-	Y_test = np_utils.to_categorical(Y_test, nb_classes)
+	Y_test = np_utils.to_categorical(Y_test, C.nb_classes)
 	X_test = np.array(X_test)
 	Z_test = np.array(Z_test)
 
@@ -739,13 +738,9 @@ def load_data_capsnet(n=2, Z_test_fixed=None):
 
 def _train_gen_capsnet(test_ids, n=4):
 	"""n is the number of samples from each class"""
-
-
-
-	num_classes = len(C.cls_names)
 	while True:
-		x1 = np.empty((n*num_classes, *C.dims, C.nb_channels))
-		y = np.zeros((n*num_classes, num_classes))
+		x1 = np.empty((n*C.nb_classes, *C.dims, C.nb_channels))
+		y = np.zeros((n*C.nb_classes, C.nb_classes))
 
 		train_cnt = 0
 		for cls in C.cls_names:
@@ -865,15 +860,14 @@ def _train_generator_func(test_ids, n=12, use_vois=True):
 		patient_info_df = pd.read_csv(C.patient_info_path)
 		patient_info_df["AccNum"] = patient_info_df["AccNum"].astype(str)
 
-	num_classes = len(C.cls_names)
 	while True:
-		x1 = np.empty((n*num_classes, *C.dims, C.nb_channels))
-		y = np.zeros((n*num_classes, num_classes))
+		x1 = np.empty((n*C.nb_classes, *C.dims, C.nb_channels))
+		y = np.zeros((n*C.nb_classes, C.nb_classes))
 
 		if C.dual_img_inputs:
-			x2 = np.empty((n*num_classes, *C.context_dims, C.nb_channels))
+			x2 = np.empty((n*C.nb_classes, *C.context_dims, C.nb_channels))
 		elif C.non_imaging_inputs:
-			x2 = np.empty((n*num_classes, C.num_non_image_inputs))
+			x2 = np.empty((n*C.nb_classes, C.num_non_image_inputs))
 
 		train_cnt = 0
 		for cls in C.cls_names:

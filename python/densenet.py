@@ -169,11 +169,11 @@ def DenseNet(depth=22, nb_dense_block=3, growth_rate=16, nb_filter=32, dropout_r
 												 beta_regularizer=l2(w_decay))(x)
 	x = Activation('relu')(x)
 	x = GlobalAveragePooling3D(data_format=K.image_data_format())(x)
-	x = Dense(C.nb_classes+1)(x)
-	"""x = Dense(C.nb_classes,
-						activation='softmax',
-						kernel_regularizer=l2(w_decay),
-						bias_regularizer=l2(w_decay))(x)"""
+	#x = Dense(C.nb_classes+1)(x)
+	x = Dense(C.nb_classes,
+			activation='softmax',
+			kernel_regularizer=l2(w_decay),
+			bias_regularizer=l2(w_decay))(x)
 
 	densenet = Model(inputs=[model_input], outputs=[x], name="DenseNet")
 	densenet.compile(optimizer=Adam(lr=0.001), loss='categorical_crossentropy', metrics=['accuracy'])

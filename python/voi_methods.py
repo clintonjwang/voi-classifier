@@ -44,7 +44,7 @@ C = config.Config()
 ### QC methods
 #####################################
 
-def plot_check(num, lesion_id=None, normalize=[-.8,.5]):
+def plot_check(num, lesion_id=None, normalize=[-1,1]):
 	"""Plot the unscaled, cropped or augmented versions of a lesion.
 	Lesion selected at random from cls if lesion_id is None.
 	Either lesion_id or cls must be specified.
@@ -644,7 +644,7 @@ def _augment_img(img, num_samples, voi=None, save_name=None, overwrite=True):
 
 		if voi is None:
 			temp_img = img[::flip[0], ::flip[1], ::flip[2], ...]
-			
+
 			if np.min(img.shape[:-1]) > 8:
 				temp_img = temp_img[random.randint(0,2):random.randint(-3,-1),
 									random.randint(0,2):random.randint(-3,-1),

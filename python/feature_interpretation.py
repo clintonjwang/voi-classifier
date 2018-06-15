@@ -464,6 +464,12 @@ def predict_test_features(full_model, model_dense, all_dense, feature_dense, x_t
 	df = pd.DataFrame(columns=['true_cls', 'pred_cls'] + \
 				[s for i in range(1,5) for s in ['feature_%d' % i,'strength_%d' % i]])
 
+	lesion_ids = {}
+	for cls in C.cls_names:
+	    src_data_df = drm.get_coords_df(cls)
+	    accnums = src_data_df["acc #"].values
+	    lesion_ids[cls] = [x[:-4] for x in os.listdir(C.crops_dir) if x[:x.find('_')] in accnums]
+
 	all_features = list(feature_dense.keys())
 	num_features = len(all_features)
 
@@ -496,6 +502,10 @@ def predict_test_features(full_model, model_dense, all_dense, feature_dense, x_t
 		test_conv2_ch = np.empty([0,L[1]])
 		test_conv1_ch = np.empty([0,L[0]*3])
 		z = z_test[img_ix]
+		for cls in C.cls_names:
+			if z in lesion_ids[cls]:
+				row = [cls]
+				break
 
 		x = np.expand_dims(x_test[img_ix], axis=0)
 		preds = full_model.predict(x, verbose=False)[0]
@@ -503,7 +513,7 @@ def predict_test_features(full_model, model_dense, all_dense, feature_dense, x_t
 		row.append(C.cls_names[list(preds).index(max(preds))])
 
 		p_f = np.empty(num_features)
-		aug_factor = 100
+		aug_factor = 25
 		for aug_id in range(aug_factor):
 			img = np.load(os.path.join(C.aug_dir, "%s_%d.npy" % (z, aug_id)))
 
