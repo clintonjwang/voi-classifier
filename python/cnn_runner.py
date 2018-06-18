@@ -12,10 +12,11 @@ from keras.callbacks import EarlyStopping
 from keras.optimizers import Adam
 from keras.utils import np_utils
 
-import argparse
+import importlib
 import feature_interpretation as cnna
 import cnn_builder as cbuild
 import copy
+import glob
 import config
 import niftiutils.helper_fxns as hf
 import math
@@ -23,6 +24,7 @@ from math import log, ceil
 import numpy as np
 import operator
 import os
+from os.path import *
 import pandas as pd
 import random
 from scipy.misc import imsave
@@ -36,6 +38,9 @@ import voi_methods as vm
 ####################################
 ### OVERNIGHT PROCESSES
 ####################################
+
+importlib.reload(config)
+C = config.Config()
 
 def hyperband():
 	# https://arxiv.org/abs/1603.06560
@@ -74,19 +79,26 @@ def get_run_stats_csv():
 			"acc6cls", "acc3cls", "time_elapsed(s)", "loss_hist"] + \
 			C.cls_names + \
 			['confusion_matrix', 'timestamp',
-			'misclassified_test', 'misclassified_train', 'model_num',
+			'miscls_test', 'miscls_train', 'model_num',
 			'y_true', 'y_pred_raw', 'z_test'])
 
 	return running_stats
 
-def run_fixed_hyperparams(overwrite=False, max_runs=999, hyperparams=None):
+def run_fixed_hyperparams(overwrite=False, max_runs=999, T=None, model_name='models_'):
 	"""Runs the CNN for max_runs times, saving performance metrics."""
-	C_list = [config.Config()]
 
+	def _get_hyperparams_as_list(T):
+		return [T.n, T.steps_per_epoch, T.epochs,
+				C.test_num, C.aug_factor, C.non_img_inputs,
+				T.kernel_size, T.f, T.padding,
+				T.dropout, T.dense_units, T.pool_sizes]
+
+	if overwrite and exists(C.run_stats_path):
+		os.remove(C.run_stats_path)
 	running_stats = get_run_stats_csv()
 	index = len(running_stats)
 
-	model_names = os.listdir(C_list[0].model_dir)
+	model_names = glob.glob(join(C.model_dir, model_name+"*"))
 	if len(model_names) > 0:
 		model_num = max([int(x[x.find('_')+1:x.find('.')]) for x in model_names if 'reader' not in x]) + 1
 	else:
@@ -95,82 +107,52 @@ def run_fixed_hyperparams(overwrite=False, max_runs=999, hyperparams=None):
 	running_acc_6 = []
 	running_acc_3 = []
 	early_stopping = EarlyStopping(monitor='loss', min_delta=0.002, patience=3)
-	time_dist = True
 
 	C_index = 0
 	while index < max_runs:
-		C = C_list[C_index % len(C_list)]
 		#run_then_return_val_loss(num_iters=1, hyperparams=None)
 
-		if hyperparams is not None:
-			T = hyperparams
+		if T is None:
+			T = config.Hyperparams()
 
-			X_test, Y_test, train_generator, num_samples, train_orig, Z = cbuild.get_cnn_data(n=T.n,
-						run_2d=T.run_2d)
-			Z_test, Z_train_orig = Z
-			X_train_orig, Y_train_orig = train_orig
-			model = cbuild.build_cnn_hyperparams(T)
-			#print(model.summary())
-			#return
-			t = time.time()
-			hist = model.fit_generator(train_generator, steps_per_epoch=T.steps_per_epoch,
-					epochs=T.epochs, callbacks=[T.early_stopping], verbose=False)
-			loss_hist = hist.history['loss']
-
-		else:
-			X_test, Y_test, train_generator, num_samples, train_orig, Z = cbuild.get_cnn_data(n=n[C_index % len(n)],
-						run_2d=run_2d)
-			Z_test, Z_train_orig = Z
-			X_train_orig, Y_train_orig = train_orig
-		#for _ in range(cycle_len):
-			model = cbuild.build_cnn('adam', activation_type=activation_type[index % len(activation_type)],
-					f=f[index % len(f)], pool_sizes=pool_sizes,
-					padding=padding[index % len(padding)], dropout=dropout[index % len(dropout)],
-					dense_units=dense_units[index % len(dense_units)], kernel_size=kernel_size[index % len(kernel_size)],
-					merge_layer=merge_layer[index % len(merge_layer)], dual_inputs=C.non_imaging_inputs)
-		
-			t = time.time()
-			hist = model.fit_generator(train_generator, steps_per_epoch=steps_per_epoch[index % len(steps_per_epoch)],
-					epochs=epochs[index % len(epochs)], callbacks=[early_stopping], verbose=False)
-			loss_hist = hist.history['loss']
+		X_test, Y_test, train_generator, num_samples, train_orig, Z = cbuild.get_cnn_data(n=T.n)
+		Z_test, Z_train_orig = Z
+		X_train_orig, Y_train_orig = train_orig
+		model = cbuild.build_cnn_hyperparams(T)
+		#print(model.summary())
+		#return
+		t = time.time()
+		hist = model.fit_generator(train_generator, steps_per_epoch=T.steps_per_epoch,
+				epochs=T.epochs, callbacks=[T.early_stopping], verbose=False)
+		loss_hist = hist.history['loss']
 
 		Y_pred = model.predict(X_train_orig)
 		y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_train_orig])
 		y_pred = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_pred])
-		misclassified_train = list(Z_train_orig[~np.equal(y_pred, y_true)])
+		miscls_train = list(Z_train_orig[~np.equal(y_pred, y_true)])
 
 		Y_pred = model.predict(X_test)
 		y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_test])
 		y_pred = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_pred])
-		misclassified_test = list(Z_test[~np.equal(y_pred, y_true)])
+		miscls_test = list(Z_test[~np.equal(y_pred, y_true)])
 		cm = confusion_matrix(y_true, y_pred)
 		f1 = f1_score(y_true, y_pred, average="weighted")
 
 		running_acc_6.append(accuracy_score(y_true, y_pred))
-		print("6cls accuracy:", running_acc_6[-1], " - average:", np.mean(running_acc_6))
+		print("Accuracy: %d%% (avg: %d%%)" % (running_acc_6[-1]*100, np.mean(running_acc_6)*100))
 
 		y_true_simp, y_pred_simp, _ = cnna.merge_classes(y_true, y_pred, C.cls_names)
 		running_acc_3.append(accuracy_score(y_true_simp, y_pred_simp))
 		#print("3cls accuracy:", running_acc_3[-1], " - average:", np.mean(running_acc_3))
 
-		if hyperparams is not None:
-			running_stats.loc[index] = _get_hyperparams_as_list(C, T) + [running_acc_6[-1], running_acc_3[-1], time.time()-t, loss_hist] +\
-								[num_samples[k] for k in C.cls_names] + \
-								[cm, time.time(), #C.run_num,
-								misclassified_test, misclassified_train, model_num, y_true, str(Y_pred), list(Z_test)]
+		running_stats.loc[index] = _get_hyperparams_as_list(T) + [running_acc_6[-1], running_acc_3[-1], time.time()-t, loss_hist] +\
+							[num_samples[k] for k in C.cls_names] + \
+							[cm, time.time(), #C.run_num,
+							miscls_test, miscls_train, model_num, y_true, str(Y_pred), list(Z_test)]
 
-		else:
-			running_stats.loc[index] = [n[C_index % len(n)], steps_per_epoch[index % len(steps_per_epoch)], epochs[index % len(epochs)],
-								C.train_frac, C.test_num, C.aug_factor, C.non_imaging_inputs,
-								kernel_size[index % len(kernel_size)], f[index % len(f)], padding[index % len(padding)],
-								dropout[index % len(dropout)], dense_units[index % len(dense_units)],
-								running_acc_6[-1], running_acc_3[-1], time.time()-t, loss_hist] +\
-								[num_samples[k] for k in C.cls_names] + \
-								[cm, time.time(), #C.run_num,
-								misclassified_test, misclassified_train, model_num, y_true, str(Y_pred), list(Z_test)]
 		running_stats.to_csv(C.run_stats_path, index=False)
 
-		model.save(C.model_dir+'models_%d.hdf5' % model_num)
+		model.save(join(C.model_dir, model_name+'%d.hdf5' % model_num))
 		model_num += 1
 		index += 1
 		#end cycle_len
@@ -200,17 +182,6 @@ def run_then_return_val_loss(num_iters=1, hyperparams=None):
 	loss_hist = hist.history['val_loss']
 
 	return loss_hist
-
-def _get_hyperparams_as_list(C=None, T=None):
-	if T is None:
-		T = config.Hyperparams()
-	if C is None:
-		C = config.Config()
-	
-	return [T.n, T.steps_per_epoch, T.epochs,
-			C.test_num, C.aug_factor, C.non_imaging_inputs,
-			T.kernel_size, T.f, T.padding,
-			T.dropout, T.dense_units, T.pool_sizes]
 
 def get_random_hyperparameter_configuration():
 	T = config.Hyperparams()

@@ -8,7 +8,7 @@ from os.path import *
 from keras.callbacks import EarlyStopping
 
 class Config:
-	def __init__(self, dataset="etiology"):
+	def __init__(self, dataset="clinical"):
 		self.run_num = 2
 		self.test_run_num = 2
 		self.dims = [24,24,12]
@@ -17,10 +17,9 @@ class Config:
 		self.aleatoric = False
 
 		self.max_size = 350*350*100
-
 		self.context_dims = [36,36,12]
 		self.dual_img_inputs = False # whether to use both tight and gross image croppings for the network
-		self.non_imaging_inputs = False # whether non-imaging inputs should be incorporated into the neural network
+		self.non_img_inputs = 0 # whether non-imaging inputs should be incorporated into the neural network
 		self.probabilistic = False
 
 		self.lesion_ratio = 0.7 # ratio of the lesion side length to the length of the cropped image
@@ -40,15 +39,14 @@ class Config:
 		self.nb_classes = len(self.cls_names)
 		self.phases = ["T1_20s", "T1_70s", "T1_3min"]
 
-	def turn_on_clinical_features(self):
-		self.non_imaging_inputs = True # whether non-imaging inputs should be incorporated into the neural network
-		self.num_non_image_inputs = 3
-
 	def use_dataset(self, dataset):
-		if dataset == "lirads":
+		if dataset == "lirads" or dataset == "clinical":
 			self.base_dir = "E:\\LIRADS"
 			self.coord_xls_path = 'Z:\\LIRADS\\Prototype1e.xlsx'
-			self.test_num = 20
+			if dataset == "clinical":
+				self.coord_xls_path = r"Z:\Paula\Clinical data project\coordinates + clinical variables.xlsx"
+				self.non_img_inputs = 9 # whether non-imaging inputs should be incorporated into the neural network
+			self.test_num = 10
 			self.full_img_dir = "Z:\\LIRADS\\full_imgs"
 
 			self.cls_names = ['hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh']
@@ -113,11 +111,10 @@ class Config:
 class Hyperparams:
 	def __init__(self):
 		self.n = 4
-		self.n_art = 0
-		self.global_pool = True
+		self.dense_net = False
+		self.global_pool = False
 		self.steps_per_epoch = 750
 		self.epochs = 20
-		self.run_2d = False
 		self.f = [64,64,64,64,64]
 		self.padding = ['same','same']
 		self.dropout = [0.1,0.1]
@@ -135,7 +132,6 @@ class Hyperparams:
 
 	def get_best_hyperparams(self):
 		self.n = 4
-		self.n_art = 0
 		self.steps_per_epoch = 750
 		self.epochs = 30
 		self.f = [64,128,128]

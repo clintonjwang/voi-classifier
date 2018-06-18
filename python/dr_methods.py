@@ -45,8 +45,8 @@ import niftiutils.visualization as vis
 
 importlib.reload(reg)
 importlib.reload(masks)
-importlib.reload(sm)
-C = config.Config("etiology")
+importlib.reload(config)
+C = config.Config()
 
 def autofill_cls_arg(func):
 	"""Decorator that autofills the first argument with the classes
@@ -454,6 +454,56 @@ def load_patient_info(cls=None, accnums=None, overwrite=False, verbose=False):
 
 	patient_info_df.to_csv(C.patient_info_path, index=False)
 
+def load_clinical_vars():
+	xls_path=r"Z:\Paula\Clinical data project\coordinates + clinical variables.xlsx"
+	train_path="E:\\LIRADS\\excel\\clinical_data_train.xlsx"
+	test_path="E:\\LIRADS\\excel\\clinical_data_test.xlsx"
+
+	def isnumber(x):
+		try:
+			float(x)
+			return True
+		except:
+			return False
+
+	DFs = {}
+	cols = ['age', 'gender', 'AST', 'ALT', 'ALP', 'albumin', 'TBIL', 'PT', 'INR']
+	for ix,cls in enumerate(C.sheetnames):
+		df = pd.read_excel(xls_path, sheet_name=cls, index_col=2)
+		df = df[~df.index.duplicated(keep='first')]
+		df = df[['age ', 'gender ', 'AST <34', 'ALT <34',
+		   'alk.Phosphatase 30-130', 'Albumin: 3.5-5.0', 'Total Bilirubin <1.2',
+		   'Prothrombin  9.9-12.3', 'INR 0.8-1.15']]
+		df.columns = cols
+		DFs[C.cls_names[ix]] = df
+
+	big_df = pd.concat([DFs[cls] for cls in DFs])
+	big_df = big_df[big_df.applymap(isnumber)]
+
+	fill_df = []
+	for cls in DFs:
+		df = DFs[cls]
+		df.loc[df['gender'].astype(str) == 'M', 'gender'] = 0
+		df.loc[df['gender'].astype(str) == 'F', 'gender'] = 1
+		df = df[df.applymap(isnumber)]
+		for col in ['age', 'AST', 'ALT', 'ALP', 'albumin', 'TBIL', 'PT', 'INR']:
+			df[col] = (df[col].astype(float) - big_df[col].median()) / \
+					(np.nanpercentile(big_df[col].astype(float).values, 80.) - np.nanpercentile(big_df[col].astype(float).values, 20.))
+		DFs[cls] = df
+
+	big_df = pd.concat([DFs[cls] for cls in DFs])
+	big_df = big_df[~big_df.index.duplicated(keep='first')]
+	big_df.fillna(0).to_excel(test_path)
+
+	for cls in DFs:
+		df = DFs[cls]
+		for col in ['age', 'AST', 'ALT', 'ALP', 'albumin', 'TBIL', 'PT', 'INR']:
+			df[col].fillna(np.nanmedian(df[col]), inplace=True)
+		DFs[cls] = df
+
+	fill_df = pd.concat([DFs[cls] for cls in DFs])
+	fill_df = fill_df[~fill_df.index.duplicated(keep='first')]
+	fill_df.to_excel(train_path)
 
 ###########################
 ### Public Subroutines

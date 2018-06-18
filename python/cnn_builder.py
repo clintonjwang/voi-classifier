@@ -37,6 +37,7 @@ from skimage.transform import rescale
 from sklearn.metrics import accuracy_score, confusion_matrix, f1_score
 
 import config
+import densenet
 import dr_methods as drm
 import feature_interpretation as cnna
 import niftiutils.cnn_components as cnnc
@@ -61,7 +62,9 @@ def acc_logit(y_true, y_pred):
 	return acc
 
 def build_cnn_hyperparams(T):
-	if C.probabilistic:
+	if T.dense_net:
+		return densenet.DenseNet()
+	elif C.probabilistic:
 		return build_prob_cnn(optimizer=T.optimizer,
 			padding=T.padding, pool_sizes=T.pool_sizes, dropout=T.dropout,
 			activation_type=T.activation_type, f=T.f, dense_units=T.dense_units,
@@ -76,23 +79,19 @@ def build_cnn_hyperparams(T):
 			padding=T.padding, pool_sizes=T.pool_sizes, dropout=T.dropout,
 			activation_type=T.activation_type, f=T.f, dense_units=T.dense_units,
 			kernel_size=T.kernel_size,
-			dual_inputs=C.non_imaging_inputs,
+			dual_inputs=C.non_img_inputs,
 			skip_con=T.skip_con)
 	else:
 		return build_cnn(optimizer=T.optimizer,
 			padding=T.padding, pool_sizes=T.pool_sizes, dropout=T.dropout,
 			activation_type=T.activation_type, f=T.f, dense_units=T.dense_units,
-			kernel_size=T.kernel_size, dual_inputs=C.non_imaging_inputs,
+			kernel_size=T.kernel_size, dual_inputs=C.non_img_inputs,
 			skip_con=T.skip_con, global_pool=T.global_pool)
 
 def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same','same'], pool_sizes=[(2,2,2),(2,2,1)],
 	dropout=[0.1,0.1], activation_type='relu', f=[64,128,128], dense_units=100, kernel_size=(3,3,2),
 	dual_inputs=False, global_pool=False, stride=(1,1,1), skip_con=False, trained_model=None):
 	"""Main class for setting up a CNN. Returns the compiled model."""
-
-	importlib.reload(config)
-
-
 	if activation_type == 'elu':
 		ActivationLayer = ELU
 		activation_args = 1
@@ -128,11 +127,11 @@ def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same','same'], 
 
 	img = Input(shape=(*C.dims, 3))
 
-	art_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,0], axis=4))(img)
+	art_x = Lambda(lambda x : K.expand_dims(x[...,0], axis=4))(img)
 	art_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, padding=padding[0])(art_x)
-	ven_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,1], axis=4))(img)
+	ven_x = Lambda(lambda x : K.expand_dims(x[...,1], axis=4))(img)
 	ven_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, padding=padding[0])(ven_x)
-	eq_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,2], axis=4))(img)
+	eq_x = Lambda(lambda x : K.expand_dims(x[...,2], axis=4))(img)
 	eq_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, padding=padding[0])(eq_x)
 
 	x = Concatenate(axis=4)([art_x, ven_x, eq_x])
@@ -163,24 +162,26 @@ def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same','same'], 
 		x = Dropout(dropout[1])(x)
 		x = ActivationLayer(activation_args)(x)
 
-	if dual_inputs:
-		non_img_inputs = Input(shape=(C.num_non_image_inputs,))
-		#y = Dense(20)(non_img_inputs)
-		#y = BatchNormalization()(y)
+	if C.non_img_inputs > 0:
+		non_img_inputs = Input(shape=(C.non_img_inputs,))
+		y = layers.Reshape((C.non_img_inputs, 1))(non_img_inputs)
+		y = layers.LocallyConnected1D(1, 1, bias_regularizer=l2(.1), activation='tanh')(y)
+		y = layers.Flatten()(y)
+		y = Dense(32, activation='relu')(y)
+		y = BatchNormalization()(y)
 		#y = Dropout(dropout[1])(y)
 		#y = ActivationLayer(activation_args)(y)
-		x = Concatenate(axis=1)([x, non_img_inputs])
+		x = Concatenate(axis=1)([x, y])
 		
+	pred_class = Dense(nb_classes, activation='softmax')(x)
+
+	if C.non_img_inputs == 0:
+		model = Model(img, pred_class)
 	else:
-		pred_class = Dense(nb_classes, activation='softmax')(x)
+		model = Model([img, non_img_inputs], pred_class)
 
-		if not dual_inputs:
-			model = Model(img, pred_class)
-		else:
-			model = Model([img, non_img_inputs], pred_class)
-
-		#optim = Adam(lr=0.01)#5, decay=0.001)
-		model.compile(optimizer=optimizer, loss='categorical_crossentropy', metrics=['accuracy'])
+	#optim = Adam(lr=0.01)#5, decay=0.001)
+	model.compile(optimizer=optimizer, loss='categorical_crossentropy', metrics=['accuracy'])
 
 	return model
 
@@ -200,11 +201,11 @@ def build_prob_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same','sam
 
 	img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 3))
 
-	art_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,0], axis=4))(img)
+	art_x = Lambda(lambda x : K.expand_dims(x[...,0], axis=4))(img)
 	art_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, padding=padding[0])(art_x)
-	ven_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,1], axis=4))(img)
+	ven_x = Lambda(lambda x : K.expand_dims(x[...,1], axis=4))(img)
 	ven_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, padding=padding[0])(ven_x)
-	eq_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,2], axis=4))(img)
+	eq_x = Lambda(lambda x : K.expand_dims(x[...,2], axis=4))(img)
 	eq_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, padding=padding[0])(eq_x)
 
 	x = Concatenate(axis=4)([art_x, ven_x, eq_x])
@@ -249,8 +250,6 @@ def build_rcnn(optimizer='adam', padding=['same','same'], pool_sizes = [(2,2,2),
 		ActivationLayer = Activation
 		activation_args = 'relu'
 
-	nb_classes = len(C.cls_names)
-
 	if first_layer == 0:
 		inputs = Input(shape=(C.dims[0], C.dims[1], C.dims[2], C.nb_channels))
 		x = Reshape((C.dims[0], C.dims[1], C.dims[2], C.nb_channels, 1))(inputs)
@@ -292,15 +291,15 @@ def build_rcnn(optimizer='adam', padding=['same','same'], pool_sizes = [(2,2,2),
 
 		if dual_inputs:
 			non_img_inputs = Input(shape=(C.num_non_image_inputs,))
-			#y = Dense(20)(non_img_inputs)
-			#y = BatchNormalization()(y)
+			y = Dense(20)(non_img_inputs)
+			y = BatchNormalization()(y)
 			#y = Dropout(dropout[1])(y)
 			#y = ActivationLayer(activation_args)(y)
-			x = Concatenate(axis=1)([x, non_img_inputs])
+			x = Concatenate(axis=1)([x, y])
 			model = Model([inputs, non_img_inputs], pred_class)
 			
 		else:
-			pred_class = Dense(nb_classes, activation='softmax')(x)
+			pred_class = Dense(C.nb_classes, activation='softmax')(x)
 			model = Model(inputs, pred_class)
 
 		if first_layer == 0:
@@ -446,13 +445,13 @@ def pretrain_cnn(trained_model, padding=['same','same'], pool_sizes=[(2,2,2), (2
 
 	img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 3))
 
-	art_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,0], axis=4))(img)
+	art_x = Lambda(lambda x : K.expand_dims(x[...,0], axis=4))(img)
 	art_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, padding=padding[0], trainable=False)(art_x)
 
-	ven_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,1], axis=4))(img)
+	ven_x = Lambda(lambda x : K.expand_dims(x[...,1], axis=4))(img)
 	ven_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, padding=padding[0], trainable=False)(ven_x)
 
-	eq_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,2], axis=4))(img)
+	eq_x = Lambda(lambda x : K.expand_dims(x[...,2], axis=4))(img)
 	eq_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, padding=padding[0], trainable=False)(eq_x)
 
 	#if padding != ['same', 'same']:
@@ -575,17 +574,17 @@ def pretrain_model_back(trained_model, dilation_rate=(1,1,1), padding=['same', '
 
 	img = Input(shape=(C.dims[0], C.dims[1], C.dims[2], 3))
 
-	art_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,0], axis=4))(img)
+	art_x = Lambda(lambda x : K.expand_dims(x[...,0], axis=4))(img)
 	art_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, padding=padding[0], trainable=False)(art_x)
 	art_x = BatchNormalization(trainable=False)(art_x)
 	art_x = ActivationLayer(activation_args)(art_x)
 
-	ven_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,1], axis=4))(img)
+	ven_x = Lambda(lambda x : K.expand_dims(x[...,1], axis=4))(img)
 	ven_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, padding=padding[0], trainable=False)(ven_x)
 	ven_x = BatchNormalization(trainable=False)(ven_x)
 	ven_x = ActivationLayer(activation_args)(ven_x)
 
-	eq_x = Lambda(lambda x : K.expand_dims(x[:,:,:,:,2], axis=4))(img)
+	eq_x = Lambda(lambda x : K.expand_dims(x[...,2], axis=4))(img)
 	eq_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, padding=padding[0], trainable=False)(eq_x)
 	eq_x = BatchNormalization(trainable=False)(eq_x)
 	eq_x = ActivationLayer(activation_args)(eq_x)
@@ -680,7 +679,7 @@ def get_cnn_data(n=4, use_vois=True, Z_test_fixed=None, verbose=False):
 
 	Y_test = np_utils.to_categorical(Y_test, C.nb_classes)
 	Y_train_orig = np_utils.to_categorical(Y_train_orig, C.nb_classes)
-	if C.dual_img_inputs or C.non_imaging_inputs:
+	if C.dual_img_inputs or C.non_img_inputs:
 		X_test = [np.array(X_test), np.array(X2_test)]
 		X_train_orig = [np.array(X_train_orig), np.array(X2_train_orig)]
 	else:
@@ -693,7 +692,18 @@ def get_cnn_data(n=4, use_vois=True, Z_test_fixed=None, verbose=False):
 	Z_test = np.array(Z_test)
 	Z_train_orig = np.array(Z_train_orig)
 
-	train_generator = _train_generator_func(test_ids, n=n, use_vois=use_vois)
+	if use_vois is None:
+		accnums = {}
+		for cls in C.cls_names:
+			src_data_df = drm.get_coords_df(cls)
+			accnums[cls] = src_data_df["acc #"].values
+	else:
+		voi_df = drm.get_voi_dfs()[0]
+		accnums = {}
+		for cls in C.cls_names:
+			accnums[cls] = voi_df.loc[voi_df["cls"]==cls, "accnum"].values
+
+	train_generator = _train_generator_func(test_ids, accnums, n=n)
 
 	return X_test, Y_test, train_generator, num_samples, [X_train_orig, Y_train_orig], [Z_test, Z_train_orig]
 
@@ -841,24 +851,19 @@ def _train_gen_cls(test_accnums):
 
 		yield (x, np.array(y), voi["cls"].values[0])
 
-def _train_generator_func(test_ids, n=12, use_vois=True):
+def _train_generator_func(test_ids, accnums, n=12):
 	"""n is the number of samples from each class"""
-
-	if use_vois:
-		voi_df = drm.get_voi_dfs()[0]
-	else:
-		accnums = {}
-		for cls in C.cls_names:
-			src_data_df = drm.get_coords_df(cls)
-			accnums[cls] = src_data_df["acc #"].values
 
 	#avg_X2 = {}
 	#for cls in orig_data_dict:
 	#   avg_X2[cls] = np.mean(orig_data_dict[cls][1], axis=0)
 	
-	if C.non_imaging_inputs:
-		patient_info_df = pd.read_csv(C.patient_info_path)
-		patient_info_df["AccNum"] = patient_info_df["AccNum"].astype(str)
+	if C.non_img_inputs > 0:
+		train_path="E:\\LIRADS\\excel\\clinical_data_train.xlsx"
+		non_img_df = pd.read_excel(train_path, index_col=0)
+		non_img_df.index = non_img_df.index.astype(str)
+
+	img_fns = {cls:[fn for fn in os.listdir(C.aug_dir) if fn[:fn.find('_')] in accnums[cls]] for cls in C.cls_names}
 
 	while True:
 		x1 = np.empty((n*C.nb_classes, *C.dims, C.nb_channels))
@@ -866,16 +871,13 @@ def _train_generator_func(test_ids, n=12, use_vois=True):
 
 		if C.dual_img_inputs:
 			x2 = np.empty((n*C.nb_classes, *C.context_dims, C.nb_channels))
-		elif C.non_imaging_inputs:
-			x2 = np.empty((n*C.nb_classes, C.num_non_image_inputs))
+		elif C.non_img_inputs:
+			x2 = np.empty((n*C.nb_classes, C.non_img_inputs))
 
 		train_cnt = 0
 		for cls in C.cls_names:
-			if use_vois:
-				raise ValueError("Not ready")
-			img_fns = [fn for fn in os.listdir(C.aug_dir) if fn[:fn.find('_')] in accnums[cls]]
 			while n > 0:
-				img_fn = random.choice(img_fns)
+				img_fn = random.choice(img_fns[cls])
 				lesion_id = img_fn[:img_fn.rfind('_')]
 				if lesion_id not in test_ids[cls]:
 					x1[train_cnt] = np.load(join(C.aug_dir, img_fn))
@@ -883,16 +885,14 @@ def _train_generator_func(test_ids, n=12, use_vois=True):
 						if C.post_scale > 0:
 							x1[train_cnt] = tr.normalize_intensity(x1[train_cnt], 1., -1., C.post_scale)
 					except:
+						print(lesion_id)
 						vm.reset_accnum(lesion_id[:lesion_id.find('_')])
 
 					if C.dual_img_inputs:
 						tmp = np.load(join(C.crops_dir, lesion_id+".npy"))
 						x2[train_cnt] = tr.rescale_img(tmp, C.context_dims)[0]
-
-					elif C.non_imaging_inputs:
-						voi_row = voi_df.loc[lesion_id]
-						patient_row = patient_info_df[patient_info_df["AccNum"] == voi_row["acc_num"]]
-						x2[train_cnt] = get_non_img_inputs(voi_row, patient_row)
+					elif C.non_img_inputs > 0:
+						x2[train_cnt] = non_img_df.loc[lesion_id[:lesion_id.find('_')]].values
 					
 					y[train_cnt][C.cls_names.index(cls)] = 1
 					
@@ -900,41 +900,33 @@ def _train_generator_func(test_ids, n=12, use_vois=True):
 					if train_cnt % n == 0:
 						break
 
-		if C.dual_img_inputs or C.non_imaging_inputs:
+		if C.dual_img_inputs or C.non_img_inputs:
 			yield [np.array(x1), np.array(x2)], np.array(y)
 		elif C.aleatoric:
 			yield [np.array(x1), np.array(y)], None
 		else:
 			yield np.array(x1), np.array(y)
 
-def _separate_phases(X, non_imaging_inputs=False):
+def _separate_phases(X, non_img_inputs=False):
 	"""Assumes X[0] contains imaging and X[1] contains dimension data.
 	Reformats such that X[0:2] has 3 phases and X[3] contains dimension data.
 	Image data still is 5D (nb_samples, 3D, 1 channel).
 	Handles both 2D and 3D images"""
 	
-	if non_imaging_inputs:
+	if non_img_inputs:
 		dim_data = copy.deepcopy(X[1])
 		img_data = X[0]
 		
-		if len(X[0].shape)==5:
-			X[1] = np.expand_dims(X[0][:,:,:,:,1], axis=4)
-			X += [np.expand_dims(X[0][:,:,:,:,2], axis=4)]
-			X += [dim_data]
-			X[0] = np.expand_dims(X[0][:,:,:,:,0], axis=4)
-		
-		else:
-			X[1] = np.expand_dims(X[0][:,:,:,1], axis=3)
-			X += [np.expand_dims(X[0][:,:,:,2], axis=3)]
-			X += [dim_data]
-			X[0] = np.expand_dims(X[0][:,:,:,0], axis=3)
+		axis = len(X[0].shape) - 1
+		X[1] = np.expand_dims(X[0][...,1], axis=axis)
+		X += [np.expand_dims(X[0][...,2], axis=axis)]
+		X += [dim_data]
+		X[0] = np.expand_dims(X[0][...,0], axis=axis)
 	
 	else:
 		X = np.array(X)
-		if len(X.shape)==5:
-			X = [np.expand_dims(X[:,:,:,:,0], axis=4), np.expand_dims(X[:,:,:,:,1], axis=4), np.expand_dims(X[:,:,:,:,2], axis=4)]
-		else:
-			X = [np.expand_dims(X[:,:,:,0], axis=3), np.expand_dims(X[:,:,:,1], axis=3), np.expand_dims(X[:,:,:,2], axis=3)]
+		axis = len(X[0].shape) - 1
+		X = [np.expand_dims(X[...,ix], axis=axis) for ix in range(3)]
 
 	return X
 
@@ -946,9 +938,10 @@ def _collect_unaug_data(use_vois=True):
 		voi_df = drm.get_voi_dfs()[0]
 		voi_df = voi_df[voi_df["run_num"] <= C.test_run_num]
 
-	if C.non_imaging_inputs:
-		patient_info_df = pd.read_csv(C.patient_info_path)
-		patient_info_df["AccNum"] = patient_info_df["AccNum"].astype(str)
+	if C.non_img_inputs > 0:
+		test_path="E:\\LIRADS\\excel\\clinical_data_test.xlsx"
+		non_img_df = pd.read_excel(test_path, index_col=0)
+		non_img_df.index = non_img_df.index.astype(str)
 
 	for cls in C.cls_names:
 		x = np.empty((10000, *C.dims, C.nb_channels))
@@ -956,8 +949,8 @@ def _collect_unaug_data(use_vois=True):
 
 		if C.dual_img_inputs:
 			x2 = np.empty((10000, *C.context_dims, C.nb_channels))
-		elif C.non_imaging_inputs:
-			x2 = np.empty((10000, C.num_non_image_inputs))
+		elif C.non_img_inputs > 0:
+			x2 = np.empty((10000, C.non_img_inputs))
 
 		if use_vois:
 			lesion_ids = [x for x in voi_df[voi_df["cls"] == cls].index if exists(join(C.unaug_dir, x+".npy"))]
@@ -981,13 +974,11 @@ def _collect_unaug_data(use_vois=True):
 				tmp = np.load(join(C.crops_dir, lesion_id+".npy"))
 				x2[index] = tr.rescale_img(tmp, C.context_dims)[0]
 
-			elif C.non_imaging_inputs:
-				voi_row = voi_df.loc[lesion_id]
-				patient_row = patient_info_df[patient_info_df["AccNum"] == voi_row["acc_num"]]
-				x2[index] = get_non_img_inputs(voi_row, patient_row)
+			elif C.non_img_inputs > 0:
+				x2[index] = non_img_df.loc[lesion_id[:lesion_id.find('_')]].values
 
 		x.resize((index+1, *C.dims, C.nb_channels)) #shrink first dimension to fit
-		if C.dual_img_inputs or C.non_imaging_inputs:
+		if C.dual_img_inputs or C.non_img_inputs:
 			x2.resize((index+1, *x2.shape[1:]))
 			orig_data_dict[cls] = [x, x2, np.array(z)]
 		else:
@@ -998,6 +989,7 @@ def _collect_unaug_data(use_vois=True):
 	return orig_data_dict, num_samples
 
 def get_non_img_inputs(voi_info, patient_info):
+	raise ValueError("Not used")
 	side_length = ((float(voi_info["real_dx"]) * float(voi_info["real_dy"]) * float(voi_info["real_dz"])) ** (1/3) - 26.98) / 14.78
 	aspect_ratio = max(float(voi_info["real_dx"]), float(voi_info["real_dy"])) / float(voi_info["real_dz"])
 	age = (float(patient_info["AgeAtImaging"].values[0]) - 56.58) / 13.24
@@ -1051,7 +1043,6 @@ def build_cnn_demogr(optimizer='adam', dropout=[0.1,0.1], pool_sizes=[(2,2,2), (
 	return model
 
 def get_cnn_demogr(n=4):
-
 	orig_data_dict, num_samples = _collect_unaug_demogr()
 
 	test_ids = {} #filenames of test set

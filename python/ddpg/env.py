@@ -76,7 +76,8 @@ class Env(object):
 		return np.array(bbox, int).flatten()#, np.array(wide_bbox, int).flatten()
 
 	def run_unet_cls(self, action):
-		# For now, w_seg and w_cls formulas don't make sense. Needs Bayesian treatment
+		# For now, w_cls formula may not make sense. Needs Bayesian treatment.
+		# We simply overwrite the segmentations in those areas, rather than keeping the priors.
 		sl = [slice(self.bbox[i], self.bbox[i+1]) for i in [0,2,4]]
 		D = [self.bbox[i+1] - self.bbox[i] for i in [0,2,4]]
 		cropI = tr.rescale_img(self.img[sl], C.dims)
@@ -97,22 +98,23 @@ class Env(object):
 		crop_pred_cls_var = np.exp(np.clip(crop_pred_cls[0, -1], -10, 50))
 		crop_pred_seg = crop_pred_seg[..., :-1] #logits
 		crop_pred_cls = crop_pred_cls[0, :-1] #logits
-		w_seg = 1/crop_pred_seg_var
+		#w_seg = 1/crop_pred_seg_var
 		w_cls = action[-2] / crop_pred_cls_var
 		#self.pred_seg[sl] += crop_pred_seg * np.tile(w_seg, (2,1,1,1)).transpose((1,2,3,0))
 		#self.pred_cls += crop_pred_cls * w_cls
 
 		# Update variances of the mean
-		self.pred_seg[sl] = self.pred_seg[sl] * np.tile(self.sum_w_seg[sl], (C.num_segs,1,1,1)).transpose((1,2,3,0))
-		self.pred_seg_var[sl] = self.pred_seg_var[sl] * self.sum_w_seg[sl]
+		#self.pred_seg[sl] = self.pred_seg[sl] * np.tile(self.sum_w_seg[sl], (C.num_segs,1,1,1)).transpose((1,2,3,0))
+		#self.pred_seg_var[sl] = self.pred_seg_var[sl] * self.sum_w_seg[sl]
+		#self.sum_w_seg[sl] += w_seg
+		self.pred_seg[sl] = crop_pred_seg#(self.pred_seg[sl] + crop_pred_seg * \
+						#np.tile(w_seg, (C.num_segs,1,1,1)).transpose((1,2,3,0))) / \
+						#np.tile(self.sum_w_seg[sl], (C.num_segs,1,1,1)).transpose((1,2,3,0))
+		self.pred_seg_var[sl] = crop_pred_seg_var#(self.pred_seg_var[sl] + crop_pred_seg_var * w_seg) / self.sum_w_seg[sl]
+
 		self.pred_cls *= self.sum_w_cls
 		self.pred_cls_var *= self.sum_w_cls
-		self.sum_w_seg[sl] += w_seg
 		self.sum_w_cls += w_cls
-		self.pred_seg[sl] = (self.pred_seg[sl] + crop_pred_seg * \
-						np.tile(w_seg, (C.num_segs,1,1,1)).transpose((1,2,3,0))) / \
-						np.tile(self.sum_w_seg[sl], (C.num_segs,1,1,1)).transpose((1,2,3,0))
-		self.pred_seg_var[sl] = (self.pred_seg_var[sl] + crop_pred_seg_var * w_seg) / self.sum_w_seg[sl]
 		self.pred_cls = (self.pred_cls + crop_pred_cls * w_cls) / self.sum_w_cls
 		self.pred_cls_var = (self.pred_cls_var + crop_pred_cls_var * w_cls) / self.sum_w_cls
 

@@ -169,13 +169,28 @@ def DenseNet(depth=22, nb_dense_block=3, growth_rate=16, nb_filter=32, dropout_r
 												 beta_regularizer=l2(w_decay))(x)
 	x = Activation('relu')(x)
 	x = GlobalAveragePooling3D(data_format=K.image_data_format())(x)
+
+	if C.non_img_inputs > 0:
+		non_img_inputs = Input(shape=(C.non_img_inputs,))
+		y = layers.Reshape((C.non_img_inputs, 1))(non_img_inputs)
+		y = layers.LocallyConnected1D(1, 1, bias_regularizer=l2(.1), activation='tanh')(y)
+		y = layers.Flatten()(y)
+		y = Dense(32, activation='relu')(y)
+		y = BatchNormalization()(y)
+		#y = Dropout(dropout[1])(y)
+		#y = ActivationLayer(activation_args)(y)
+		x = Concatenate(axis=1)([x, y])
+
 	#x = Dense(C.nb_classes+1)(x)
 	x = Dense(C.nb_classes,
 			activation='softmax',
 			kernel_regularizer=l2(w_decay),
 			bias_regularizer=l2(w_decay))(x)
 
-	densenet = Model(inputs=[model_input], outputs=[x], name="DenseNet")
+	if C.non_img_inputs > 0:
+		densenet = Model(inputs=[model_input, non_img_inputs], outputs=[x], name="DenseNet")
+	else:
+		densenet = Model(inputs=[model_input], outputs=[x], name="DenseNet")
 	densenet.compile(optimizer=Adam(lr=0.001), loss='categorical_crossentropy', metrics=['accuracy'])
 
 	return densenet
