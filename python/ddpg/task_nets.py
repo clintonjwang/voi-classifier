@@ -54,12 +54,9 @@ def unet_cls(optimizer='adam'): #, depth=3, base_f=32, dropout=.1, lr=.001
 	img = Input(shape=(*C.dims, 3))
 	bottom_layer, end_layer = cnnc.UNet(img)
 
-	cls_layer = layers.Conv3D(32, 1)(bottom_layer)
-	cls_layer = layers.AveragePooling3D((2,2,1))(cls_layer)
+	cls_layer = layers.Conv3D(32, 1, activation='relu')(bottom_layer)
 	cls_layer = layers.BatchNormalization()(cls_layer)
-	cls_layer = layers.Flatten()(cls_layer)
-	cls_layer = layers.Dense(128, activation='relu')(cls_layer)
-	cls_layer = layers.BatchNormalization()(cls_layer)
+	cls_layer = layers.GlobalAveragePooling3D()(cls_layer)
 	cls_layer = layers.Dense(len(C.cls_names)+1, activation='elu')(cls_layer)
 	
 	segs = layers.Conv3D(C.num_segs+1, (1,1,1), activation='elu')(end_layer)

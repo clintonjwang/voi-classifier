@@ -33,7 +33,6 @@ from keras.layers.normalization import BatchNormalization
 from keras.regularizers import l2
 from keras.optimizers import Adam
 import keras.backend as K
-
 import config
 
 importlib.reload(config)
@@ -114,20 +113,8 @@ def denseblock(x, nb_layers, nb_filter, growth_rate, dropout_rate=None, w_decay=
 
 	return x, nb_filter"""
 
-def DenseNet(depth=22, nb_dense_block=3, growth_rate=16, nb_filter=32, dropout_rate=None, w_decay=1E-6):
-	""" Build the DenseNet model
-	:param nb_classes: int -- number of classes
-	:param img_dim: tuple -- (channels, rows, columns)
-	:param depth: int -- how many layers
-	:param nb_dense_block: int -- number of dense blocks to add to end
-	:param growth_rate: int -- number of filters to add
-	:param nb_filter: int -- number of filters
-	:param dropout_rate: float -- dropout rate
-	:param w_decay: float -- weight decay
-	:returns: keras model with nb_layers of conv_factory appended
-	:rtype: keras model
-	"""
-	
+def DenseNet(lr=.001, depth=22, nb_dense_block=3, growth_rate=16, nb_filter=32, dropout_rate=None, w_decay=1E-6):
+	"""DCCN"""
 	model_input = Input(shape=(*C.dims, C.nb_channels))
 
 	assert (depth - 4) % 3 == 0, "Depth must be 3N+4"
@@ -152,7 +139,7 @@ def DenseNet(depth=22, nb_dense_block=3, growth_rate=16, nb_filter=32, dropout_r
 			x, nb_filter = denseblock(x, nb_layers, nb_filter, growth_rate, 
 							dropout_rate=dropout_rate, w_decay=w_decay)
 		# add transition
-		if block_idx == 3:
+		if block_idx == 1:
 			x = transition(x, nb_filter, dropout_rate=dropout_rate,
 							w_decay=w_decay, pool=(2,2,1))
 		else:
@@ -191,7 +178,7 @@ def DenseNet(depth=22, nb_dense_block=3, growth_rate=16, nb_filter=32, dropout_r
 		densenet = Model(inputs=[model_input, non_img_inputs], outputs=[x], name="DenseNet")
 	else:
 		densenet = Model(inputs=[model_input], outputs=[x], name="DenseNet")
-	densenet.compile(optimizer=Adam(lr=0.001), loss='categorical_crossentropy', metrics=['accuracy'])
+	densenet.compile(optimizer=Adam(lr=lr), loss='categorical_crossentropy', metrics=['accuracy'])
 
 	return densenet
 

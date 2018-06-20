@@ -40,6 +40,7 @@ import voi_methods as vm
 ####################################
 
 importlib.reload(config)
+importlib.reload(cbuild)
 C = config.Config()
 
 def hyperband():
@@ -106,7 +107,7 @@ def run_fixed_hyperparams(overwrite=False, max_runs=999, T=None, model_name='mod
 
 	running_acc_6 = []
 	running_acc_3 = []
-	early_stopping = EarlyStopping(monitor='loss', min_delta=0.002, patience=3)
+	early_stopping = EarlyStopping(monitor='loss', min_delta=0.001, patience=5)
 
 	C_index = 0
 	while index < max_runs:

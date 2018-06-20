@@ -156,6 +156,33 @@ class CRSNet(object): #ClsRegSegNet
 		#self.actor.target_train()
 		#self.critic.target_train()
 
+	def pretrain_unet(self):
+		conf = tf.ConfigProto()
+		conf.gpu_options.allow_growth = True
+		sess = tf.Session(config=conf)
+		K.set_session(sess)
+
+		pred_model, train_model = tn.get_models(sess, lr)
+		sess.run(tf.global_variables_initializer())
+		train_gen = self.pretrain_gen(side_len=2)
+		train_model.fit_generator(train_gen, steps_per_epoch=100, epochs=20)
+		#train_model.save()
+
+		"""pred_model, train_model = tn.get_models(sess, lr)
+		sess.run(tf.global_variables_initializer())
+		train_gen = self.pretrain_gen(side_len=8)
+		train_model.fit_generator(train_gen, steps_per_epoch=100, epochs=20)"""
+		#train_model.save()
+
+	def pretrain_gen(self, side_len, n=8):
+		while True:
+			cropIs = tr.split_img(L=side_len)
+			for _ in range(n):
+				cropI
+				crop_true_seg
+				true_cls
+			yield [cropI, crop_true_seg, true_cls], [None]*n
+
 	def train(self, dqn_generator, verbose=False):
 		noise_gen = OU()       #Ornstein-Uhlenbeck Process
 		EXPLORE = 30000.

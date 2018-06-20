@@ -6,6 +6,7 @@ Author: Clinton Wang, E-mail: `clintonjwang@gmail.com`, Github: `https://github.
 
 from os.path import *
 from keras.callbacks import EarlyStopping
+from keras.optimizers import Adam
 
 class Config:
 	def __init__(self, dataset="clinical"):
@@ -48,6 +49,7 @@ class Config:
 				self.non_img_inputs = 9 # whether non-imaging inputs should be incorporated into the neural network
 			self.test_num = 10
 			self.full_img_dir = "Z:\\LIRADS\\full_imgs"
+			self.aug_factor = 100
 
 			self.cls_names = ['hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh']
 			self.sheetnames = ['HCC', 'Cholangio', 'Colorectal', 'Cyst', 'Hemangioma', 'FNH']
@@ -125,7 +127,7 @@ class Hyperparams:
 		self.pool_sizes = [(2,2,2),(2,2,2)]
 		self.activation_type = 'relu'
 		self.rcnn = True
-		self.optimizer = 'adam'
+		self.optimizer = Adam(lr=0.0008)
 		self.early_stopping = EarlyStopping(monitor='loss', min_delta=0.002, patience=3)
 		self.skip_con = False
 		#self.non_imaging_inputs = C.non_imaging_inputs

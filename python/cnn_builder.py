@@ -46,6 +46,7 @@ import niftiutils.transforms as tr
 import voi_methods as vm
 
 importlib.reload(config)
+importlib.reload(densenet)
 C = config.Config()
 
 def aleatoric_xentropy(y_true, y_pred):
@@ -63,7 +64,7 @@ def acc_logit(y_true, y_pred):
 
 def build_cnn_hyperparams(T):
 	if T.dense_net:
-		return densenet.DenseNet()
+		return densenet.DenseNet(lr=.0005, depth=19, dropout_rate=T.dropout[0])
 	elif C.probabilistic:
 		return build_prob_cnn(optimizer=T.optimizer,
 			padding=T.padding, pool_sizes=T.pool_sizes, dropout=T.dropout,
@@ -167,8 +168,8 @@ def build_cnn(optimizer='adam', dilation_rate=(1,1,1), padding=['same','same'], 
 		y = layers.Reshape((C.non_img_inputs, 1))(non_img_inputs)
 		y = layers.LocallyConnected1D(1, 1, bias_regularizer=l2(.1), activation='tanh')(y)
 		y = layers.Flatten()(y)
-		y = Dense(32, activation='relu')(y)
-		y = BatchNormalization()(y)
+		#y = Dense(32, activation='relu')(y)
+		#y = BatchNormalization()(y)
 		#y = Dropout(dropout[1])(y)
 		#y = ActivationLayer(activation_args)(y)
 		x = Concatenate(axis=1)([x, y])
@@ -859,7 +860,7 @@ def _train_generator_func(test_ids, accnums, n=12):
 	#   avg_X2[cls] = np.mean(orig_data_dict[cls][1], axis=0)
 	
 	if C.non_img_inputs > 0:
-		train_path="E:\\LIRADS\\excel\\clinical_data_train.xlsx"
+		train_path="E:\\LIRADS\\excel\\clinical_data_test.xlsx" #clinical_data_train
 		non_img_df = pd.read_excel(train_path, index_col=0)
 		non_img_df.index = non_img_df.index.astype(str)
 
@@ -900,7 +901,7 @@ def _train_generator_func(test_ids, accnums, n=12):
 					if train_cnt % n == 0:
 						break
 
-		if C.dual_img_inputs or C.non_img_inputs:
+		if C.dual_img_inputs or C.non_img_inputs>0:
 			yield [np.array(x1), np.array(x2)], np.array(y)
 		elif C.aleatoric:
 			yield [np.array(x1), np.array(y)], None
@@ -978,7 +979,7 @@ def _collect_unaug_data(use_vois=True):
 				x2[index] = non_img_df.loc[lesion_id[:lesion_id.find('_')]].values
 
 		x.resize((index+1, *C.dims, C.nb_channels)) #shrink first dimension to fit
-		if C.dual_img_inputs or C.non_img_inputs:
+		if C.dual_img_inputs or C.non_img_inputs>0:
 			x2.resize((index+1, *x2.shape[1:]))
 			orig_data_dict[cls] = [x, x2, np.array(z)]
 		else:
