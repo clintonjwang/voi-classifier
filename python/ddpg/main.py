@@ -44,11 +44,11 @@ def augment_crops(cropI, crop_true_seg, true_cls):
 	batch_size = cropI.shape[0]
 	I = np.empty((batch_size*4, *cropI.shape[1:]))
 	S = np.empty((batch_size*4, *crop_true_seg.shape[1:]))
-	C = np.empty((batch_size*4, *true_cls.shape[1:]))
+	Cls = np.empty((batch_size*4, *true_cls.shape[1:]))
 
 	I[:batch_size] = cropI
 	S[:batch_size] = crop_true_seg
-	C[:] = true_cls[0]
+	Cls[:] = true_cls[0]
 
 	ix = batch_size
 	for k in range(1,4):
@@ -61,7 +61,7 @@ def augment_crops(cropI, crop_true_seg, true_cls):
 
 			ix += 1
 
-	return I, S, C
+	return I, S, Cls
 
 class CRSNet(object): #ClsRegSegNet
 	def __init__(self, eps=1):
@@ -164,7 +164,7 @@ class CRSNet(object): #ClsRegSegNet
 
 		pred_model, train_model = tn.get_models(sess, lr)
 		sess.run(tf.global_variables_initializer())
-		train_gen = self.pretrain_gen(side_len=2)
+		train_gen = cbuild.pretrain_gen(side_len=2)
 		train_model.fit_generator(train_gen, steps_per_epoch=100, epochs=20)
 		#train_model.save()
 
@@ -173,15 +173,6 @@ class CRSNet(object): #ClsRegSegNet
 		train_gen = self.pretrain_gen(side_len=8)
 		train_model.fit_generator(train_gen, steps_per_epoch=100, epochs=20)"""
 		#train_model.save()
-
-	def pretrain_gen(self, side_len, n=8):
-		while True:
-			cropIs = tr.split_img(L=side_len)
-			for _ in range(n):
-				cropI
-				crop_true_seg
-				true_cls
-			yield [cropI, crop_true_seg, true_cls], [None]*n
 
 	def train(self, dqn_generator, verbose=False):
 		noise_gen = OU()       #Ornstein-Uhlenbeck Process

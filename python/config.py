@@ -61,7 +61,7 @@ class Config:
 			self.dims = [32,32,16]
 			self.context_dims = [100,100,40]
 			self.num_segs = 3
-			self.loss_weights = [[5,20,400],[1,1,1]]
+			self.loss_weights = [[5,20,400],[.1,.1,.1]]
 			self.state_dim = (*self.dims, 4)
 
 			self.base_dir = "D:\\Etiology"
@@ -75,15 +75,15 @@ class Config:
 			self.dcm_dirs = ["D:\\Etiology\\Imaging"] * 3
 
 		elif dataset == "radpath":
-			self.base_dir = "D:\\Paula-project"
-			self.coord_xls_path = "Z:\\Paula\\new coordinates_CW.xlsx"
+			self.base_dir = "D:\\Radpath"
+			self.coord_xls_path = "Z:\\Paula\\Radpath\\new coordinates_CW.xlsx"
 			self.test_num = 5
 			self.full_img_dir = join(self.base_dir, "full_imgs")
 
 			self.cls_names = ['hcc', 'non-hcc']
 			self.sheetnames = ['HCC', 'Non-HCC']
 			self.short_cls_names = self.sheetnames
-			self.dcm_dirs = ["Z:\\Paula\\Imaging"] * 2
+			self.dcm_dirs = ["Z:\\Paula\\Radpath\\Imaging"] * 2
 
 		elif dataset == "lirads-expanded":
 			self.base_dir = "E:\\LIRADS"
@@ -114,21 +114,20 @@ class Hyperparams:
 	def __init__(self):
 		self.n = 4
 		self.dense_net = False
-		self.global_pool = False
+		self.global_pool = True
 		self.steps_per_epoch = 750
 		self.epochs = 20
 		self.f = [64,64,64,64,64]
 		self.padding = ['same','same']
-		self.dropout = [0.1,0.1]
+		self.dropout = 0.1
 		self.dense_units = 100
-		self.dilation_rate = (1,1,1)
 		#self.stride = (2,2,2)
 		self.kernel_size = (3,3,2)
 		self.pool_sizes = [(2,2,2),(2,2,2)]
 		self.activation_type = 'relu'
 		self.rcnn = True
-		self.optimizer = Adam(lr=0.0008)
-		self.early_stopping = EarlyStopping(monitor='loss', min_delta=0.002, patience=3)
+		self.optimizer = Adam(lr=0.0006)
+		self.early_stopping = EarlyStopping(monitor='loss', min_delta=0.001, patience=5)
 		self.skip_con = False
 		#self.non_imaging_inputs = C.non_imaging_inputs
 
@@ -138,9 +137,8 @@ class Hyperparams:
 		self.epochs = 30
 		self.f = [64,128,128]
 		self.padding = ['same','valid']
-		self.dropout = [0.1,0.1]
+		self.dropout = 0.1
 		self.dense_units = 100
-		self.dilation_rate = (1,1,1)
 		self.kernel_size = (3,3,2)
 		self.pool_sizes = [(2,2,2),(2,2,1)]
 		self.activation_type = 'relu'
@@ -159,12 +157,4 @@ class Hyperparams:
 		self.rcnn = False
 
 	def get_random_hyperparams(self):
-		self.f = random.choice([[64,128,128], [64,64,128,128], [64,64,64,128], [64,64,128,128], [64,128,128,128], [64,128,128,128,128]])
-		self.pool_sizes = [(2,2,2),(2,2,1)]
-		self.padding = ['same','valid']
-		self.dense_units = 100
-		self.dilation_rate = (1,1,1)
-		self.kernel_size = (3,3,2)
-		self.pool_sizes = [(2,2,2),(2,2,1)]
-		self.activation_type = 'relu'
-		self.rcnn = False
+		raise ValueError()

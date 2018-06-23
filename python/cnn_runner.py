@@ -76,7 +76,7 @@ def get_run_stats_csv():
 		running_stats = pd.DataFrame(columns = ["n", "steps_per_epoch", "epochs",
 			"test_num", "augment_factor", "non_imaging_inputs",
 			"kernel_size", "conv_filters", "conv_padding",
-			"dropout", "dense_units", "pooling",
+			"dropout", "dense_units", "pooling", "densenet", "global_pool",
 			"acc6cls", "acc3cls", "time_elapsed(s)", "loss_hist"] + \
 			C.cls_names + \
 			['confusion_matrix', 'timestamp',
@@ -92,7 +92,7 @@ def run_fixed_hyperparams(overwrite=False, max_runs=999, T=None, model_name='mod
 		return [T.n, T.steps_per_epoch, T.epochs,
 				C.test_num, C.aug_factor, C.non_img_inputs,
 				T.kernel_size, T.f, T.padding,
-				T.dropout, T.dense_units, T.pool_sizes]
+				T.dropout, T.dense_units, T.pool_sizes, T.dense_net, T.global_pool]
 
 	if overwrite and exists(C.run_stats_path):
 		os.remove(C.run_stats_path)
@@ -107,7 +107,7 @@ def run_fixed_hyperparams(overwrite=False, max_runs=999, T=None, model_name='mod
 
 	running_acc_6 = []
 	running_acc_3 = []
-	early_stopping = EarlyStopping(monitor='loss', min_delta=0.001, patience=5)
+	early_stopping = T.early_stopping
 
 	C_index = 0
 	while index < max_runs:

@@ -44,7 +44,7 @@ def get_models(sess, lr=.001):
 	y1_pred, y2_pred = pred_model(inp)
 	y1_true = Input((*pred_model.input_shape[1:-1], C.num_segs), name='y1_true')
 	y2_true = Input((len(C.cls_names),), name='y2_true')
-	out = CustomMultiLossLayer(sess, num_classes=[3,3], weights=C.loss_weights)([y1_true, y2_true, y1_pred, y2_pred])
+	out = AleatoricLossLayer(sess, num_classes=[3,3], weights=C.loss_weights)([y1_true, y2_true, y1_pred, y2_pred])
 	train_model = Model([inp, y1_true, y2_true], out)
 	train_model.compile(optimizer=Adam(lr), loss=None)
 
@@ -103,7 +103,7 @@ def gaussian_categorical_crossentropy(true, pred, dist, num_classes):
 		return tf.cast(K.mean(distorted_loss, -1), tf.float32)
 	return map_fn
 
-class CustomMultiLossLayer(Layer):
+class AleatoricLossLayer(Layer):
 	# https://github.com/yaringal/multi-task-learning-example
 	def __init__(self, sess, nb_outputs=2, num_classes=[3,3], weights=[[1,1,1], [1,1,1]], **kwargs):
 		self.nb_outputs = nb_outputs
@@ -111,7 +111,7 @@ class CustomMultiLossLayer(Layer):
 		self.W = weights
 		self.sess = sess
 
-		super(CustomMultiLossLayer, self).__init__(**kwargs)
+		super(AleatoricLossLayer, self).__init__(**kwargs)
 		
 	def build(self, input_shape=None):
 		# initialise log_vars
@@ -131,7 +131,7 @@ class CustomMultiLossLayer(Layer):
 							self.tf_pred_cls, len(C.cls_names), weights=self.tf_weights[1]) + \
 							self.log_vars[0] + self.log_vars[1]
 
-		super(CustomMultiLossLayer, self).build(input_shape)
+		super(AleatoricLossLayer, self).build(input_shape)
 
 	def multi_loss(self, ys_true, ys_pred):
 		assert len(ys_true) == self.nb_outputs and len(ys_pred) == self.nb_outputs
