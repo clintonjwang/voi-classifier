@@ -10,7 +10,7 @@ from keras.optimizers import Adam
 
 class Config:
 	def __init__(self, dataset="clinical"):
-		self.run_num = 2
+		self.run_num = 5
 		self.test_run_num = 2
 		self.dims = [24,24,12]
 		self.nb_channels = 3
@@ -20,7 +20,7 @@ class Config:
 		self.max_size = 350*350*100
 		self.context_dims = [36,36,12]
 		self.dual_img_inputs = False # whether to use both tight and gross image croppings for the network
-		self.non_img_inputs = 0 # whether non-imaging inputs should be incorporated into the neural network
+		self.clinical_inputs = 0 # whether non-imaging inputs should be incorporated into the neural network
 		self.probabilistic = False
 
 		self.lesion_ratio = 0.7 # ratio of the lesion side length to the length of the cropped image
@@ -46,8 +46,8 @@ class Config:
 			self.coord_xls_path = 'Z:\\LIRADS\\Prototype1e.xlsx'
 			if dataset == "clinical":
 				self.coord_xls_path = r"Z:\Paula\Clinical data project\coordinates + clinical variables.xlsx"
-				self.non_img_inputs = 9 # whether non-imaging inputs should be incorporated into the neural network
-			self.test_num = 10
+				self.clinical_inputs = 9 # whether non-imaging inputs should be incorporated into the neural network
+			self.test_num = 15
 			self.full_img_dir = "Z:\\LIRADS\\full_imgs"
 			self.aug_factor = 100
 
@@ -57,6 +57,17 @@ class Config:
 			self.dcm_dirs = ["Z:\\LIRADS\\DICOMs\\" + fn for fn in self.cls_names]
 			self.simplify_map = {'hcc': 0, 'cyst': 1, 'hemangioma': 1, 'fnh': 1, 'cholangio': 2, 'colorectal': 2}
 			
+		elif dataset == "lirads-expanded":
+			self.base_dir = "E:\\LIRADS"
+			self.coord_xls_path = 'Z:\\LIRADS\\Prototype1e.xlsx'
+			self.test_num = 5
+			self.full_img_dir = "Z:\\LIRADS\\full_imgs"
+
+			self.cls_names = ['hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh', 'net', 'adenoma', 'abscess']
+			self.sheetnames = ['HCC', 'Cholangio', 'Colorectal', 'Cyst', 'Hemangioma', 'FNH', 'NET', 'Adenoma', 'Abscess']
+			self.short_cls_names = ['HCC', 'ICC', 'CRC Met.', 'Cyst', 'Hemang.', 'FNH', 'NET', 'Adenoma', 'Abscess']
+			self.dcm_dirs = ["Z:\\LIRADS\\DICOMs\\" + fn for fn in self.cls_names]
+
 		elif dataset == "etiology":
 			self.dims = [32,32,16]
 			self.context_dims = [100,100,40]
@@ -85,51 +96,39 @@ class Config:
 			self.short_cls_names = self.sheetnames
 			self.dcm_dirs = ["Z:\\Paula\\Radpath\\Imaging"] * 2
 
-		elif dataset == "lirads-expanded":
-			self.base_dir = "E:\\LIRADS"
-			self.coord_xls_path = 'Z:\\LIRADS\\Prototype1e.xlsx'
-			self.test_num = 5
-			self.full_img_dir = "Z:\\LIRADS\\full_imgs"
+		#self.patient_info_path = join(self.base_dir, "excel", "patient_data.csv")
+		self.accnum_cols = ["MRN", "Sex", "AgeAtImaging", "Ethnicity", "voxdim_x","voxdim_y","voxdim_z"]
+		self.accnum_df_path = join(self.base_dir, "excel", "accnum_data.csv")
+		self.lesion_df_path = join(self.base_dir, "excel", "lesion_data.csv")
 
-			self.cls_names = ['hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh', 'net', 'adenoma', 'abscess']
-			self.sheetnames = ['HCC', 'Cholangio', 'Colorectal', 'Cyst', 'Hemangioma', 'FNH', 'NET', 'Adenoma', 'Abscess']
-			self.short_cls_names = ['HCC', 'ICC', 'CRC Met.', 'Cyst', 'Hemang.', 'FNH', 'NET', 'Adenoma', 'Abscess']
-			self.dcm_dirs = ["Z:\\LIRADS\\DICOMs\\" + fn for fn in self.cls_names]
+		self.art_voi_path = join(self.base_dir, "excel", "voi_art_full.csv")
+		self.ven_voi_path = join(self.base_dir, "excel", "voi_ven_full.csv")
+		self.eq_voi_path = join(self.base_dir, "excel", "voi_eq_full.csv")
+		self.small_voi_path = join(self.base_dir, "excel", "small_vois_full.csv")
 
-		self.art_voi_path = join(self.base_dir, "excel\\voi_art_full.csv")
-		self.ven_voi_path = join(self.base_dir, "excel\\voi_ven_full.csv")
-		self.eq_voi_path = join(self.base_dir, "excel\\voi_eq_full.csv")
-		self.dims_df_path = join(self.base_dir, "excel\\img_dims.csv")
-		self.small_voi_path = join(self.base_dir, "excel\\small_vois_full.csv")
-		self.run_stats_path = join(self.base_dir, "excel\\overnight_run.csv")
-		self.patient_info_path = join(self.base_dir, "excel\\patient_info.csv")
+		self.run_stats_path = join(self.base_dir, "excel", "overnight_run.csv")
 
-		self.crops_dir = join(self.base_dir, "imgs\\rough_crops\\")
-		self.unaug_dir = join(self.base_dir, "imgs\\unaug_imgs\\")
-		self.aug_dir = join(self.base_dir, "imgs\\aug_imgs\\")
-		self.replay_img_dir = join(self.base_dir, "imgs\\replay\\")
+		self.crops_dir = join(self.base_dir, "imgs", "rough_crops")
+		self.unaug_dir = join(self.base_dir, "imgs", "unaug_imgs")
+		self.aug_dir = join(self.base_dir, "imgs", "aug_imgs")
+		self.replay_img_dir = join(self.base_dir, "imgs", "replay")
 		self.model_dir = join(self.base_dir, "models")
 
 class Hyperparams:
 	def __init__(self):
 		self.n = 4
-		self.dense_net = False
-		self.global_pool = True
+		self.cnn_type = 'vanilla'
 		self.steps_per_epoch = 750
 		self.epochs = 20
 		self.f = [64,64,64,64,64]
 		self.padding = ['same','same']
 		self.dropout = 0.1
 		self.dense_units = 100
-		#self.stride = (2,2,2)
 		self.kernel_size = (3,3,2)
 		self.pool_sizes = [(2,2,2),(2,2,2)]
-		self.activation_type = 'relu'
-		self.rcnn = True
-		self.optimizer = Adam(lr=0.0006)
-		self.early_stopping = EarlyStopping(monitor='loss', min_delta=0.001, patience=5)
+		self.optimizer = Adam(lr=0.001)
+		self.early_stopping = EarlyStopping(monitor='loss', min_delta=0.005, patience=3)
 		self.skip_con = False
-		#self.non_imaging_inputs = C.non_imaging_inputs
 
 	def get_best_hyperparams(self):
 		self.n = 4
@@ -141,8 +140,6 @@ class Hyperparams:
 		self.dense_units = 100
 		self.kernel_size = (3,3,2)
 		self.pool_sizes = [(2,2,2),(2,2,1)]
-		self.activation_type = 'relu'
-		self.rcnn = False
 
 	def get_capsnet_params(self):
 		self.lr = 4

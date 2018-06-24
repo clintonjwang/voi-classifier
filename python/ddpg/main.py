@@ -29,9 +29,9 @@ import ddpg.task_nets as tn
 import niftiutils.helper_fxns as hf
 import niftiutils.transforms as tr
 
-C = config.Config()
 importlib.reload(denv)
 importlib.reload(ln)
+C = config.Config()
 
 def memory():
 	pid = os.getpid()

@@ -78,7 +78,7 @@ def check_dims_df(cls=None):
 		print(cls, missing)
 
 @autofill_cls_arg
-def report_missing_folders(cls=None):
+def missing_dcms(cls=None):
 	"""Checks to see if any image phases are missing from the DICOM directories"""
 	df = get_coords_df(cls)
 	accnums = list(set(df['acc #'].tolist()))
@@ -206,7 +206,7 @@ def build_coords_df(accnum_xls_path):
 		writer.save()
 
 @autofill_cls_arg
-def dcm2npy(cls=None, accnums=None, overwrite=False, verbose=False, exec_reg=True, save_seg=True, downsample=1):
+def dcm2npy(cls=None, accnums=None, overwrite=False, exec_reg=True, save_seg=True, downsample=1):
 	"""Converts dcms to full-size npy, update dims_df. Requires coords_df."""
 
 	if exists(C.dims_df_path):
@@ -226,12 +226,11 @@ def dcm2npy(cls=None, accnums=None, overwrite=False, verbose=False, exec_reg=Tru
 		accnums = list(accnums)
 	#else:
 	#	accnums = set(accnums).intersection(src_data_df['acc #'].values)
+	accnums = map(str,accnums)
 
 	cls_num = C.cls_names.index(cls)
 
 	for cnt, accnum in enumerate(accnums):
-		accnum = str(accnum)
-
 		save_path = join(C.full_img_dir, accnum + ".npy")
 		if exists(save_path) and not overwrite:
 			continue
@@ -404,34 +403,33 @@ def load_patient_info(cls=None, accnums=None, overwrite=False, verbose=False):
 		elif ethnicity.upper() == 'B':
 			ethnicity = "Black"
 		elif ethnicity.upper() == 'H':
-			ethnicity = "Hisp"
+			ethnicity = "Hispanic"
+		elif ethnicity.upper() == 'P':
+			ethnicity = "Pacific Islander"
 		elif ethnicity.upper() == 'O':
 			ethnicity = "Other"
-		elif ethnicity in ['U', 'P', "Pt Refused"] or len(ethnicity) > 12:
+		elif ethnicity in ['U', "Pt Refused"]:
 			ethnicity = "Unknown"
+		else:
+			raise ValueError(ethnicity)
 
-		return [mrn, sex, accnum, age, ethnicity, cls]
+		return [mrn, sex, age, ethnicity]
 
 	df = get_coords_df(cls)
-
 	if accnums is None:
 		accnums = set(df['acc #'].astype(str).values)
 
-	if exists(C.patient_info_path):
-		patient_info_df = pd.read_csv(C.patient_info_path)
+	if exists(C.mrn_df_path):
+		accnum_df = pd.read_csv(C.accnum_df_path, index_col=0)
+		if not overwrite:
+			accnums = set(accnums).difference(accnum_df.index.values)
 	else:
-		patient_info_df = pd.DataFrame(columns = ["MRN", "Sex", "accnum", "AgeAtImaging", "Ethnicity", "cls"])
+		accnum_df = pd.DataFrame(columns=C.accnum_cols)
 
-	if not overwrite:
-		accnums = set(accnums).difference(patient_info_df[patient_info_df["cls"] == cls]["accnum"].values)
-
-	length = len(patient_info_df)
 	print(cls)
 	for cnt, accnum in enumerate(accnums):
-		df_subset = df.loc[df['acc #'].astype(str) == accnum]
 		subdir = join(C.dcm_dirs[C.cls_names.index(cls)], accnum)
 		fn = join(subdir, "T1_AP", "metadata.xml")
-
 		if exists(fn):
 			f = open(fn, 'r')
 		else:
@@ -447,12 +445,11 @@ def load_patient_info(cls=None, accnums=None, overwrite=False, verbose=False):
 				print(accnum, end=",")
 				continue
 
-		patient_info_df.loc[cnt+length] = get_patient_info(''.join(f.readlines()))
+		accnum_df.loc[accnum, C.accnum_cols[:4]] = get_patient_info(''.join(f.readlines()))
 
 		if cnt % 20 == 2:
-			patient_info_df.to_csv(C.patient_info_path, index=False)
-
-	patient_info_df.to_csv(C.patient_info_path, index=False)
+			accnum_df.to_csv(C.accnum_df_path)
+	accnum_df.to_csv(C.mrn_df_path)
 
 def load_clinical_vars():
 	xls_path=r"Z:\Paula\Clinical data project\coordinates + clinical variables.xlsx"
@@ -537,8 +534,11 @@ def write_voi_dfs(*args):
 ### Subroutines
 ###########################
 
-def get_coords_df(cls):
-	df = pd.read_excel(C.coord_xls_path, C.sheetnames[C.cls_names.index(cls)])
+def get_coords_df(cls=None):
+	if cls is None:
+		df = pd.read_excel(C.coord_xls_path)
+	else:
+		df = pd.read_excel(C.coord_xls_path, C.sheetnames[C.cls_names.index(cls)])
 	df = df[df['Run'] <= C.run_num].dropna(subset=["x1"])
 	df['acc #'] = df['acc #'].astype(str)
 	

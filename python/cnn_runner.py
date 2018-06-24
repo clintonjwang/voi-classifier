@@ -35,37 +35,13 @@ import time
 import dr_methods as drm
 import voi_methods as vm
 
-####################################
-### OVERNIGHT PROCESSES
-####################################
-
 importlib.reload(config)
 importlib.reload(cbuild)
 C = config.Config()
 
-def hyperband():
-	# https://arxiv.org/abs/1603.06560
-	max_iter = 30  # maximum iterations/epochs per configuration
-	eta = 3 # defines downsampling rate (default=3)
-	logeta = lambda x: log(x)/log(eta)
-	s_max = int(logeta(max_iter))  # number of unique executions of Successive Halving (minus one)
-	B = (s_max+1)*max_iter  # total number of iterations (without reuse) per execution of Succesive Halving (n,r)
-
-	#### Begin Finite Horizon Hyperband outlerloop. Repeat indefinetely.
-	for s in reversed(range(s_max+1)):
-		n = int(ceil(B/max_iter/(s+1)*eta**s)) # initial number of configurations
-		r = max_iter*eta**(-s) # initial number of iterations to run configurations for
-
-		#### Begin Finite Horizon Successive Halving with (n,r)
-		T = [ get_random_hyperparameter_configuration() for i in range(n) ]
-		for i in range(s+1):
-			# Run each of the n_i configs for r_i iterations and keep best n_i/eta
-			n_i = n*eta**(-i)
-			r_i = r*eta**(i)
-			val_losses = [ run_then_return_val_loss(num_iters=r_i, hyperparams=t) for t in T ]
-			T = [ T[i] for i in argsort(val_losses)[0:int( n_i/eta )] ]
-		#### End Finite Horizon Successive Halving with (n,r)
-	return val_losses, T
+####################################
+### RUN!
+####################################
 
 def get_run_stats_csv():
 	C = config.Config()
@@ -74,9 +50,9 @@ def get_run_stats_csv():
 		index = len(running_stats)
 	except FileNotFoundError:
 		running_stats = pd.DataFrame(columns = ["n", "steps_per_epoch", "epochs",
-			"test_num", "augment_factor", "non_imaging_inputs",
+			"test_num", "augment_factor", "clinical_inputs",
 			"kernel_size", "conv_filters", "conv_padding",
-			"dropout", "dense_units", "pooling", "densenet", "global_pool",
+			"dropout", "dense_units", "pooling", "cnn_type", "learning_rate",
 			"acc6cls", "acc3cls", "time_elapsed(s)", "loss_hist"] + \
 			C.cls_names + \
 			['confusion_matrix', 'timestamp',
@@ -90,9 +66,9 @@ def run_fixed_hyperparams(overwrite=False, max_runs=999, T=None, model_name='mod
 
 	def _get_hyperparams_as_list(T):
 		return [T.n, T.steps_per_epoch, T.epochs,
-				C.test_num, C.aug_factor, C.non_img_inputs,
+				C.test_num, C.aug_factor, C.clinical_inputs,
 				T.kernel_size, T.f, T.padding,
-				T.dropout, T.dense_units, T.pool_sizes, T.dense_net, T.global_pool]
+				T.dropout, T.dense_units, T.pool_sizes, T.cnn_type, T.optimizer.get_config()['lr']]
 
 	if overwrite and exists(C.run_stats_path):
 		os.remove(C.run_stats_path)
@@ -109,7 +85,6 @@ def run_fixed_hyperparams(overwrite=False, max_runs=999, T=None, model_name='mod
 	running_acc_3 = []
 	early_stopping = T.early_stopping
 
-	C_index = 0
 	while index < max_runs:
 		#run_then_return_val_loss(num_iters=1, hyperparams=None)
 
@@ -148,23 +123,44 @@ def run_fixed_hyperparams(overwrite=False, max_runs=999, T=None, model_name='mod
 
 		running_stats.loc[index] = _get_hyperparams_as_list(T) + [running_acc_6[-1], running_acc_3[-1], time.time()-t, loss_hist] +\
 							[num_samples[k] for k in C.cls_names] + \
-							[cm, time.time(), #C.run_num,
-							miscls_test, miscls_train, model_num, y_true, str(Y_pred), list(Z_test)]
+							[cm, time.time(), miscls_test, miscls_train, model_num, y_true, str(Y_pred), list(Z_test)]
 
 		running_stats.to_csv(C.run_stats_path, index=False)
 
 		model.save(join(C.model_dir, model_name+'%d.hdf5' % model_num))
 		model_num += 1
 		index += 1
-		#end cycle_len
-		C_index += 1
+
 
 ####################################
-### BUILD CNNS
+### HYPERBAND
 ####################################
 
-def run_then_return_val_loss(num_iters=1, hyperparams=None):
-	"""Runs the CNN indefinitely, saving performance metrics."""
+"""def hyperband():
+	# https://arxiv.org/abs/1603.06560
+	max_iter = 30  # maximum iterations/epochs per configuration
+	eta = 3 # defines downsampling rate (default=3)
+	logeta = lambda x: log(x)/log(eta)
+	s_max = int(logeta(max_iter))  # number of unique executions of Successive Halving (minus one)
+	B = (s_max+1)*max_iter  # total number of iterations (without reuse) per execution of Succesive Halving (n,r)
+
+	#### Begin Finite Horizon Hyperband outlerloop. Repeat indefinetely.
+	for s in reversed(range(s_max+1)):
+		n = int(ceil(B/max_iter/(s+1)*eta**s)) # initial number of configurations
+		r = max_iter*eta**(-s) # initial number of iterations to run configurations for
+
+		#### Begin Finite Horizon Successive Halving with (n,r)
+		T = [ get_random_hyperparameter_configuration() for i in range(n) ]
+		for i in range(s+1):
+			# Run each of the n_i configs for r_i iterations and keep best n_i/eta
+			n_i = n*eta**(-i)
+			r_i = r*eta**(i)
+			val_losses = [ run_then_return_val_loss(num_iters=r_i, hyperparams=t) for t in T ]
+			T = [ T[i] for i in argsort(val_losses)[0:int( n_i/eta )] ]
+		#### End Finite Horizon Successive Halving with (n,r)
+	return val_losses, T"""
+
+"""def run_then_return_val_loss(num_iters=1, hyperparams=None):
 	C = config.Config()
 	running_stats = pd.read_csv(C.run_stats_path)
 	index = len(running_stats)
@@ -182,9 +178,9 @@ def run_then_return_val_loss(num_iters=1, hyperparams=None):
 			epochs=num_iters, callbacks=[T.early_stopping], verbose=False, validation=[X_test, Y_test])
 	loss_hist = hist.history['val_loss']
 
-	return loss_hist
+	return loss_hist"""
 
-def get_random_hyperparameter_configuration():
+"""def get_random_hyperparameter_configuration():
 	T = config.Hyperparams()
 
-	return T
+	return T"""

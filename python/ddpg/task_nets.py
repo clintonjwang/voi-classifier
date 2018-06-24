@@ -28,7 +28,8 @@ from tensorflow.contrib import distributions
 import config
 import dr_methods as drm
 import feature_interpretation as cnna
-import niftiutils.cnn_components as cnnc
+import niftiutils.deep_learning.cnn_components as cnnc
+import niftiutils.deep_learning.uncertainty as uncert
 import niftiutils.helper_fxns as hf
 import niftiutils.transforms as tr
 import spatial_transformer as st
@@ -54,54 +55,15 @@ def unet_cls(optimizer='adam'): #, depth=3, base_f=32, dropout=.1, lr=.001
 	img = Input(shape=(*C.dims, 3))
 	bottom_layer, end_layer = cnnc.UNet(img)
 
-	cls_layer = layers.Conv3D(32, 1, activation='relu')(bottom_layer)
-	cls_layer = layers.BatchNormalization()(cls_layer)
+	cls_layer = layers.bn_relu_etc(cv_u=32, cv_k=1, pool=(3,3,3))(bottom_layer)
 	cls_layer = layers.GlobalAveragePooling3D()(cls_layer)
-	cls_layer = layers.Dense(len(C.cls_names)+1, activation='elu')(cls_layer)
+	cls_layer = layers.Dense(len(C.cls_names)+1)(cls_layer)
 	
-	segs = layers.Conv3D(C.num_segs+1, (1,1,1), activation='elu')(end_layer)
+	segs = layers.Conv3D(C.num_segs+1, (1,1,1))(end_layer)
 
 	model = Model(img, [segs, cls_layer]) #logits + logvar
 
 	return model
-
-def hetero_cls_loss(true, pred, num_classes=3, weights=[1,1,1], T=500):
-	# Bayesian categorical cross entropy.
-	# https://github.com/kyle-dorman/bayesian-neural-network-blogpost
-	# N data points, C classes, T monte carlo simulations
-	# true - true values. Shape: (N, C)
-	# pred - predicted logit values and log variance. Shape: (N, C + 1)
-	# returns - loss (N,)
-
-	true = K.reshape(true, [-1, num_classes])
-	pred = K.reshape(pred, [-1, num_classes+1])
-	weights = K.cast(weights, tf.float32)
-	pred_scale = K.sqrt(K.exp(pred[:, num_classes:])) # shape: (N,1)
-	pred = pred[:, :num_classes] # shape: (N, C)
-
-	dist = distributions.Normal(loc=K.zeros_like(pred_scale), scale=pred_scale)
-	#std_samples = K.transpose(dist.sample(num_classes))
-	#distorted_loss = K.categorical_crossentropy(true, pred + std_samples, from_logits=True) * weights
-	
-	iterable = K.variable(np.ones(T))
-	mc_loss = K.mean(K.map_fn(gaussian_categorical_crossentropy(true, pred, dist, num_classes), iterable, name='monte_carlo'), 0)
-
-	return K.mean(mc_loss * weights)
-
-def gaussian_categorical_crossentropy(true, pred, dist, num_classes):
-	# for a single monte carlo simulation, calculate xentropy
-	#   of predicted logit values plus gaussian 
-	#   noise vs true values.
-	# true - true values. Shape: (N, C)
-	# pred - predicted logit values. Shape: (N, C)
-	# dist - normal distribution to sample from. Shape: (N, C)
-	# num_classes - the number of classes. C
-	# returns - mean differences for each class (N,)
-	def map_fn(i):
-		std_samples = K.transpose(dist.sample(num_classes))
-		distorted_loss = K.categorical_crossentropy(true, pred + std_samples, from_logits=True)
-		return tf.cast(K.mean(distorted_loss, -1), tf.float32)
-	return map_fn
 
 class AleatoricLossLayer(Layer):
 	# https://github.com/yaringal/multi-task-learning-example
@@ -125,9 +87,9 @@ class AleatoricLossLayer(Layer):
 		self.tf_true_cls = tf.placeholder(tf.float32, (None, len(C.cls_names)))
 		self.tf_pred_cls = tf.placeholder(tf.float32, (None, len(C.cls_names)+1))
 		self.tf_weights = [tf.placeholder(tf.float32, [3]), tf.placeholder(tf.float32, [3])]
-		self.loss_graph = tf.exp(-self.log_vars[0]) * hetero_cls_loss(self.tf_true_img,
+		self.loss_graph = tf.exp(-self.log_vars[0]) * uncert.hetero_cls_loss(self.tf_true_img,
 							self.tf_pred_img, C.num_segs, weights=self.tf_weights[0]) + \
-							tf.exp(-self.log_vars[1]) * hetero_cls_loss(self.tf_true_cls,
+							tf.exp(-self.log_vars[1]) * uncert.hetero_cls_loss(self.tf_true_cls,
 							self.tf_pred_cls, len(C.cls_names), weights=self.tf_weights[1]) + \
 							self.log_vars[0] + self.log_vars[1]
 
@@ -138,7 +100,7 @@ class AleatoricLossLayer(Layer):
 		loss = 0
 		for y_true, y_pred, log_var, num_classes, w in zip(ys_true, ys_pred, self.log_vars, self.clss, self.W):
 			precision = K.exp(-log_var[0])
-			loss += precision * hetero_cls_loss(y_true, y_pred,
+			loss += precision * uncert.hetero_cls_loss(y_true, y_pred,
 					num_classes=num_classes, weights=w) + log_var[0]
 		return K.mean(loss)
 
