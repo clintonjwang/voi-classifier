@@ -131,6 +131,10 @@ def run_fixed_hyperparams(overwrite=False, max_runs=999, T=None, model_name='mod
 		model_num += 1
 		index += 1
 
+def run_hyperparam_seq(overwrite=False, max_runs=999, T=None, model_name='models_'):
+	"""Runs the CNN for max_runs times, saving performance metrics."""
+	pass
+
 
 ####################################
 ### HYPERBAND

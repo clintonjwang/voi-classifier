@@ -7,9 +7,10 @@ Author: Clinton Wang, E-mail: `clintonjwang@gmail.com`, Github: `https://github.
 from os.path import *
 from keras.callbacks import EarlyStopping
 from keras.optimizers import Adam
+import niftiutils.helper_fxns as hf
 
 class Config:
-	def __init__(self, dataset="clinical"):
+	def __init__(self, dataset="lirads"):
 		self.run_num = 5
 		self.test_run_num = 2
 		self.dims = [24,24,12]
@@ -28,9 +29,6 @@ class Config:
 		self.pre_scale = .5 # normalizes images at augmentation time
 		self.post_scale = 0. # normalizes images at train/test time
 
-		# Information about the abnormality classes
-		self.patient_sheetname = 'Patient Info'
-
 		# Augmentation parameters
 		self.intensity_scaling = [.05,.05]
 		self.translate = [2,2,1]
@@ -38,7 +36,7 @@ class Config:
 		self.use_dataset(dataset)
 
 		self.nb_classes = len(self.cls_names)
-		self.phases = ["T1_20s", "T1_70s", "T1_3min"]
+		self.phase_dirs = ["T1_20s", "T1_70s", "T1_3min"]
 
 	def use_dataset(self, dataset):
 		if dataset == "lirads" or dataset == "clinical":
@@ -47,7 +45,7 @@ class Config:
 			if dataset == "clinical":
 				self.coord_xls_path = r"Z:\Paula\Clinical data project\coordinates + clinical variables.xlsx"
 				self.clinical_inputs = 9 # whether non-imaging inputs should be incorporated into the neural network
-			self.test_num = 15
+			self.test_num = 10
 			self.full_img_dir = "Z:\\LIRADS\\full_imgs"
 			self.aug_factor = 100
 
@@ -97,14 +95,17 @@ class Config:
 			self.dcm_dirs = ["Z:\\Paula\\Radpath\\Imaging"] * 2
 
 		#self.patient_info_path = join(self.base_dir, "excel", "patient_data.csv")
-		self.accnum_cols = ["MRN", "Sex", "AgeAtImaging", "Ethnicity", "voxdim_x","voxdim_y","voxdim_z"]
-		self.accnum_df_path = join(self.base_dir, "excel", "accnum_data.csv")
-		self.lesion_df_path = join(self.base_dir, "excel", "lesion_data.csv")
+		self.dim_cols = ["voxdim_x", "voxdim_y", "voxdim_z"]
+		self.accnum_cols = ["MRN", "Sex", "AgeAtImaging", "Ethnicity"] + self.dim_cols
 
-		self.art_voi_path = join(self.base_dir, "excel", "voi_art_full.csv")
-		self.ven_voi_path = join(self.base_dir, "excel", "voi_ven_full.csv")
-		self.eq_voi_path = join(self.base_dir, "excel", "voi_eq_full.csv")
-		self.small_voi_path = join(self.base_dir, "excel", "small_vois_full.csv")
+		self.voi_cols = [hf.flatten([[ph+ch+'1', ph+ch+'2'] for ch in ['x','y','z']]) for ph in ['a_','v_','e_','sm_']]
+		self.art_cols, self.ven_cols, self.equ_cols, self.small_cols = self.voi_cols
+		self.voi_cols = hf.flatten(self.voi_cols)
+
+		# An accnum must be in accnum_df for it to be processed
+		self.accnum_df_path = join(self.base_dir, "excel", "accnum_data.csv")
+		# A lesion must be in lesion_df for it to be processed
+		self.lesion_df_path = join(self.base_dir, "excel", "lesion_data.csv")
 
 		self.run_stats_path = join(self.base_dir, "excel", "overnight_run.csv")
 
@@ -127,7 +128,7 @@ class Hyperparams:
 		self.kernel_size = (3,3,2)
 		self.pool_sizes = [(2,2,2),(2,2,2)]
 		self.optimizer = Adam(lr=0.001)
-		self.early_stopping = EarlyStopping(monitor='loss', min_delta=0.005, patience=3)
+		self.early_stopping = EarlyStopping(monitor='loss', min_delta=0.003, patience=3)
 		self.skip_con = False
 
 	def get_best_hyperparams(self):

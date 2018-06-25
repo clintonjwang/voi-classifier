@@ -44,7 +44,7 @@ import voi_methods as vm
 
 importlib.reload(config)
 importlib.reload(densenet)
-importlib.reload(uncert)
+importlib.reload(drm)
 importlib.reload(cnnc)
 C = config.Config()
 
@@ -109,7 +109,6 @@ def build_cnn(optimizer='adam', padding=['same','same'], pool_sizes=[(2,2,2),(2,
 	x = Concatenate(axis=-1)([art_x, ven_x, eq_x])
 	x = cnnc.bn_relu_etc(x)
 	x = layers.SpatialDropout3D(dropout)(x)
-
 	x = layers.MaxPooling3D(pool_sizes[0])(x)
 
 	for layer_num in range(1,len(f)):
@@ -120,12 +119,11 @@ def build_cnn(optimizer='adam', padding=['same','same'], pool_sizes=[(2,2,2),(2,
 		elif skip_con and layer_num==5:
 			x = layers.Add()([x, skip_layer])
 
-		x = cnnc.bn_relu_etc(x, None, cv_u=f[layer_num], cv_k=kernel_size, cv_pad=padding[1])
+		x = cnnc.bn_relu_etc(x, drop=dropout, cv_u=f[layer_num], cv_k=kernel_size, cv_pad=padding[1])
 
 	x = layers.MaxPooling3D(pool_sizes[1])(x)
 	x = Flatten()(x)
-	x = layers.Dropout(.1)(x)
-	x = cnnc.bn_relu_etc(x, fc_u=dense_units)
+	x = cnnc.bn_relu_etc(x, drop=dropout, fc_u=dense_units)
 
 	if C.clinical_inputs > 0:
 		clinical_inputs = Input(shape=(C.clinical_inputs,))
@@ -134,9 +132,10 @@ def build_cnn(optimizer='adam', padding=['same','same'], pool_sizes=[(2,2,2),(2,
 		y = cnnc._expand_dims(y)
 		y = layers.LocallyConnected1D(1, 1, activation='tanh')(y)
 		y = layers.Flatten()(y)
+		y = cnnc.bn_relu_etc(y, drop=.3)
+		#y = layers.Dropout(.3)(y)
 		x = Concatenate(axis=1)([x, y])
 		
-	x = layers.Dropout(.2)(x)
 	pred_class = Dense(C.nb_classes, activation='softmax')(x)
 
 	if C.clinical_inputs == 0:
@@ -502,10 +501,10 @@ def get_cnn_data(n=4, use_vois=True, Z_test_fixed=None, verbose=False):
 			src_data_df = drm.get_coords_df(cls)
 			accnums[cls] = src_data_df["acc #"].values
 	else:
-		voi_df = drm.get_voi_dfs()[0]
+		lesion_df = drm.get_lesion_df()
 		accnums = {}
 		for cls in C.cls_names:
-			accnums[cls] = voi_df.loc[voi_df["cls"]==cls, "accnum"].values
+			accnums[cls] = lesion_df.loc[lesion_df["cls"]==cls, "accnum"].values
 
 	train_generator = _train_gen_classifier(test_ids, accnums, n=n)
 
@@ -576,8 +575,8 @@ def load_data_capsnet(n=2, Z_test_fixed=None):
 
 """def _train_gen_unet(test_accnums=[]):
 	raise ValueError("Not usable")
-	voi_df_art = drm.get_voi_dfs()[0]
-	voi_df_art.accnum = voi_df_art.accnum.astype(str)
+	lesion_df_art = drm.get_lesion_df()[0]
+	lesion_df_art.accnum = lesion_df_art.accnum.astype(str)
 	img_fns = [fn for fn in glob.glob(join(C.full_img_dir, "*.npy")) if not fn.endswith("_seg.npy") \
 				and basename(fn)[:-4] not in test_accnums]
 
@@ -588,7 +587,7 @@ def load_data_capsnet(n=2, Z_test_fixed=None):
 		seg = np.load(img_fn[:-4]+"_seg.npy")
 		seg = tr.rescale_img(seg, C.dims) > .5
 		seg = np_utils.to_categorical(seg, 2).astype(int)
-		cls = np_utils.to_categorical(C.cls_names.index(voi_df_art.loc[voi_df_art["accnum"] \
+		cls = np_utils.to_categorical(C.cls_names.index(lesion_df_art.loc[lesion_df_art["accnum"] \
 			== basename(img_fn[:-4]), "cls"].values[0]), len(C.cls_names)).astype(int)
 
 		yield [np.expand_dims(img, 0), np.expand_dims(seg, 0), np.expand_dims(cls, 0)], None"""
@@ -617,7 +616,7 @@ def pretrain_gen(self, side_len, n=8, test_accnums=[]):
 		seg = np.load(img_fn[:-4]+"_liverseg.npy")
 		seg = tr.rescale_img(seg, C.dims) > .5
 		seg = np_utils.to_categorical(seg, 2).astype(int)
-		cls = np_utils.to_categorical(C.cls_names.index(voi_df_art.loc[voi_df_art["accnum"] \
+		cls = np_utils.to_categorical(C.cls_names.index(lesion_df_art.loc[lesion_df_art["accnum"] \
 			== basename(img_fn[:-4]), "cls"].values[0]), len(C.cls_names)).astype(int)
 
 
@@ -638,8 +637,8 @@ def pretrain_gen(self, side_len, n=8, test_accnums=[]):
 def _train_gen_ddpg(test_accnums=[]):
 	"""X is the whole abdominal MR (20s only), ; Y is the set of true bboxes"""
 
-	voi_df_art = drm.get_voi_dfs()[0]
-	voi_df_art.accnum = voi_df_art.accnum.astype(str)
+	lesion_df = drm.get_lesion_df()
+	lesion_df.accnum = lesion_df_art.accnum.astype(str)
 	img_fns = [fn for fn in glob.glob(join(C.full_img_dir, "*.npy")) if not fn.endswith("seg.npy") \
 				and basename(fn)[:-4] not in test_accnums]
 
@@ -665,8 +664,8 @@ def _train_gen_ddpg(test_accnums=[]):
 		seg[...,1] = tr.rescale_img(liverM, C.context_dims)
 		seg[...,0] = np.clip(1 - seg[...,1] - seg[...,-1], 0, 1)
 
-		if basename(accnum) in voi_df_art["accnum"].values:
-			cls_num = C.cls_names.index(voi_df_art.loc[voi_df_art["accnum"] \
+		if basename(accnum) in lesion_df_art["accnum"].values:
+			cls_num = C.cls_names.index(lesion_df_art.loc[lesion_df_art["accnum"] \
 				== basename(accnum), "cls"].values[0])
 		else:
 			cls_num = 0
@@ -677,8 +676,8 @@ def _train_gen_ddpg(test_accnums=[]):
 def _train_gen_aleatoric(test_accnums):
 	"""X is the whole abdominal MR (20s only); Y is the set of true bboxes"""
 
-	voi_df_art = drm.get_voi_dfs()[0]
-	voi_df_art.accnum = voi_df_art.accnum.astype(str)
+	lesion_df = drm.get_lesion_df()
+	lesion_df.accnum = lesion_df.accnum.astype(str)
 	img_fns = glob.glob(join(C.full_img_dir, "*", "*.npy"))
 	img_fns = [fn for fn in img_fns if basename(fn)[:-4] not in test_accnums]
 
@@ -687,9 +686,9 @@ def _train_gen_aleatoric(test_accnums):
 		x = np.expand_dims(np.load(img_fn)[...,0], 0)
 
 		accnum = basename(img_fn)[:-4]
-		num_vois = len(voi_df_art[voi_df_art["accnum"] == accnum])
+		num_vois = len(lesion_df_art[lesion_df_art["accnum"] == accnum])
 		y = []
-		for _,voi in voi_df_art[voi_df_art["accnum"] == accnum].iterrows():
+		for _,voi in lesion_df_art[lesion_df_art["accnum"] == accnum].iterrows():
 			y.append(voi[["x1","x2","y1","y2","z1","z2"]].values)
 
 		yield (x, np.array(y), voi["cls"].values[0])
@@ -778,8 +777,8 @@ def _collect_unaug_data(use_vois=True):
 	orig_data_dict = {}
 	num_samples = {}
 	if use_vois:
-		voi_df = drm.get_voi_dfs()[0]
-		voi_df = voi_df[voi_df["run_num"] <= C.test_run_num]
+		lesion_df = drm.get_lesion_df()
+		lesion_df = lesion_df[lesion_df["run_num"] <= C.test_run_num]
 
 	if C.clinical_inputs > 0:
 		test_path="E:\\LIRADS\\excel\\clinical_data_test.xlsx"
@@ -796,7 +795,7 @@ def _collect_unaug_data(use_vois=True):
 			x2 = np.empty((10000, C.clinical_inputs))
 
 		if use_vois:
-			lesion_ids = [x for x in voi_df[voi_df["cls"] == cls].index if exists(join(C.unaug_dir, x+".npy"))]
+			lesion_ids = [x for x in lesion_df[lesion_df["cls"] == cls].index if exists(join(C.unaug_dir, x+".npy"))]
 		else:
 			src_data_df = drm.get_coords_df(cls)
 			accnums = src_data_df["acc #"].values
