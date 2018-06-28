@@ -43,7 +43,7 @@ import niftiutils.deep_learning.uncertainty as uncert
 import voi_methods as vm
 
 importlib.reload(config)
-importlib.reload(densenet)
+importlib.reload(uncert)
 importlib.reload(drm)
 importlib.reload(cnnc)
 C = config.Config()
@@ -52,26 +52,36 @@ C = config.Config()
 ### Build CNNs
 ####################################
 
-def build_cnn_hyperparams(T):
+def build_cnn_hyperparams(T=None):
+	if T is None:
+		T = config.Hyperparams()
+
 	if T.cnn_type == 'inception':
-		return build_inception(T.optimizer)
+		M = build_inception(T.optimizer)
+
 	elif T.cnn_type == 'dense':
-		return densenet.DenseNet((*C.dims, C.nb_channels), C.nb_classes,
+		M = densenet.DenseNet((*C.dims, C.nb_channels), C.nb_classes,
 			clinical_inputs=C.clinical_inputs, optimizer=T.optimizer, depth=22,
-        	pool_type='max', dropout_rate=T.dropout)
-	elif T.cnn_type == 'probabilistic':
-		raise ValueError("Not ready.")
+        	pool_type='max', dropout_rate=T.dropout, mc_sampling=T.mc_sampling)
+
 	elif C.dual_img_inputs:
-		return build_dual_cnn(optimizer=T.optimizer,
+		M = build_dual_cnn(optimizer=T.optimizer,
 			padding=T.padding, pool_sizes=T.pool_sizes, dropout=T.dropout,
 			f=T.f, dense_units=T.dense_units,
 			kernel_size=T.kernel_size)
+
 	else:
-		return build_cnn(optimizer=T.optimizer,
+		M = build_cnn(optimizer=T.optimizer,
 			padding=T.padding, pool_sizes=T.pool_sizes, dropout=T.dropout,
 			f=T.f, dense_units=T.dense_units,
 			kernel_size=T.kernel_size, dual_inputs=C.clinical_inputs,
-			skip_con=T.skip_con)
+			skip_con=T.skip_con, mc_sampling=T.mc_sampling)
+
+	if C.aleatoric:
+		pred_model, train_model = uncert.add_aleatoric_var(M, C.nb_classes)
+		return pred_model, train_model
+	else:
+		return M
 
 def build_cnn(optimizer='adam', padding=['same','same'], pool_sizes=[(2,2,2),(2,2,1)],
 	dropout=.1, f=[64,128,128], dense_units=100, kernel_size=(3,3,2),
@@ -107,8 +117,11 @@ def build_cnn(optimizer='adam', padding=['same','same'], pool_sizes=[(2,2,2),(2,
 	eq_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, kernel_initializer="he_uniform", padding=padding[0])(eq_x)
 
 	x = Concatenate(axis=-1)([art_x, ven_x, eq_x])
-	x = cnnc.bn_relu_etc(x)
-	x = layers.SpatialDropout3D(dropout)(x)
+	if mc_sampling:
+		x = cnnc.bn_relu_etc(x, dropout, mc_sampling)
+	else:
+		x = cnnc.bn_relu_etc(x)
+		x = layers.SpatialDropout3D(dropout)(x)
 	x = layers.MaxPooling3D(pool_sizes[0])(x)
 
 	for layer_num in range(1,len(f)):
@@ -119,11 +132,11 @@ def build_cnn(optimizer='adam', padding=['same','same'], pool_sizes=[(2,2,2),(2,
 		elif skip_con and layer_num==5:
 			x = layers.Add()([x, skip_layer])
 
-		x = cnnc.bn_relu_etc(x, drop=dropout, cv_u=f[layer_num], cv_k=kernel_size, cv_pad=padding[1])
+		x = cnnc.bn_relu_etc(x, dropout, mc_sampling, cv_u=f[layer_num], cv_k=kernel_size, cv_pad=padding[1])
 
 	x = layers.MaxPooling3D(pool_sizes[1])(x)
 	x = Flatten()(x)
-	x = cnnc.bn_relu_etc(x, drop=dropout, fc_u=dense_units)
+	x = cnnc.bn_relu_etc(x, dropout, mc_sampling, fc_u=dense_units)
 
 	if C.clinical_inputs > 0:
 		clinical_inputs = Input(shape=(C.clinical_inputs,))
@@ -136,7 +149,11 @@ def build_cnn(optimizer='adam', padding=['same','same'], pool_sizes=[(2,2,2),(2,
 		#y = layers.Dropout(.3)(y)
 		x = Concatenate(axis=1)([x, y])
 		
-	pred_class = Dense(C.nb_classes, activation='softmax')(x)
+	if C.aleatoric:
+		pred_class = Dense(C.nb_classes+1)(x)
+	else:
+		pred_class = Dense(C.nb_classes, activation='softmax')(x)
+
 
 	if C.clinical_inputs == 0:
 		model = Model(img, pred_class)
@@ -169,7 +186,10 @@ def build_inception(optimizer='adam'):
 		x = Concatenate(axis=1)([x, y])
 		
 	x = layers.Dropout(.2)(x)
-	pred_class = Dense(C.nb_classes, activation='softmax')(x)
+	if C.aleatoric:
+		pred_class = Dense(C.nb_classes+1)(x)
+	else:
+		pred_class = Dense(C.nb_classes, activation='softmax')(x)
 
 	if C.clinical_inputs == 0:
 		model = Model(img, pred_class)
@@ -180,7 +200,7 @@ def build_inception(optimizer='adam'):
 
 	return model
 
-def build_rcnn(optimizer='adam', padding=['same','same'], pool_sizes=[(2,2,2),(2,2,2)],
+def build_rcnn(optimizer='adam', padding=['same','same'], pool_sizes=[2,2],
 	dropout=.1, activation_type='relu', f=[64,64,64,64,64], dense_units=100, kernel_size=(3,3,2),
 	dual_inputs=False, skip_con=False, trained_model=None, first_layer=0, last_layer=0,
 	add_activ=False, debug=False, mc_sampling=False):
@@ -258,7 +278,7 @@ def build_rcnn(optimizer='adam', padding=['same','same'], pool_sizes=[(2,2,2),(2
 
 	return model
 
-def build_dual_cnn(optimizer='adam', padding=['same','same'], pool_sizes=[(2,2,2), (2,2,2)],
+def build_dual_cnn(optimizer='adam', padding=['same','same'], pool_sizes=[2,2],
 	dropout=[0.1,0.1], activation_type='relu', f=[64,128,128], dense_units=100, kernel_size=(3,3,2)):
 	"""Main class for setting up a CNN. Returns the compiled model."""
 
@@ -672,26 +692,6 @@ def _train_gen_ddpg(test_accnums=[]):
 		cls = np_utils.to_categorical(cls_num, len(C.cls_names)).astype(int)
 
 		yield (img, seg, cls)
-
-def _train_gen_aleatoric(test_accnums):
-	"""X is the whole abdominal MR (20s only); Y is the set of true bboxes"""
-
-	lesion_df = drm.get_lesion_df()
-	lesion_df.accnum = lesion_df.accnum.astype(str)
-	img_fns = glob.glob(join(C.full_img_dir, "*", "*.npy"))
-	img_fns = [fn for fn in img_fns if basename(fn)[:-4] not in test_accnums]
-
-	while True:
-		img_fn = random.choice(img_fns)
-		x = np.expand_dims(np.load(img_fn)[...,0], 0)
-
-		accnum = basename(img_fn)[:-4]
-		num_vois = len(lesion_df_art[lesion_df_art["accnum"] == accnum])
-		y = []
-		for _,voi in lesion_df_art[lesion_df_art["accnum"] == accnum].iterrows():
-			y.append(voi[["x1","x2","y1","y2","z1","z2"]].values)
-
-		yield (x, np.array(y), voi["cls"].values[0])
 
 def _train_gen_classifier(test_ids, accnums, n=12):
 	"""n is the number of samples from each class"""

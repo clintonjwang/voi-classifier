@@ -33,7 +33,7 @@ import scipy.stats
 import dr_methods as drm
 import voi_methods as vm
 
-importlib.reload(cbuild)
+importlib.reload(config)
 C = config.Config()
 
 ###########################

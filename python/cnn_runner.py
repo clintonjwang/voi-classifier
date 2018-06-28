@@ -52,10 +52,9 @@ def get_run_stats_csv():
 		running_stats = pd.DataFrame(columns = ["n", "steps_per_epoch", "epochs",
 			"test_num", "augment_factor", "clinical_inputs",
 			"kernel_size", "conv_filters", "conv_padding",
-			"dropout", "dense_units", "pooling", "cnn_type", "learning_rate",
-			"acc6cls", "acc3cls", "time_elapsed(s)", "loss_hist"] + \
-			C.cls_names + \
-			['confusion_matrix', 'timestamp',
+			"dropout", "dense_units", "pooling", "cnn_type", "learning_rate"] + \
+			C.cls_names + ["acc6cls"] + ["acc3cls"]*(hasattr(C,'simplify_map')) + \
+			["loss_hist", 'confusion_matrix', "time_elapsed(s)", 'timestamp',
 			'miscls_test', 'miscls_train', 'model_num',
 			'y_true', 'y_pred_raw', 'z_test'])
 
@@ -67,8 +66,9 @@ def run_fixed_hyperparams(overwrite=False, max_runs=999, T=None, model_name='mod
 	def _get_hyperparams_as_list(T):
 		return [T.n, T.steps_per_epoch, T.epochs,
 				C.test_num, C.aug_factor, C.clinical_inputs,
-				T.kernel_size, T.f, T.padding,
-				T.dropout, T.dense_units, T.pool_sizes, T.cnn_type, T.optimizer.get_config()['lr']]
+				T.kernel_size, T.f, T.padding, T.dropout, T.dense_units,
+				T.pool_sizes, T.cnn_type, T.optimizer.get_config()['lr']] + \
+				[num_samples[k] for k in C.cls_names]
 
 	if overwrite and exists(C.run_stats_path):
 		os.remove(C.run_stats_path)
@@ -94,40 +94,57 @@ def run_fixed_hyperparams(overwrite=False, max_runs=999, T=None, model_name='mod
 		X_test, Y_test, train_generator, num_samples, train_orig, Z = cbuild.get_cnn_data(n=T.n)
 		Z_test, Z_train_orig = Z
 		X_train_orig, Y_train_orig = train_orig
-		model = cbuild.build_cnn_hyperparams(T)
-		#print(model.summary())
-		#return
+		if C.aleatoric:
+			pred_model, train_model = cbuild.build_cnn_hyperparams(T)
+		else:
+			model = cbuild.build_cnn_hyperparams(T)
+
 		t = time.time()
-		hist = model.fit_generator(train_generator, steps_per_epoch=T.steps_per_epoch,
-				epochs=T.epochs, callbacks=[T.early_stopping], verbose=False)
+		if C.aleatoric:
+			hist = train_model.fit_generator(train_generator, steps_per_epoch=T.steps_per_epoch,
+					epochs=T.epochs, callbacks=[T.early_stopping], verbose=False)
+		else:
+			hist = model.fit_generator(train_generator, steps_per_epoch=T.steps_per_epoch,
+					epochs=T.epochs, callbacks=[T.early_stopping], verbose=False)
 		loss_hist = hist.history['loss']
 
-		Y_pred = model.predict(X_train_orig)
+		if C.aleatoric:
+			Y_pred = pred_model.predict(X_train_orig)
+		else:
+			Y_pred = model.predict(X_train_orig)
 		y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_train_orig])
 		y_pred = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_pred])
 		miscls_train = list(Z_train_orig[~np.equal(y_pred, y_true)])
 
-		Y_pred = model.predict(X_test)
+		if C.aleatoric:
+			Y_pred = pred_model.predict(X_test)
+		else:
+			Y_pred = model.predict(X_test)
 		y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_test])
 		y_pred = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_pred])
 		miscls_test = list(Z_test[~np.equal(y_pred, y_true)])
+
 		cm = confusion_matrix(y_true, y_pred)
-		f1 = f1_score(y_true, y_pred, average="weighted")
-
+		#f1 = f1_score(y_true, y_pred, average="weighted")
 		running_acc_6.append(accuracy_score(y_true, y_pred))
-		print("Accuracy: %d%% (avg: %d%%)" % (running_acc_6[-1]*100, np.mean(running_acc_6)*100))
+		print("Accuracy: %d%% (avg: %d%%), time: %ds" % (running_acc_6[-1]*100, np.mean(running_acc_6)*100, time.time()-t))
 
-		y_true_simp, y_pred_simp, _ = cnna.merge_classes(y_true, y_pred, C.cls_names)
-		running_acc_3.append(accuracy_score(y_true_simp, y_pred_simp))
-		#print("3cls accuracy:", running_acc_3[-1], " - average:", np.mean(running_acc_3))
-
-		running_stats.loc[index] = _get_hyperparams_as_list(T) + [running_acc_6[-1], running_acc_3[-1], time.time()-t, loss_hist] +\
-							[num_samples[k] for k in C.cls_names] + \
-							[cm, time.time(), miscls_test, miscls_train, model_num, y_true, str(Y_pred), list(Z_test)]
+		if hasattr(C,'simplify_map'):
+			y_true_simp, y_pred_simp, _ = cnna.merge_classes(y_true, y_pred, C.cls_names)
+			running_acc_3.append(accuracy_score(y_true_simp, y_pred_simp))
+			row = _get_hyperparams_as_list(T) + [running_acc_6[-1], running_acc_3[-1]]
+		else:
+			row = _get_hyperparams_as_list(T) + [running_acc_6[-1]]
+		
+		running_stats.loc[index] = row + [loss_hist, cm, time.time()-t, time.time(),
+						miscls_test, miscls_train, model_num, y_true, str(Y_pred), list(Z_test)]
 
 		running_stats.to_csv(C.run_stats_path, index=False)
 
-		model.save(join(C.model_dir, model_name+'%d.hdf5' % model_num))
+		if C.aleatoric:
+			pred_model.save(join(C.model_dir, model_name+'%d.hdf5' % model_num))
+		else:
+			model.save(join(C.model_dir, model_name+'%d.hdf5' % model_num))
 		model_num += 1
 		index += 1
 

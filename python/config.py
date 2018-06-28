@@ -10,13 +10,13 @@ from keras.optimizers import Adam
 import niftiutils.helper_fxns as hf
 
 class Config:
-	def __init__(self, dataset="lirads"):
+	def __init__(self, dataset="radpath"):
 		self.run_num = 5
 		self.test_run_num = 2
 		self.dims = [24,24,12]
 		self.nb_channels = 3
 		self.aug_factor = 25
-		self.aleatoric = False
+		self.aleatoric = True
 
 		self.max_size = 350*350*100
 		self.context_dims = [36,36,12]
@@ -25,7 +25,6 @@ class Config:
 		self.probabilistic = False
 
 		self.lesion_ratio = 0.7 # ratio of the lesion side length to the length of the cropped image
-
 		self.pre_scale = .5 # normalizes images at augmentation time
 		self.post_scale = 0. # normalizes images at train/test time
 
@@ -39,14 +38,14 @@ class Config:
 		self.phase_dirs = ["T1_20s", "T1_70s", "T1_3min"]
 
 	def use_dataset(self, dataset):
-		if dataset == "lirads" or dataset == "clinical":
+		self.dataset = dataset
+		if dataset.startswith("lirads") or dataset == "clinical":
 			self.base_dir = "E:\\LIRADS"
-			self.coord_xls_path = 'Z:\\LIRADS\\Prototype1e.xlsx'
+			self.coord_xls_path = 'Z:\\LIRADS\\excel\\Prototype1e.xlsx'
 			if dataset == "clinical":
 				self.coord_xls_path = r"Z:\Paula\Clinical data project\coordinates + clinical variables.xlsx"
 				self.clinical_inputs = 9 # whether non-imaging inputs should be incorporated into the neural network
 			self.test_num = 10
-			self.full_img_dir = "Z:\\LIRADS\\full_imgs"
 			self.aug_factor = 100
 
 			self.cls_names = ['hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh']
@@ -55,45 +54,45 @@ class Config:
 			self.dcm_dirs = ["Z:\\LIRADS\\DICOMs\\" + fn for fn in self.cls_names]
 			self.simplify_map = {'hcc': 0, 'cyst': 1, 'hemangioma': 1, 'fnh': 1, 'cholangio': 2, 'colorectal': 2}
 			
-		elif dataset == "lirads-expanded":
-			self.base_dir = "E:\\LIRADS"
-			self.coord_xls_path = 'Z:\\LIRADS\\Prototype1e.xlsx'
-			self.test_num = 5
-			self.full_img_dir = "Z:\\LIRADS\\full_imgs"
+			if dataset == "lirads-expanded":
+				self.base_dir = "E:\\LIRADS"
+				self.coord_xls_path = 'Z:\\LIRADS\\excel\\Prototype1e.xlsx'
+				self.test_num = 5
 
-			self.cls_names = ['hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh', 'net', 'adenoma', 'abscess']
-			self.sheetnames = ['HCC', 'Cholangio', 'Colorectal', 'Cyst', 'Hemangioma', 'FNH', 'NET', 'Adenoma', 'Abscess']
-			self.short_cls_names = ['HCC', 'ICC', 'CRC Met.', 'Cyst', 'Hemang.', 'FNH', 'NET', 'Adenoma', 'Abscess']
-			self.dcm_dirs = ["Z:\\LIRADS\\DICOMs\\" + fn for fn in self.cls_names]
+				self.cls_names = ['hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh', 'net', 'adenoma', 'abscess']
+				self.sheetnames = ['HCC', 'Cholangio', 'Colorectal', 'Cyst', 'Hemangioma', 'FNH', 'NET', 'Adenoma', 'Abscess']
+				self.short_cls_names = ['HCC', 'ICC', 'CRC Met.', 'Cyst', 'Hemang.', 'FNH', 'NET', 'Adenoma', 'Abscess']
+				self.dcm_dirs = ["Z:\\LIRADS\\DICOMs\\" + fn for fn in self.cls_names]
 
-		elif dataset == "etiology":
+		elif dataset.startswith("etiology"):
 			self.dims = [32,32,16]
 			self.context_dims = [100,100,40]
 			self.num_segs = 3
 			self.loss_weights = [[5,20,400],[.1,.1,.1]]
 			self.state_dim = (*self.dims, 4)
 
+			self.sheetname = "Lesion Coordinates"
 			self.base_dir = "D:\\Etiology"
-			self.coord_xls_path = "D:\\Etiology\\excel\\coords.xlsx"
+			#self.coord_xls_path = "D:\\Etiology\\excel\\coords.xlsx"
+			self.coord_xls_path = r"Z:\Sophie\Ethiologyproject\HCC Etiology Project Master Spreadsheet.xlsx"
 			self.test_num = 5
-			self.full_img_dir = join(self.base_dir, "imgs","full_imgs")
+			#self.full_img_dir = join(self.base_dir, "imgs", "full_imgs")
 
-			self.cls_names = ['hbv', 'hcv', 'nonviral']
-			self.sheetnames = ['HBV', 'HCV', 'Nonviral']
-			self.short_cls_names = ['HBV', 'HCV', 'NV']
-			self.dcm_dirs = ["D:\\Etiology\\Imaging"] * 3
+			self.cls_names = ['HBV', 'HCV', 'EtOH', 'NASH']
+			self.dcm_dir = r"Z:\Sophie\Ethiologyproject\Additional MRIs"
+			#self.dcm_dir = "D:\\Etiology\\Imaging"
 
 		elif dataset == "radpath":
 			self.base_dir = "D:\\Radpath"
 			self.coord_xls_path = "Z:\\Paula\\Radpath\\new coordinates_CW.xlsx"
-			self.test_num = 5
-			self.full_img_dir = join(self.base_dir, "full_imgs")
+			self.test_num = 10
 
 			self.cls_names = ['hcc', 'non-hcc']
 			self.sheetnames = ['HCC', 'Non-HCC']
 			self.short_cls_names = self.sheetnames
-			self.dcm_dirs = ["Z:\\Paula\\Radpath\\Imaging"] * 2
+			self.dcm_dir = "Z:\\Paula\\Radpath\\Imaging"
 
+		self.full_img_dir = "Z:\\LIRADS\\full_imgs"
 		#self.patient_info_path = join(self.base_dir, "excel", "patient_data.csv")
 		self.dim_cols = ["voxdim_x", "voxdim_y", "voxdim_z"]
 		self.accnum_cols = ["MRN", "Sex", "AgeAtImaging", "Ethnicity"] + self.dim_cols
@@ -103,11 +102,13 @@ class Config:
 		self.voi_cols = hf.flatten(self.voi_cols)
 
 		# An accnum must be in accnum_df for it to be processed
-		self.accnum_df_path = join(self.base_dir, "excel", "accnum_data.csv")
+		self.accnum_df_path = join("Z:\\LIRADS\\excel", "accnum_data.csv")
 		# A lesion must be in lesion_df for it to be processed
 		self.lesion_df_path = join(self.base_dir, "excel", "lesion_data.csv")
 
 		self.run_stats_path = join(self.base_dir, "excel", "overnight_run.csv")
+
+		self.label_lesion_df = join(self.base_dir, "excel", "lesion_labels.csv")
 
 		self.crops_dir = join(self.base_dir, "imgs", "rough_crops")
 		self.unaug_dir = join(self.base_dir, "imgs", "unaug_imgs")
@@ -128,19 +129,31 @@ class Hyperparams:
 		self.kernel_size = (3,3,2)
 		self.pool_sizes = [(2,2,2),(2,2,2)]
 		self.optimizer = Adam(lr=0.001)
-		self.early_stopping = EarlyStopping(monitor='loss', min_delta=0.003, patience=3)
+		self.early_stopping = EarlyStopping(monitor='loss', min_delta=0.002, patience=5)
 		self.skip_con = False
+		self.mc_sampling = False
 
-	def get_best_hyperparams(self):
-		self.n = 4
-		self.steps_per_epoch = 750
-		self.epochs = 30
-		self.f = [64,128,128]
-		self.padding = ['same','valid']
-		self.dropout = 0.1
-		self.dense_units = 100
-		self.kernel_size = (3,3,2)
-		self.pool_sizes = [(2,2,2),(2,2,1)]
+	def get_best_hyperparams(self, dataset):
+		if dataset == 'radpath':
+			self.n = 32
+			self.steps_per_epoch = 100
+			self.epochs = 30
+			self.f = [64,80,80]
+			self.padding = ['same','valid']
+			self.dropout = 0.1
+			self.dense_units = 100
+			self.kernel_size = 3
+			self.pool_sizes = [2,2]
+		else:
+			self.n = 4
+			self.steps_per_epoch = 750
+			self.epochs = 30
+			self.f = [64,128,128]
+			self.padding = ['same','valid']
+			self.dropout = 0.1
+			self.dense_units = 100
+			self.kernel_size = (3,3,2)
+			self.pool_sizes = [(2,2,2),(2,2,1)]
 
 	def get_capsnet_params(self):
 		self.lr = 4

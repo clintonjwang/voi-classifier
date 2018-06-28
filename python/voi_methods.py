@@ -221,8 +221,7 @@ def save_vois_as_imgs(cls=None, lesion_ids=None, save_dir=None, normalize=None, 
 	if not exists(save_dir):
 		os.makedirs(save_dir)
 
-	lesion_df = pd.read_csv(C.small_voi_path, index_col=0)
-
+	lesion_df = drm.get_lesion_df()
 	if lesion_ids is not None:
 		fns = [lesion_id+".npy" for lesion_id in lesion_ids if lesion_id+".npy" in os.listdir(C.unaug_dir) \
 				and lesion_df.loc[lesion_id,"cls"] == cls]
@@ -360,9 +359,42 @@ def save_imgs_with_bbox(cls=None, lesion_ids=None, save_dir=None, normalize=None
 		else:
 			imsave("%s\\%s%s%s.png" % (save_dir, fn_prefix, lesion_id, suffix), ret)
 
-def padded_coords(lesion_df, lesion_id):
-	"""Ideally should place the voi in the same place in the image"""
-	return _get_voi_coords(lesion_df.loc[lesion_id])
+def semiauto_label_lesions(lesion_ids=None):
+	print("1: Arterial enhancement")
+	print("2: Washout")
+	print("3: Capsule")
+	print("4: Bad image")
+
+	if exists(C.label_lesion_df):
+		df = pd.read_csv(C.label_lesion_df, index_col=0)
+	else:
+		df = pd.DataFrame(columns=["Arterial enhancement", "Washout", "Capsule", "Bad image"])
+
+	if lesion_ids is None:
+		lesion_df = drm.get_lesion_df()
+		lesion_ids = lesion_df.index
+
+	for lesion_id in lesion_ids:
+		plot_check(2, lesion_id, None)
+		print(lesion_id)
+		ins = input()
+		row = np.zeros(4)
+		if ins == "q":
+			return
+		if '0' in ins:
+			continue
+		if '4' in ins:
+			row[-1] = 1
+		if '1' in ins:
+			row[0] = 1
+		if '2' in ins:
+			row[0] = 2
+		if '3' in ins:
+			row[0] = 3
+		df.loc[lesion_id] = row
+
+	df.to_csv(C.label_lesion_df)
+
 
 #####################################
 ### Data Creation
@@ -430,14 +462,13 @@ def extract_vois(cls=None, accnums=None, lesion_ids=None, overwrite=False):
 	Rotation, scaling, etc. for augmentation can be done directly on these images.
 	drm.load_vois_batch() must be run first to populate the lesion_df.
 	Overwrites any existing images and lesion_df entries without checking."""
-
 	if not exists(C.crops_dir):
 		os.makedirs(C.crops_dir)
 
 	lesion_df = drm.get_lesion_df()
 	if lesion_ids is None:
 		if accnums is None:
-			lesion_ids = lesion_df[lesion_df["cls"] == cls].index.values
+			lesion_ids = lesion_df[lesion_df["cls"] == cls].index
 		else:
 			lesion_ids = lesion_df[(lesion_df["accnum"].isin(accnums)) & (lesion_df["cls"] == cls)].index
 
@@ -445,8 +476,11 @@ def extract_vois(cls=None, accnums=None, lesion_ids=None, overwrite=False):
 		if not overwrite and not np.isnan(lesion_df.loc[l_id, "sm_x1"]):
 			continue
 
-		accnum = lesion_df.loc[l_id, "accnum"]
-		img = np.load(join(C.full_img_dir, accnum+".npy"))
+		img_path = join(C.full_img_dir, lesion_df.loc[l_id, "accnum"]+".npy")
+		if not exists(img_path):
+			continue
+
+		img = np.load(img_path)
 		img = tr.normalize_intensity(img, max_I=1, min_I=-1)
 		crop_img, coords = _extract_voi(img, lesion_df.loc[l_id])
 		lesion_df.loc[l_id, C.small_cols] = coords
@@ -463,30 +497,35 @@ def extract_vois(cls=None, accnums=None, lesion_ids=None, overwrite=False):
 def save_unaugmented_set(cls=None, accnums=None, lesion_ids=None, custom_vois=None, lesion_ratio=None, overwrite=True):
 	"""Save unaugmented lesion images. Overwrites without checking."""
 
-	lesion_df = pd.read_csv(C.lesion_df_path, index_col=0)
+	lesion_df = drm.get_lesion_df()
 
 	if not exists(C.unaug_dir):
 		os.makedirs(C.unaug_dir)
 
 	if lesion_ids is None:
 		if accnums is None:
-			lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir) if x[:-4] in lesion_df.index]
+			lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir) if x[:-4] in lesion_df[lesion_df["cls"] == cls].index]
 		else:
-			lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir) if x[:x.find('_')] in accnums]
+			lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir) if x[:x.find('_')] in accnums and \
+					x[:-4] in lesion_df[lesion_df["cls"] == cls].index]
 
 	for ix, lesion_id in enumerate(lesion_ids):
 		if not overwrite and exists(join(C.unaug_dir, lesion_id)):
 			continue
-		if custom_vois is None:
-			try:
-				unaug_img = _resize_img(join(C.crops_dir, lesion_id + ".npy"),
-							lesion_df.loc[lesion_id, C.small_cols])
-			except:
-				continue
-		else:
-			unaug_img = _resize_img(join(C.crops_dir, lesion_id + ".npy"), custom_vois[ix], lesion_ratio)
+		img = np.load(join(C.crops_dir, lesion_id + ".npy"))
+		try:
+			if C.pre_scale > 0:
+				img = tr.normalize_intensity(img, max_I=1, min_I=-1, frac=C.pre_scale)
+		except:
+			os.remove(join(C.crops_dir, lesion_id + ".npy"))
+		img = tr.rescale_img(img, C.dims)
+		#if custom_vois is None:
+		#	unaug_img = _resize_img(join(C.crops_dir, lesion_id + ".npy"),
+		#				lesion_df.loc[lesion_id, C.small_cols])
+		#else:
+		#	unaug_img = _resize_img(join(C.crops_dir, lesion_id + ".npy"), custom_vois[ix], lesion_ratio)
 
-		np.save(join(C.unaug_dir, lesion_id), unaug_img)
+		np.save(join(C.unaug_dir, lesion_id), img)
 
 @drm.autofill_cls_arg
 def save_augmented_set(cls=None, accnums=None, num_cores=None, overwrite=True):
@@ -494,7 +533,7 @@ def save_augmented_set(cls=None, accnums=None, num_cores=None, overwrite=True):
 	Overwrite can be an int, in which case it will create
 	augmented samples enumerated starting at that number."""
 
-	lesion_df = pd.read_csv(C.small_voi_path, index_col=0)
+	lesion_df = drm.get_lesion_df()
 
 	if not exists(C.aug_dir):
 		os.makedirs(C.aug_dir)
@@ -526,7 +565,11 @@ def save_augmented_set(cls=None, accnums=None, num_cores=None, overwrite=True):
 ### Public Subroutines
 #####################################
 
-def get_scale_ratios(voi, final_dims=None, lesion_ratio=None):
+def padded_coords(lesion_df, lesion_id):
+	"""Ideally should place the voi in the same place in the image"""
+	return lesion_df.loc[lesion_id]
+
+def get_scale_ratios(voi, lesion_ratio=None):
 	"""Based on a voi in an image and the final dimensions desired,
 	determine how much the image needs to be scaled so that the voi fits
 	in the desired dimensions, with optional padding.
@@ -534,22 +577,11 @@ def get_scale_ratios(voi, final_dims=None, lesion_ratio=None):
 	lesion_ratio of .8 means that the width of the lesion is 80% of the image width.
 	lesion_ratio of 1 means no padding is added."""
 
-	if final_dims is None:
-		final_dims = C.dims
 	if lesion_ratio is None:
 		lesion_ratio = C.lesion_ratio
 
-	x1 = voi[0]
-	x2 = voi[1]
-	y1 = voi[2]
-	y2 = voi[3]
-	z1 = voi[4]
-	z2 = voi[5]
-	dx = x2 - x1
-	dy = y2 - y1
-	dz = z2 - z1
-	
-	scale_ratios = [final_dims[0]/dx * lesion_ratio, final_dims[1]/dy * lesion_ratio, final_dims[2]/dz * lesion_ratio]
+	dx = [voi[ix+1] - voi[ix] for ix in [0,2,4]]
+	scale_ratios = [C.dims[ix]/dx[ix] * lesion_ratio for ix in range(3)]
 
 	return scale_ratios
 
@@ -596,7 +628,7 @@ def _augment_img(img, num_samples, voi=None, save_name=None, overwrite=True):
 	if voi is not None:
 		buffer1 = C.lesion_ratio-.1
 		buffer2 = C.lesion_ratio+.1
-		scale_ratios = get_scale_ratios(voi, lesion_ratio=1)
+		scale_ratios = [1]*3#get_scale_ratios(voi, lesion_ratio=1)
 	else:
 		scale_ratios = [1]*3
 		buffer1 = 1.
@@ -625,18 +657,18 @@ def _augment_img(img, num_samples, voi=None, save_name=None, overwrite=True):
 			aug_img = img
 			for axis in range(3):
 				aug_img = tr.rotate(aug_img, random.randint(0, 359), axis=axis)
-			aug_img = tr.scale3d(aug_img, scales)
+			
+			aug_img = tr.rescale_img(aug_img, scales)
+			crops = np.clip([aug_img.shape[i] - C.dims[i] for i in range(3)], 0, 50)
+			#for i in range(3):
+			#	assert crops[i]>=
 
-			crops = [aug_img.shape[i] - C.dims[i] for i in range(3)]
-		
-			for i in range(3):
-				assert crops[i]>=0
-
-			#aug_img = add_noise(aug_img)
-
-			aug_img = tr.offset_phases(aug_img, max_offset=2, max_z_offset=1)
+			#aug_img = tr.offset_phases(aug_img, max_offset=2, max_z_offset=1)
 			sl = [slice(crops[ix]//2 *flip[ix] + trans[ix], -crops[ix]//2 *flip[ix] + trans[ix], flip[ix]) for ix in range(3)]
 			aug_img = aug_img[sl]
+			if np.min(aug_img.shape) == 0:
+				return
+			aug_img = tr.rescale_img(aug_img, C.dims)
 		
 		for ix in range(3):
 			aug_img[...,ix] = aug_img[...,ix] * random.gauss(1,C.intensity_scaling[0]) + random.gauss(0,C.intensity_scaling[1])
@@ -659,13 +691,12 @@ def _resize_img(img_path, voi, lesion_ratio=None):
 	"""For rescaling an img to final_dims while scaling to make sure the image contains the voi.
 	Do not reuse img
 	"""
-
 	scale_ratios = get_scale_ratios(voi, lesion_ratio=lesion_ratio)
 
 	img = np.load(img_path)
 	if C.pre_scale > 0:
 		img = tr.normalize_intensity(img, max_I=1, min_I=-1, frac=C.pre_scale)
-	img = tr.scale3d(img, scale_ratios)
+	img = tr.rescale_img(img, scale_ratios)
 
 	crop = [img.shape[i] - C.dims[i] for i in range(3)]
 
@@ -685,14 +716,16 @@ def _extract_voi(img, voi, pad_lims=[5,40]):
 	
 	# align phases
 	if not np.isnan(voi["v_x1"]):
-		dx = [((voi["v_"+char+"1"] + voi["v_"+char+"2"]) - (x1[ix]+x2[ix])) // 2 for ix,char in enumerate(['x','y','z'])]
-		pad = int(np.max(np.abs(dx)))+1
-		img[...,1] = np.pad(img[...,1], pad, 'constant')[pad+dx:-pad+dx, pad+dy:-pad+dy, pad+dz:-pad+dz]
+		dx = np.array([((voi["v_"+char+"1"] + voi["v_"+char+"2"]) - (x1[ix]+x2[ix])) / 2 for ix,char in enumerate(['x','y','z'])], int)
+		pad = int(np.abs(dx).max()+1)
+		sl = [slice(pad+offset,-pad+offset) for offset in dx]
+		img[...,1] = np.pad(img[...,1], pad, 'constant')[sl]
 
 	if not np.isnan(voi["e_x1"]):
-		dx = [((voi["e_"+char+"1"] + voi["e_"+char+"2"]) - (x1[ix]+x2[ix])) // 2 for ix,char in enumerate(['x','y','z'])]
-		pad = int(np.max(np.abs(dx)))+1
-		img[...,2] = np.pad(img[...,2], pad, 'constant')[pad+dx:-pad+dx, pad+dy:-pad+dy, pad+dz:-pad+dz]
+		dx = np.array([((voi["e_"+char+"1"] + voi["e_"+char+"2"]) - (x1[ix]+x2[ix])) // 2 for ix,char in enumerate(['x','y','z'])], int)
+		pad = int(np.abs(dx).max()+1)
+		sl = [slice(pad+offset,-pad+offset) for offset in dx]
+		img[...,2] = np.pad(img[...,2], pad, 'constant')[sl]
 
 	dx = np.array([x2[ix] - x1[ix] for ix in range(3)])
 	assert np.all(np.greater(x2,x1)), str(voi["accnum"])

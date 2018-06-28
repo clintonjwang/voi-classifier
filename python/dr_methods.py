@@ -85,7 +85,10 @@ def missing_dcms(cls=None):
 
 	for cnt, accnum in enumerate(accnums):
 		df_subset = df.loc[df['acc #'].astype(str) == accnum]
-		subfolder = C.dcm_dirs[i] + "\\" + accnum
+		if hasattr(C,'dcm_dirs'):
+			subfolder = join(C.dcm_dirs[i], accnum)
+		else:
+			subfolder = join(C.dcm_dir, accnum)
 
 		#if not exists(subfolder + "\\T1_multiphase"):
 		for ph in C.phases:
@@ -135,9 +138,9 @@ def tumor_cont(accnums=None, save_path="D:\\Etiology\\imgs\\contours"):
 ###########################
 
 def off2ids_batch(accnum_xls_path=None, accnum_dict=None):
+	# only for segs
 	if accnum_dict is None:
-		input_df = pd.read_excel(accnum_xls_path,
-					 sheetname="Prelim Analysis Patients", index_col=0, parse_cols="A,J")
+		input_df = pd.read_excel(accnum_xls_path, "Prelim Analysis Patients", index_col=0, parse_cols="A,J")
 		accnum_dict = {category: list(input_df[input_df["Category"] == category].index.astype(str)) for category in C.sheetnames}
 
 	for category in C.sheetnames:
@@ -146,7 +149,7 @@ def off2ids_batch(accnum_xls_path=None, accnum_dict=None):
 			continue
 		for ix,accnum in enumerate(accnum_dict[category]):
 			print('.',end='')
-			load_dir = join(C.dcm_dirs[0], accnum)
+			load_dir = join(C.dcm_dir, accnum)
 			for fn in glob.glob(join(load_dir, 'Segs', 'tumor_20s_*')):
 				os.remove(fn)
 			masks.off2ids(join(load_dir, 'Segs', 'tumor_20s.off'), R=[2,2,3])
@@ -154,8 +157,7 @@ def off2ids_batch(accnum_xls_path=None, accnum_dict=None):
 
 def build_coords_df(accnum_xls_path):
 	"""Builds all coords from scratch, without the ability to add or change individual coords"""
-	input_df = pd.read_excel(accnum_xls_path,
-				 sheetname="Prelim Analysis Patients", index_col=0, parse_cols="A,J")
+	input_df = pd.read_excel(accnum_xls_path, "Prelim Analysis Patients", index_col=0, parse_cols="A,J")
 
 	accnum_dict = {category: list(input_df[input_df["Category"] == category].index.astype(str)) for category in C.sheetnames}
 
@@ -182,9 +184,6 @@ def build_coords_df(accnum_xls_path):
 				raise ValueError(load_dir)
 			#ven,_ = hf.dcm_load(join(load_dir, C.phases[1]))
 			#equ,_ = hf.dcm_load(join(load_dir, C.phases[2]))
-			#ven,d = reg.reg_elastix(ven, art)
-			#equ,d = reg.reg_elastix(equ, art)
-
 
 			for fn in glob.glob(join(load_dir, 'Segs', 'tumor_20s_*.ids')):
 				try:
@@ -213,21 +212,24 @@ def dcm2npy(cls=None, accnums=None, overwrite=False, exec_reg=False, save_seg=Fa
 	accnum_df = get_accnum_df()
 	if accnums is None:
 		accnums = list(set(src_data_df['acc #'].values))
-	#else:
-	#	accnums = set(accnums).intersection(src_data_df['acc #'].values)
+	else:
+		accnums = set(accnums).intersection(src_data_df['acc #'].values)
 
-	if not exists(C.full_img_dir):
-		os.makedirs(C.full_img_dir)
-
-	cls_num = C.cls_names.index(cls)
+	if hasattr(C,'dcm_dirs'):
+		root = C.dcm_dirs[C.cls_names.index(cls)]
+	else:
+		root = C.dcm_dir
 
 	for cnt, accnum in enumerate(accnums):
-		load_dir = join(C.dcm_dirs[cls_num], accnum)
+		load_dir = join(root, accnum)
 		save_path = join(C.full_img_dir, accnum + ".npy")
 
 		if not exists(join(load_dir, C.phase_dirs[0])):
-			continue
-		if not overwrite and exists(save_path) and not np.isnan(accnum_df.loc[accnum, "voxdim_x"]):
+			load_dir = join("Z:\\LIRADS\\DICOMs\\hcc", accnum)
+			if not exists(join(load_dir, C.phase_dirs[0])):
+				continue
+		if not overwrite and exists(save_path) and accnum in accnum_df.index and \
+				not np.isnan(accnum_df.loc[accnum, "voxdim_x"]):
 			continue
 
 		try:
@@ -266,8 +268,6 @@ def dcm2npy(cls=None, accnums=None, overwrite=False, exec_reg=False, save_seg=Fa
 		accnum_df.loc[accnum] = get_patient_row(accnum, cls) + list(D)
 		accnum_df.to_csv(C.accnum_df_path)
 
-	#load_vois(cls, accnums, overwrite)
-
 @autofill_cls_arg
 def load_vois(cls=None, accnums=None, overwrite=False, save_seg=False):
 	"""Updates the voi_dfs based on the raw spreadsheet.
@@ -289,7 +289,7 @@ def load_vois(cls=None, accnums=None, overwrite=False, save_seg=False):
 		df_subset = src_data_df[src_data_df['acc #'] == accnum]
 
 		if save_seg:
-			load_dir = join(C.dcm_dirs[0], accnum)
+			load_dir = join(C.dcm_dir, accnum)
 			I,_ = hf.nii_load(join(load_dir, "nii_dir", "20s.nii.gz"))
 			
 			downsample = 1
@@ -314,24 +314,21 @@ def load_vois(cls=None, accnums=None, overwrite=False, save_seg=False):
 			else:
 				new_num = 0
 
-			lesion_id = accnum + "_" + str(new_num)
-			lesion_df.loc[lesion_id, ["accnum", "cls", "run_num"] + C.art_cols] = [accnum, cls, int(row["Run"])]+x+y+z
+			l_id = accnum + "_" + str(new_num)
+			lesion_df.loc[l_id, ["accnum", "cls", "run_num"] + C.art_cols] = \
+						[accnum, cls, int(row["Run"])]+x+y+z
 
 			if 'x3' in row and not np.isnan(row['x3']):
 				x,y,z = [[int(row[ch+'3']), int(row[ch+'4'])] for ch in ['x','y','z']]
-				
 				#if row['Flipped'] != "Yes":
 				#	z = [img.shape[2]-z[1], img.shape[2]-z[0]] # flip z
-					
-				lesion_df.loc[lesion_id, C.ven_cols] = x+y+z
+				lesion_df.loc[l_id, C.ven_cols] = x+y+z
 				
 			if 'x5' in row and not np.isnan(row['x5']):
 				x,y,z = [[int(row[ch+'5']), int(row[ch+'6'])] for ch in ['x','y','z']]
-				
 				#if row['Flipped'] != "Yes":
 				#	z = [img.shape[2]-z[1], img.shape[2]-z[0]] # flip z
-					
-				lesion_df.loc[lesion_id, C.equ_cols] = x+y+z
+				lesion_df.loc[l_id, C.equ_cols] = x+y+z
 
 		print(".", end="")
 		if cnt % 5 == 2:
@@ -339,10 +336,10 @@ def load_vois(cls=None, accnums=None, overwrite=False, save_seg=False):
 	lesion_df.to_csv(C.lesion_df_path)
 
 def get_patient_row(accnum, cls=None):
-	if cls is None:
-		subdir = join(C.dcm_dirs[0], accnum)
-	else:
+	if hasattr(C,'dcm_dirs'):
 		subdir = join(C.dcm_dirs[C.cls_names.index(cls)], accnum)
+	else:
+		subdir = join(C.dcm_dir, accnum)
 	fn = join(subdir, "T1_AP", "metadata.xml")
 	if exists(fn):
 		f = open(fn, 'r')
@@ -387,24 +384,24 @@ def read_metadata(metadata_txt):
 
 	sex = result[sex_tag]
 	ethnicity = result[ethnic_tag]
+	ethnicity = ethnicity.strip().upper()
 
-	if ethnicity.upper() == 'W':
+	if ethnicity in ['W','WHITE']:
 		ethnicity = "White"
-	elif ethnicity.upper() == 'B':
+	elif ethnicity in ['B','BLACK']:
 		ethnicity = "Black"
-	elif ethnicity.upper() == 'H':
+	elif ethnicity == 'H':
 		ethnicity = "Hispanic"
-	elif ethnicity.upper() == 'P':
+	elif ethnicity == 'P':
 		ethnicity = "Pacific Islander"
-	elif ethnicity.upper() == 'O':
+	elif ethnicity in ['O','OTHER']:
 		ethnicity = "Other"
-	elif ethnicity in ['U', "Pt Refused"] or len(ethnicity) > 20:
+	elif ethnicity in ['U', "PT REFUSED"] or len(ethnicity) > 20:
 		ethnicity = "Unknown"
 	else:
 		raise ValueError(ethnicity)
 
 	return [mrn, sex, age, ethnicity]
-
 
 @autofill_cls_arg
 def load_patient_info(cls=None, accnums=None, overwrite=False, verbose=False):
@@ -418,32 +415,15 @@ def load_patient_info(cls=None, accnums=None, overwrite=False, verbose=False):
 	if not overwrite:
 		accnums = set(accnums).difference(accnum_df.index.values)
 
-	print(cls)
 	for cnt, accnum in enumerate(accnums):
-		subdir = join(C.dcm_dirs[C.cls_names.index(cls)], accnum)
-		fn = join(subdir, "T1_AP", "metadata.xml")
-		if exists(fn):
-			f = open(fn, 'r')
-		else:
-			missing_metadata = True
-			foldernames = [x for x in os.listdir(subdir) if 'T1' in x or 'post' in x or 'post' in x]
-			for folder in foldernames:
-				fn = join(subdir, folder, "metadata.xml")
-				if exists(fn):
-					f = open(fn, 'r')
-					missing_metadata = False
-					break
-			if missing_metadata:
-				print(accnum, end=",")
-				continue
-
-		accnum_df.loc[accnum, C.accnum_cols[:4]] = read_metadata(''.join(f.readlines()))
+		accnum_df.loc[accnum, C.accnum_cols[:4]] = get_patient_row(accnum, cls)
 
 		if cnt % 20 == 2:
 			accnum_df.to_csv(C.accnum_df_path)
 	accnum_df.to_csv(C.mrn_df_path)
 
 def load_clinical_vars():
+	#only for Paula clinical
 	xls_path=r"Z:\Paula\Clinical data project\coordinates + clinical variables.xlsx"
 	train_path="E:\\LIRADS\\excel\\clinical_data_train.xlsx"
 	test_path="E:\\LIRADS\\excel\\clinical_data_test.xlsx"
@@ -495,7 +475,7 @@ def load_clinical_vars():
 	fill_df.to_excel(train_path)
 
 ###########################
-### Public Subroutines
+### Build/retrieve dataframes
 ###########################
 
 def get_lesion_df():
@@ -517,15 +497,13 @@ def get_accnum_df():
 
 	return accnum_df
 
-###########################
-### Subroutines
-###########################
-
 def get_coords_df(cls=None):
-	if cls is None:
-		df = pd.read_excel(C.coord_xls_path)
-	else:
+	if hasattr(C,'sheetnames'):
 		df = pd.read_excel(C.coord_xls_path, C.sheetnames[C.cls_names.index(cls)])
+	else:
+		df = pd.read_excel(C.coord_xls_path, C.sheetname)
+		if cls is not None:
+			df = df[df["cls"] == cls]
 	df = df[df['Run'] <= C.run_num].dropna(subset=["x1"])
 	df['acc #'] = df['acc #'].astype(str)
 	
