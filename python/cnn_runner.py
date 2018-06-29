@@ -43,8 +43,105 @@ C = config.Config()
 ### RUN!
 ####################################
 
-def get_run_stats_csv():
-	C = config.Config()
+class CNNRunner():
+	def __init__(self, C=None, T=None):
+		if C is None:
+			self.C = config.Config()
+		else:
+			self.C = C
+		if T is None:
+			self.T = config.Hyperparams()
+			self.T.get_best_hyperparams(C.dataset)
+		else:
+			self.T = T
+
+	def run_fixed_hyperparams(self, overwrite=False, max_runs=999, model_name='models_'):
+		"""Runs the CNN for max_runs times, saving performance metrics."""
+		if overwrite and exists(self.C.run_stats_path):
+			os.remove(self.C.run_stats_path)
+		running_stats = get_run_stats_csv(self.C)
+		index = len(running_stats)
+
+		model_names = glob.glob(join(self.C.model_dir, model_name+"*"))
+		if len(model_names) > 0:
+			model_num = max([int(x[x.find('_')+1:x.find('.')]) for x in model_names if 'reader' not in x]) + 1
+		else:
+			model_num = 0
+
+		running_acc_6 = []
+
+		while index < max_runs:
+			X_test, Y_test, train_generator, num_samples, train_orig, Z = cbuild.get_cnn_data(n=self.T.n)
+			self.Z_test, self.Z_train_orig = Z
+			X_train_orig, Y_train_orig = train_orig
+			if self.C.aleatoric:
+				self.pred_model, self.train_model = cbuild.build_cnn_hyperparams(self.T)
+				"""elif C.loss == 'focal':
+					train_model = cbuild.build_cnn_hyperparams(T)
+
+					inp = Input(train_model.input_shape[1:], name='inp')
+					y_pred = train_model(inp)
+					o = layers.Activation('softmax')(y_pred)
+					pred_model = Model(inp, o)"""
+			else:
+				self.pred_model = cbuild.build_cnn_hyperparams(self.T)
+				self.train_model = self.pred_model
+
+			t = time.time()
+			hist = self.train_model.fit_generator(train_generator, self.T.steps_per_epoch,
+					self.T.epochs, verbose=False)
+			loss_hist = hist.history['loss']
+
+			Y_pred = self.pred_model.predict(X_train_orig)
+			y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_train_orig])
+			y_pred = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_pred])
+			miscls_train = list(self.Z_train_orig[~np.equal(y_pred, y_true)])
+
+			if C.aug_pred:
+				x = np.empty((self.C.aug_factor, *self.C.dims, self.C.nb_channels))
+				Y_pred = []
+				for z in self.Z_test:
+					x = np.stack([np.load(fn) for fn in glob.glob(join(C.aug_dir,"*")) if basename(fn).startswith(z)], 0)
+					y = self.pred_model.predict(x)
+					Y_pred.append(np.median(y, 0))
+				Y_pred = np.array(Y_pred)
+			else:
+				Y_pred = self.pred_model.predict(X_test)
+			y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_test])
+			y_pred = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_pred])
+			miscls_test = list(self.Z_test[~np.equal(y_pred, y_true)])
+
+			cm = confusion_matrix(y_true, y_pred)
+			#f1 = f1_score(y_true, y_pred, average="weighted")
+			running_acc_6.append(accuracy_score(y_true, y_pred))
+			print("Accuracy: %d%% (avg: %d%%), time: %ds" % (running_acc_6[-1]*100, np.mean(running_acc_6)*100, time.time()-t))
+
+			if hasattr(C,'simplify_map'):
+				y_true_simp, y_pred_simp, _ = cnna.merge_classes(y_true, y_pred, self.C.cls_names)
+				acc_3 = accuracy_score(y_true_simp, y_pred_simp)
+				row = _get_hyperparams_as_list(self.C, self.T) + [num_samples[k] for k in self.C.cls_names] + [running_acc_6[-1], acc_3]
+			else:
+				row = _get_hyperparams_as_list(self.C, self.T) + [num_samples[k] for k in self.C.cls_names] + [running_acc_6[-1]]
+			
+			running_stats.loc[index] = row + [loss_hist, cm, time.time()-t, time.time(),
+							miscls_test, miscls_train, model_num, y_true, str(Y_pred), list(self.Z_test)]
+
+			running_stats.to_csv(self.C.run_stats_path, index=False)
+			self.pred_model.save(join(self.C.model_dir, model_name+'%d.hdf5' % model_num))
+			model_num += 1
+			index += 1
+
+	def run_hyperparam_seq(overwrite=False, max_runs=999, T=None, model_name='models_'):
+		"""Runs the CNN for max_runs times, saving performance metrics."""
+		pass
+
+def _get_hyperparams_as_list(C, T):
+	return [T.n, T.steps_per_epoch, T.epochs,
+			C.test_num, C.aug_factor, C.clinical_inputs,
+			T.kernel_size, T.f, T.padding, T.dropout, T.dense_units,
+			T.pool_sizes, T.cnn_type, T.optimizer.get_config()['lr']]
+
+def get_run_stats_csv(C):
 	try:
 		running_stats = pd.read_csv(C.run_stats_path)
 		index = len(running_stats)
@@ -59,99 +156,6 @@ def get_run_stats_csv():
 			'y_true', 'y_pred_raw', 'z_test'])
 
 	return running_stats
-
-def run_fixed_hyperparams(overwrite=False, max_runs=999, T=None, model_name='models_'):
-	"""Runs the CNN for max_runs times, saving performance metrics."""
-
-	def _get_hyperparams_as_list(T):
-		return [T.n, T.steps_per_epoch, T.epochs,
-				C.test_num, C.aug_factor, C.clinical_inputs,
-				T.kernel_size, T.f, T.padding, T.dropout, T.dense_units,
-				T.pool_sizes, T.cnn_type, T.optimizer.get_config()['lr']] + \
-				[num_samples[k] for k in C.cls_names]
-
-	if overwrite and exists(C.run_stats_path):
-		os.remove(C.run_stats_path)
-	running_stats = get_run_stats_csv()
-	index = len(running_stats)
-
-	model_names = glob.glob(join(C.model_dir, model_name+"*"))
-	if len(model_names) > 0:
-		model_num = max([int(x[x.find('_')+1:x.find('.')]) for x in model_names if 'reader' not in x]) + 1
-	else:
-		model_num = 0
-
-	running_acc_6 = []
-	running_acc_3 = []
-	early_stopping = T.early_stopping
-
-	while index < max_runs:
-		#run_then_return_val_loss(num_iters=1, hyperparams=None)
-
-		if T is None:
-			T = config.Hyperparams()
-
-		X_test, Y_test, train_generator, num_samples, train_orig, Z = cbuild.get_cnn_data(n=T.n)
-		Z_test, Z_train_orig = Z
-		X_train_orig, Y_train_orig = train_orig
-		if C.aleatoric:
-			pred_model, train_model = cbuild.build_cnn_hyperparams(T)
-		else:
-			model = cbuild.build_cnn_hyperparams(T)
-
-		t = time.time()
-		if C.aleatoric:
-			hist = train_model.fit_generator(train_generator, steps_per_epoch=T.steps_per_epoch,
-					epochs=T.epochs, callbacks=[T.early_stopping], verbose=False)
-		else:
-			hist = model.fit_generator(train_generator, steps_per_epoch=T.steps_per_epoch,
-					epochs=T.epochs, callbacks=[T.early_stopping], verbose=False)
-		loss_hist = hist.history['loss']
-
-		if C.aleatoric:
-			Y_pred = pred_model.predict(X_train_orig)
-		else:
-			Y_pred = model.predict(X_train_orig)
-		y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_train_orig])
-		y_pred = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_pred])
-		miscls_train = list(Z_train_orig[~np.equal(y_pred, y_true)])
-
-		if C.aleatoric:
-			Y_pred = pred_model.predict(X_test)
-		else:
-			Y_pred = model.predict(X_test)
-		y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_test])
-		y_pred = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_pred])
-		miscls_test = list(Z_test[~np.equal(y_pred, y_true)])
-
-		cm = confusion_matrix(y_true, y_pred)
-		#f1 = f1_score(y_true, y_pred, average="weighted")
-		running_acc_6.append(accuracy_score(y_true, y_pred))
-		print("Accuracy: %d%% (avg: %d%%), time: %ds" % (running_acc_6[-1]*100, np.mean(running_acc_6)*100, time.time()-t))
-
-		if hasattr(C,'simplify_map'):
-			y_true_simp, y_pred_simp, _ = cnna.merge_classes(y_true, y_pred, C.cls_names)
-			running_acc_3.append(accuracy_score(y_true_simp, y_pred_simp))
-			row = _get_hyperparams_as_list(T) + [running_acc_6[-1], running_acc_3[-1]]
-		else:
-			row = _get_hyperparams_as_list(T) + [running_acc_6[-1]]
-		
-		running_stats.loc[index] = row + [loss_hist, cm, time.time()-t, time.time(),
-						miscls_test, miscls_train, model_num, y_true, str(Y_pred), list(Z_test)]
-
-		running_stats.to_csv(C.run_stats_path, index=False)
-
-		if C.aleatoric:
-			pred_model.save(join(C.model_dir, model_name+'%d.hdf5' % model_num))
-		else:
-			model.save(join(C.model_dir, model_name+'%d.hdf5' % model_num))
-		model_num += 1
-		index += 1
-
-def run_hyperparam_seq(overwrite=False, max_runs=999, T=None, model_name='models_'):
-	"""Runs the CNN for max_runs times, saving performance metrics."""
-	pass
-
 
 ####################################
 ### HYPERBAND

@@ -15,8 +15,10 @@ class Config:
 		self.test_run_num = 2
 		self.dims = [24,24,12]
 		self.nb_channels = 3
-		self.aug_factor = 25
+		self.aug_factor = 100
+		self.loss = ''#'focal'
 		self.aleatoric = True
+		self.aug_pred = True
 
 		self.max_size = 350*350*100
 		self.context_dims = [36,36,12]
@@ -85,7 +87,7 @@ class Config:
 		elif dataset == "radpath":
 			self.base_dir = "D:\\Radpath"
 			self.coord_xls_path = "Z:\\Paula\\Radpath\\new coordinates_CW.xlsx"
-			self.test_num = 10
+			self.test_num = 5
 
 			self.cls_names = ['hcc', 'non-hcc']
 			self.sheetnames = ['HCC', 'Non-HCC']
@@ -125,9 +127,10 @@ class Hyperparams:
 		self.f = [64,64,64,64,64]
 		self.padding = ['same','same']
 		self.dropout = 0.1
+		self.depth = 19
 		self.dense_units = 100
 		self.kernel_size = (3,3,2)
-		self.pool_sizes = [(2,2,2),(2,2,2)]
+		self.pool_sizes = [2,2]
 		self.optimizer = Adam(lr=0.001)
 		self.early_stopping = EarlyStopping(monitor='loss', min_delta=0.002, patience=5)
 		self.skip_con = False
@@ -142,7 +145,7 @@ class Hyperparams:
 			self.padding = ['same','valid']
 			self.dropout = 0.1
 			self.dense_units = 100
-			self.kernel_size = 3
+			self.kernel_size = (3,3,2)
 			self.pool_sizes = [2,2]
 		else:
 			self.n = 4
@@ -153,7 +156,7 @@ class Hyperparams:
 			self.dropout = 0.1
 			self.dense_units = 100
 			self.kernel_size = (3,3,2)
-			self.pool_sizes = [(2,2,2),(2,2,1)]
+			self.pool_sizes = [2,(2,2,1)]
 
 	def get_capsnet_params(self):
 		self.lr = 4

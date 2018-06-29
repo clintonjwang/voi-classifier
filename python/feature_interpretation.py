@@ -618,7 +618,6 @@ def tsne(filter_results):
 
 	return fig
 
-
 ###########################
 ### Analyze annotations
 ###########################
@@ -981,8 +980,6 @@ def save_output(Z, y_pred, y_true, save_dir=None):
 
 def merge_classes(y_true, y_pred, cls_mapping=None):
 	"""From lists y_true and y_pred with class numbers, """
-	
-
 	if cls_mapping is None:
 		cls_mapping = C.cls_names
 	

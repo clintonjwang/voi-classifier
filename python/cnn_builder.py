@@ -40,12 +40,14 @@ import niftiutils.deep_learning.cnn_components as cnnc
 import niftiutils.deep_learning.dcgan as dcgan
 import niftiutils.deep_learning.densenet as densenet
 import niftiutils.deep_learning.uncertainty as uncert
+import niftiutils.deep_learning.common as common
 import voi_methods as vm
 
 importlib.reload(config)
 importlib.reload(uncert)
 importlib.reload(drm)
 importlib.reload(cnnc)
+importlib.reload(common)
 C = config.Config()
 
 ####################################
@@ -61,8 +63,8 @@ def build_cnn_hyperparams(T=None):
 
 	elif T.cnn_type == 'dense':
 		M = densenet.DenseNet((*C.dims, C.nb_channels), C.nb_classes,
-			clinical_inputs=C.clinical_inputs, optimizer=T.optimizer, depth=22,
-        	pool_type='max', dropout_rate=T.dropout, mc_sampling=T.mc_sampling)
+			optimizer=T.optimizer, depth=T.depth, growth_rate=T.f[1]//4, nb_filter=T.f[0]//2,
+        	pool_type='max', dropout_rate=T.dropout)
 
 	elif C.dual_img_inputs:
 		M = build_dual_cnn(optimizer=T.optimizer,
@@ -106,15 +108,15 @@ def build_cnn(optimizer='adam', padding=['same','same'], pool_sizes=[(2,2,2),(2,
 
 	img = Input(shape=(*C.dims, 3))
 
-	art_x = Lambda(lambda x : K.expand_dims(x[...,0], axis=4))(img)
-	ven_x = Lambda(lambda x : K.expand_dims(x[...,1], axis=4))(img)
-	eq_x = Lambda(lambda x : K.expand_dims(x[...,2], axis=4))(img)
+	art_x = Lambda(lambda x: K.expand_dims(x[...,0], axis=4))(img)
+	ven_x = Lambda(lambda x: K.expand_dims(x[...,1], axis=4))(img)
+	eq_x = Lambda(lambda x: K.expand_dims(x[...,2], axis=4))(img)
 	#art_x = cnnc.bn_relu_etc(art_x, dropout, mc_sampling, cv_u=f[0], cv_k=kernel_size)
 	#ven_x = cnnc.bn_relu_etc(ven_x, dropout, mc_sampling, cv_u=f[0], cv_k=kernel_size)
 	#eq_x = cnnc.bn_relu_etc(eq_x, dropout, mc_sampling, cv_u=f[0], cv_k=kernel_size)
-	art_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, kernel_initializer="he_uniform", padding=padding[0])(art_x)
-	ven_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, kernel_initializer="he_uniform", padding=padding[0])(ven_x)
-	eq_x = layers.Conv3D(filters=f[0], kernel_size=kernel_size, kernel_initializer="he_uniform", padding=padding[0])(eq_x)
+	art_x = layers.Conv3D(f[0], kernel_size, kernel_initializer="he_uniform", padding=padding[0])(art_x)
+	ven_x = layers.Conv3D(f[0], kernel_size, kernel_initializer="he_uniform", padding=padding[0])(ven_x)
+	eq_x = layers.Conv3D(f[0], kernel_size, kernel_initializer="he_uniform", padding=padding[0])(eq_x)
 
 	x = Concatenate(axis=-1)([art_x, ven_x, eq_x])
 	if mc_sampling:
@@ -151,17 +153,24 @@ def build_cnn(optimizer='adam', padding=['same','same'], pool_sizes=[(2,2,2),(2,
 		
 	if C.aleatoric:
 		pred_class = Dense(C.nb_classes+1)(x)
+		loss = 'categorical_crossentropy'
+		metrics = None
+	elif C.loss == 'focal':
+		pred_class = Dense(C.nb_classes, activation='softmax')(x)
+		loss = common.focal_loss
+		metrics = ['accuracy']
 	else:
 		pred_class = Dense(C.nb_classes, activation='softmax')(x)
-
+		loss = 'categorical_crossentropy'
+		metrics = ['accuracy']
 
 	if C.clinical_inputs == 0:
 		model = Model(img, pred_class)
 	else:
 		model = Model([img, clinical_inputs], pred_class)
 
-	#optim = Adam(lr=0.01)#5, decay=0.001)
-	model.compile(optimizer=optimizer, loss='categorical_crossentropy', metrics=['accuracy'])
+	#optim = Adam(lr=0.0005, decay=0.001)
+	model.compile(optimizer=optimizer, loss=loss, metrics=metrics)
 
 	return model
 
@@ -188,6 +197,8 @@ def build_inception(optimizer='adam'):
 	x = layers.Dropout(.2)(x)
 	if C.aleatoric:
 		pred_class = Dense(C.nb_classes+1)(x)
+	elif C.loss == 'focal':
+		pred_class = Dense(C.nb_classes)(x)
 	else:
 		pred_class = Dense(C.nb_classes, activation='softmax')(x)
 
