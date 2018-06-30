@@ -16,19 +16,22 @@ class Config:
 		self.dims = [24,24,12]
 		self.nb_channels = 3
 		self.aug_factor = 100
-		self.loss = ''#'focal'
-		self.aleatoric = True
-		self.aug_pred = True
 
 		self.max_size = 350*350*100
 		self.context_dims = [36,36,12]
 		self.dual_img_inputs = False # whether to use both tight and gross image croppings for the network
 		self.clinical_inputs = 0 # whether non-imaging inputs should be incorporated into the neural network
-		self.probabilistic = False
 
 		self.lesion_ratio = 0.7 # ratio of the lesion side length to the length of the cropped image
 		self.pre_scale = .5 # normalizes images at augmentation time
 		self.post_scale = 0. # normalizes images at train/test time
+
+		#optional
+		self.focal_loss = 1.
+		self.aleatoric = True
+		self.aug_pred = False
+		self.ensemble_num = 8
+		self.ensemble_frac = .7 #train each submodel on this fraction of training data
 
 		# Augmentation parameters
 		self.intensity_scaling = [.05,.05]
@@ -87,7 +90,7 @@ class Config:
 		elif dataset == "radpath":
 			self.base_dir = "D:\\Radpath"
 			self.coord_xls_path = "Z:\\Paula\\Radpath\\new coordinates_CW.xlsx"
-			self.test_num = 5
+			self.test_num = 10
 
 			self.cls_names = ['hcc', 'non-hcc']
 			self.sheetnames = ['HCC', 'Non-HCC']
@@ -107,10 +110,8 @@ class Config:
 		self.accnum_df_path = join("Z:\\LIRADS\\excel", "accnum_data.csv")
 		# A lesion must be in lesion_df for it to be processed
 		self.lesion_df_path = join(self.base_dir, "excel", "lesion_data.csv")
-
 		self.run_stats_path = join(self.base_dir, "excel", "overnight_run.csv")
-
-		self.label_lesion_df = join(self.base_dir, "excel", "lesion_labels.csv")
+		self.label_df_path = join(self.base_dir, "excel", "lesion_labels.csv")
 
 		self.crops_dir = join(self.base_dir, "imgs", "rough_crops")
 		self.unaug_dir = join(self.base_dir, "imgs", "unaug_imgs")
@@ -127,14 +128,14 @@ class Hyperparams:
 		self.f = [64,64,64,64,64]
 		self.padding = ['same','same']
 		self.dropout = 0.1
-		self.depth = 19
+		self.depth = 22
 		self.dense_units = 100
 		self.kernel_size = (3,3,2)
 		self.pool_sizes = [2,2]
 		self.optimizer = Adam(lr=0.001)
 		self.early_stopping = EarlyStopping(monitor='loss', min_delta=0.002, patience=5)
 		self.skip_con = False
-		self.mc_sampling = False
+		self.mc_sampling = True
 
 	def get_best_hyperparams(self, dataset):
 		if dataset == 'radpath':

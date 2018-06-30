@@ -69,23 +69,21 @@ def build_cnn_hyperparams(T=None):
 	elif C.dual_img_inputs:
 		M = build_dual_cnn(optimizer=T.optimizer,
 			padding=T.padding, pool_sizes=T.pool_sizes, dropout=T.dropout,
-			f=T.f, dense_units=T.dense_units,
-			kernel_size=T.kernel_size)
+			f=T.f, dense_units=T.dense_units, kernel_size=T.kernel_size)
 
 	else:
-		M = build_cnn(optimizer=T.optimizer,
+		M = build_cnn(optimizer=T.optimizer, skip_con=T.skip_con,
 			padding=T.padding, pool_sizes=T.pool_sizes, dropout=T.dropout,
-			f=T.f, dense_units=T.dense_units,
-			kernel_size=T.kernel_size, dual_inputs=C.clinical_inputs,
-			skip_con=T.skip_con, mc_sampling=T.mc_sampling)
+			f=T.f, dense_units=T.dense_units, kernel_size=T.kernel_size,
+			dual_inputs=C.clinical_inputs, mc_sampling=T.mc_sampling)
 
 	if C.aleatoric:
-		pred_model, train_model = uncert.add_aleatoric_var(M, C.nb_classes)
+		pred_model, train_model = uncert.add_aleatoric_var(M, C.nb_classes, focal_loss=C.focal_loss)
 		return pred_model, train_model
 	else:
 		return M
 
-def build_cnn(optimizer='adam', padding=['same','same'], pool_sizes=[(2,2,2),(2,2,1)],
+def build_cnn(optimizer='adam', padding=['same','same'], pool_sizes=[2,(2,2,1)],
 	dropout=.1, f=[64,128,128], dense_units=100, kernel_size=(3,3,2),
 	dual_inputs=False, skip_con=False, trained_model=None, mc_sampling=False):
 	"""Main class for setting up a CNN. Returns the compiled model."""
@@ -155,9 +153,9 @@ def build_cnn(optimizer='adam', padding=['same','same'], pool_sizes=[(2,2,2),(2,
 		pred_class = Dense(C.nb_classes+1)(x)
 		loss = 'categorical_crossentropy'
 		metrics = None
-	elif C.loss == 'focal':
+	elif C.focal_loss:
 		pred_class = Dense(C.nb_classes, activation='softmax')(x)
-		loss = common.focal_loss
+		loss = common.focal_loss(gamma=C.focal_loss)
 		metrics = ['accuracy']
 	else:
 		pred_class = Dense(C.nb_classes, activation='softmax')(x)
@@ -169,7 +167,6 @@ def build_cnn(optimizer='adam', padding=['same','same'], pool_sizes=[(2,2,2),(2,
 	else:
 		model = Model([img, clinical_inputs], pred_class)
 
-	#optim = Adam(lr=0.0005, decay=0.001)
 	model.compile(optimizer=optimizer, loss=loss, metrics=metrics)
 
 	return model
@@ -197,17 +194,23 @@ def build_inception(optimizer='adam'):
 	x = layers.Dropout(.2)(x)
 	if C.aleatoric:
 		pred_class = Dense(C.nb_classes+1)(x)
-	elif C.loss == 'focal':
-		pred_class = Dense(C.nb_classes)(x)
+		loss = 'categorical_crossentropy'
+		metrics = None
+	elif C.focal_loss:
+		pred_class = Dense(C.nb_classes, activation='softmax')(x)
+		loss = common.focal_loss(gamma=C.focal_loss)
+		metrics = ['accuracy']
 	else:
 		pred_class = Dense(C.nb_classes, activation='softmax')(x)
+		loss = 'categorical_crossentropy'
+		metrics = ['accuracy']
 
 	if C.clinical_inputs == 0:
 		model = Model(img, pred_class)
 	else:
 		model = Model([img, clinical_inputs], pred_class)
 
-	model.compile(optimizer=optimizer, loss='categorical_crossentropy', metrics=['accuracy'])
+	model.compile(optimizer=optimizer, loss=loss, metrics=metrics)
 
 	return model
 
@@ -304,7 +307,7 @@ def build_dual_cnn(optimizer='adam', padding=['same','same'], pool_sizes=[2,2],
 	cx = layers.Reshape((*C.context_dims, 3, 1))(context_img)
 	cx = layers.Permute((4,1,2,3,5))(cx)
 	cx = layers.TimeDistributed(layers.Conv3D(filters=64, kernel_size=(4,4,1), padding='valid', activation='relu'))(cx)
-	cx = layers.TimeDistributed(layers.MaxPooling3D((2,2,2)))(cx)
+	cx = layers.TimeDistributed(layers.MaxPooling3D(2))(cx)
 	cx = layers.TimeDistributed(layers.BatchNormalization(axis=4))(cx)
 	cx = layers.TimeDistributed(layers.Conv3D(filters=64, kernel_size=(3,3,1), padding='valid', activation='relu'))(cx)
 	cx = layers.TimeDistributed(layers.BatchNormalization(axis=4))(cx)
@@ -330,7 +333,7 @@ def build_dual_cnn(optimizer='adam', padding=['same','same'], pool_sizes=[2,2],
 
 	return model
 
-def pretrain_cnn(trained_model, padding=['same','same'], pool_sizes=[(2,2,2), (2,2,1)],
+def pretrain_cnn(trained_model, padding=['same','same'], pool_sizes=[2, (2,2,1)],
 	activation_type='relu', f=[64,128,128], kernel_size=(3,3,2), dense_units=100, skip_con=False,
 	last_layer=-2, add_activ=False, training=True, debug=False):
 	"""Sets up CNN with pretrained weights"""
@@ -410,7 +413,7 @@ def pretrain_cnn(trained_model, padding=['same','same'], pool_sizes=[(2,2,2), (2
 
 	return model_pretrain
 
-def pretrain_model_back(trained_model, padding=['same', 'same'], pool_sizes = [(2,2,2), (2,2,1)],
+def pretrain_model_back(trained_model, padding=['same', 'same'], pool_sizes = [2, (2,2,1)],
 	activation_type='relu', f=[64,128,128], kernel_size=(3,3,2), dense_units=100, first_layer=-3):
 	"""Sets up CNN with pretrained weights"""
 	ActivationLayer = Activation
@@ -540,6 +543,35 @@ def get_cnn_data(n=4, use_vois=True, Z_test_fixed=None, verbose=False):
 	train_generator = _train_gen_classifier(test_ids, accnums, n=n)
 
 	return X_test, Y_test, train_generator, num_samples, [X_train_orig, Y_train_orig], [Z_test, Z_train_orig]
+
+def train_gen_ensemble(n=4, Z_exc=None):
+	"""Subroutine to run CNN
+	n is number of real samples
+	Z_test is filenames"""
+	orig_data_dict, num_samples = _collect_unaug_data()
+	test_ids = {} #filenames of test set
+	Z_test = []
+
+	train_samples = {}
+
+	orders = {cls: np.where(np.isin(orig_data_dict[cls][1], Z_exc)) for cls in orig_data_dict}
+	for cls in C.cls_names:
+		orders[cls] = list(set(range(num_samples[cls])).difference(list(orders[cls][0]))) + list(orders[cls][0])
+
+		cls_num = C.cls_names.index(cls)
+		train_samples[cls] = num_samples[cls] - C.test_num
+		order = orders[cls]
+		test_ids[cls] = list(orig_data_dict[cls][-1][order[train_samples[cls]:]])
+		Z_test = Z_test + test_ids[cls]
+
+	lesion_df = drm.get_lesion_df()
+	accnums = {}
+	for cls in C.cls_names:
+		accnums[cls] = lesion_df.loc[lesion_df["cls"]==cls, "accnum"].values
+
+	train_generator = _train_gen_classifier(test_ids, accnums, n=n)
+
+	return train_generator
 
 def load_data_capsnet(n=2, Z_test_fixed=None):
 	orig_data_dict, num_samples = _collect_unaug_data()
@@ -710,13 +742,14 @@ def _train_gen_classifier(test_ids, accnums, n=12):
 	#avg_X2 = {}
 	#for cls in orig_data_dict:
 	#   avg_X2[cls] = np.mean(orig_data_dict[cls][1], axis=0)
-	
+
 	if C.clinical_inputs > 0:
 		train_path="E:\\LIRADS\\excel\\clinical_data_test.xlsx" #clinical_data_train
 		clinical_df = pd.read_excel(train_path, index_col=0)
 		clinical_df.index = clinical_df.index.astype(str)
 
-	img_fns = {cls:[fn for fn in os.listdir(C.aug_dir) if fn[:fn.find('_')] in accnums[cls]] for cls in C.cls_names}
+	if type(accnums) == dict:
+		img_fns = {cls:[fn for fn in os.listdir(C.aug_dir) if fn[:fn.find('_')] in accnums[cls]] for cls in C.cls_names}
 
 	while True:
 		x1 = np.empty((n*C.nb_classes, *C.dims, C.nb_channels))
