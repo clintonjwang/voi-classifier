@@ -37,10 +37,17 @@ importlib.reload(cnnc)
 C = config.Config()
 
 class DiseaseManifold():
-	def __init__(self, T=None, Z_len=128, spatial_sparsity=.8):
+	"""N is the latent multivariate normal distribution.
+	Z is a categorical distribution to select"""
+
+	def __init__(self, T=None, Z_len=128, N_len=128, spatial_sparsity=.8):
+		#Z_len is the number of clinically distinct states on the manifold
+		#N_len is the number of dimensions of the latent vector
+
 		if T is None:
 			T = config.Hyperparams()
 		self.Z_len = Z_len
+		self.N_len = N_len
 		self.sparsity = int(Z_len*spatial_sparsity) #80% spatial sparsity
 		self.init_components(T)
 
@@ -119,9 +126,13 @@ class DiseaseManifold():
 
 		return x
 
-	def train_mr_dec_gan(self):
-		train_gen = self._train_gen_encoder(inputs=['z'], outputs=['mr'])
+	def train_mr_dec_vae(self):
+		train_gen = self._train_gen_encoder(inputs=['mr'], outputs=['mr'])
 		self.mr_gan.train(epochs=50, gen=train_gen)
+
+	"""def train_mr_dec_gan(self):
+		train_gen = self._train_gen_encoder(inputs=['z'], outputs=['mr'])
+		self.mr_gan.train(epochs=50, gen=train_gen)"""
 
 	def _train_gen_encoder(self, test_accnums=[], n=6, inputs=['mr','labs'], outputs=['cls']):
 		img_fns = [fn for fn in glob.glob(join(C.unaug_dir, "*.npy")) \
@@ -165,11 +176,16 @@ class DiseaseManifold():
 					z /= z.sum()
 					z = np.concatenate((z, np.zeros(self.Z_len-5)))
 					np.random.shuffle(z)
+				if 'n' in inputs + outputs:
+					n = np.random.normal(size=self.N_len)
 
 				for ix,arr in enumerate([inputs, outputs]):
 					for jx,elem in enumerate(arr):
 						if elem == 'mr':
-							tmp[ix][jx][train_ix] = img
+							if ix == 0:
+								tmp[ix][jx][train_ix] = add_noise(img)
+							else:
+								tmp[ix][jx][train_ix] = img
 						elif elem == 'labs':
 							tmp[ix][jx][train_ix] = labs
 						elif elem == 'cls':
@@ -222,3 +238,6 @@ class DiseaseManifold():
 		z_post = layers.Lambda(lambda x: x / K.maximum(x,-1))(z_post)
 		cls = self.Z_to_cls(z_post)
 		model = Model([mr,labs], cls)
+
+def add_noise(img):
+	return img + np.random.normal(size=img.shape)

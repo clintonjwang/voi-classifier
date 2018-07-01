@@ -10,8 +10,8 @@ from keras.optimizers import Adam
 import niftiutils.helper_fxns as hf
 
 class Config:
-	def __init__(self, dataset="radpath"):
-		self.run_num = 5
+	def __init__(self, dataset="lirads"):
+		self.run_num = 2
 		self.test_run_num = 2
 		self.dims = [24,24,12]
 		self.nb_channels = 3

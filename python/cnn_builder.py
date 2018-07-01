@@ -529,18 +529,13 @@ def get_cnn_data(n=4, use_vois=True, Z_test_fixed=None, verbose=False):
 	Z_test = np.array(Z_test)
 	Z_train_orig = np.array(Z_train_orig)
 
-	if use_vois is None:
+	"""if use_vois is None:
 		accnums = {}
 		for cls in C.cls_names:
 			src_data_df = drm.get_coords_df(cls)
-			accnums[cls] = src_data_df["acc #"].values
-	else:
-		lesion_df = drm.get_lesion_df()
-		accnums = {}
-		for cls in C.cls_names:
-			accnums[cls] = lesion_df.loc[lesion_df["cls"]==cls, "accnum"].values
+			accnums[cls] = src_data_df["acc #"].values"""
 
-	train_generator = _train_gen_classifier(test_ids, accnums, n=n)
+	train_generator = _train_gen_classifier(test_ids, n=n)
 
 	return X_test, Y_test, train_generator, num_samples, [X_train_orig, Y_train_orig], [Z_test, Z_train_orig]
 
@@ -564,12 +559,7 @@ def train_gen_ensemble(n=4, Z_exc=None):
 		test_ids[cls] = list(orig_data_dict[cls][-1][order[train_samples[cls]:]])
 		Z_test = Z_test + test_ids[cls]
 
-	lesion_df = drm.get_lesion_df()
-	accnums = {}
-	for cls in C.cls_names:
-		accnums[cls] = lesion_df.loc[lesion_df["cls"]==cls, "accnum"].values
-
-	train_generator = _train_gen_classifier(test_ids, accnums, n=n)
+	train_generator = _train_gen_classifier(test_ids, n=n)
 
 	return train_generator
 
@@ -736,12 +726,15 @@ def _train_gen_ddpg(test_accnums=[]):
 
 		yield (img, seg, cls)
 
-def _train_gen_classifier(test_ids, accnums, n=12):
+def _train_gen_classifier(test_ids, accnums=None, n=12):
 	"""n is the number of samples from each class"""
 
-	#avg_X2 = {}
-	#for cls in orig_data_dict:
-	#   avg_X2[cls] = np.mean(orig_data_dict[cls][1], axis=0)
+	if accnums is None:
+		lesion_df = drm.get_lesion_df()
+		accnums = {}
+		for cls in C.cls_names:
+			accnums[cls] = lesion_df.loc[(lesion_df["cls"]==cls) & \
+				(lesion_df["run_num"] <= C.run_num), "accnum"].values
 
 	if C.clinical_inputs > 0:
 		train_path="E:\\LIRADS\\excel\\clinical_data_test.xlsx" #clinical_data_train

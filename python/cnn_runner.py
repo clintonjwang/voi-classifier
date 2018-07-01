@@ -13,12 +13,9 @@ from keras.optimizers import Adam
 from keras.utils import np_utils
 
 import importlib
-import feature_interpretation as cnna
-import cnn_builder as cbuild
 import copy
 import glob
 import config
-import niftiutils.helper_fxns as hf
 import math
 from math import log, ceil
 import numpy as np
@@ -34,6 +31,9 @@ import time
 
 import dr_methods as drm
 import voi_methods as vm
+import feature_interpretation as cnna
+import cnn_builder as cbuild
+import niftiutils.helper_fxns as hf
 
 importlib.reload(config)
 importlib.reload(cbuild)
@@ -63,13 +63,13 @@ class CNNRunner():
 
 		model_names = glob.glob(join(self.C.model_dir, model_name+"*"))
 		if len(model_names) > 0:
-			model_num = max([int(x[x.find('_')+1:x.find('.')]) for x in model_names if 'reader' not in x]) + 1
+			model_num = max([int(x[x.find('_')+1:x.find('.')]) for x in model_names]) + 1
 		else:
 			model_num = 0
 
 		running_acc_6 = []
 
-		while index < max_runs:
+		for _ in range(max_runs):
 			if self.C.aleatoric:
 				self.pred_model, self.train_model = cbuild.build_cnn_hyperparams(self.T)
 			else:
@@ -131,7 +131,7 @@ class CNNRunner():
 			model_num += 1
 			index += 1
 
-	def run_ensemble(self, overwrite=False, max_runs=999, model_name='models_'):
+	def run_ensemble(self, overwrite=False, max_runs=999, Z_test=None, model_name='ensembles_'):
 		"""Runs the CNN for max_runs times, saving performance metrics."""
 		if overwrite and exists(self.C.run_stats_path):
 			os.remove(self.C.run_stats_path)
@@ -140,15 +140,16 @@ class CNNRunner():
 
 		model_names = glob.glob(join(self.C.model_dir, model_name+"*"))
 		if len(model_names) > 0:
-			model_num = max([int(x[x.find('_')+1:x.find('.')]) for x in model_names if 'reader' not in x]) + 1
+			model_num = max([int(x[x.find('_')+1:x.rfind('_')]) for x in model_names]) + 1
 		else:
 			model_num = 0
 
 		running_acc_6 = []
 
-		while index < max_runs:
+		for _ in range(max_runs):
 			t = time.time()
-			X_test, Y_test, train_gen, num_samples, self.train_orig, Z = cbuild.get_cnn_data(n=self.T.n)
+			X_test, Y_test, train_gen, num_samples, self.train_orig, Z = cbuild.get_cnn_data(n=self.T.n,
+					Z_test_fixed=Z_test)
 			self.Z_test, self.Z_train_orig = Z
 			X_train_orig, Y_train_orig = self.train_orig
 
@@ -228,7 +229,8 @@ def _get_hyperparams_as_list(C, T):
 			C.test_num, C.aug_factor, C.clinical_inputs,
 			T.kernel_size, T.f, T.padding, T.dropout, T.dense_units,
 			T.pool_sizes,
-			T.cnn_type+C.aleatoric*'-al'+C.aug_pred*'-aug'+T.mc_sampling*'-mc', C.ensemble_num,
+			T.cnn_type+C.aleatoric*'-al'+C.aug_pred*'-aug'+T.mc_sampling*'-mc'+'-foc%.1f'%C.focal_loss,
+			C.ensemble_num,
 			T.optimizer.get_config()['lr']]
 
 def get_run_stats_csv(C):
