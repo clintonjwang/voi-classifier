@@ -10,7 +10,7 @@ from keras.optimizers import Adam
 import niftiutils.helper_fxns as hf
 
 class Config:
-	def __init__(self, dataset="clinical"):
+	def __init__(self, dataset="lirads"):
 		self.run_num = 2
 		self.test_run_num = 2
 		self.dims = [24,24,12]
@@ -27,7 +27,7 @@ class Config:
 		self.post_scale = 0. # normalizes images at train/test time
 
 		#optional
-		self.focal_loss = 1.
+		self.focal_loss = 2.
 		self.aleatoric = True
 		self.aug_pred = False
 		self.ensemble_num = 8
@@ -48,7 +48,7 @@ class Config:
 			self.base_dir = "E:\\LIRADS"
 			self.coord_xls_path = 'Z:\\LIRADS\\excel\\Prototype1e.xlsx'
 			if dataset == "clinical":
-				self.coord_xls_path = r"Z:\Paula\Clinical data project\coordinates + clinical variables.xlsx"
+				self.coord_xls_path = r"Z:\Paula\Clinical data project\3+4 POINT LESIONS ADDED coordinates + clinical variables.xlsx"
 				self.clinical_inputs = 9 # whether non-imaging inputs should be incorporated into the neural network
 			self.test_num = 10
 			self.aug_factor = 100

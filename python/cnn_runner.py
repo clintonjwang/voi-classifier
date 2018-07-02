@@ -14,18 +14,15 @@ from keras.utils import np_utils
 
 import importlib
 import copy
-import glob
 import config
+import glob
 import math
-from math import log, ceil
 import numpy as np
 import operator
 import os
 from os.path import *
 import pandas as pd
 import random
-from scipy.misc import imsave
-from skimage.transform import rescale
 from sklearn.metrics import confusion_matrix, f1_score, accuracy_score
 import time
 
