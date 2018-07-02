@@ -10,7 +10,7 @@ from keras.optimizers import Adam
 import niftiutils.helper_fxns as hf
 
 class Config:
-	def __init__(self, dataset="lirads"):
+	def __init__(self, dataset="clinical"):
 		self.run_num = 2
 		self.test_run_num = 2
 		self.dims = [24,24,12]
@@ -123,9 +123,9 @@ class Hyperparams:
 	def __init__(self):
 		self.n = 4
 		self.cnn_type = 'vanilla'
-		self.steps_per_epoch = 750
+		self.steps_per_epoch = 50
 		self.epochs = 20
-		self.f = [64,64,64,64,64]
+		self.f = [64,64,64,64]
 		self.padding = ['same','same']
 		self.dropout = 0.1
 		self.depth = 22
@@ -149,15 +149,15 @@ class Hyperparams:
 			self.kernel_size = (3,3,2)
 			self.pool_sizes = [2,2]
 		else:
-			self.n = 4
-			self.steps_per_epoch = 750
-			self.epochs = 30
-			self.f = [64,128,128]
-			self.padding = ['same','valid']
-			self.dropout = 0.1
-			self.dense_units = 100
 			self.kernel_size = (3,3,2)
-			self.pool_sizes = [2,(2,2,1)]
+			self.n = 4 #5
+			self.epochs = 20
+			self.steps_per_epoch = 40
+			self.dropout = .1
+			self.dense_units = 64
+			self.padding = ['same','same'] #['same','valid']
+			self.f = [64,64,64,64]
+			self.pool_sizes = [2,(3,3,2)] #[2,2]
 
 	def get_capsnet_params(self):
 		self.lr = 4

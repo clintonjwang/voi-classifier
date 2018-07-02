@@ -124,7 +124,7 @@ class CNNRunner():
 				row = _get_hyperparams_as_list(self.C, self.T) + [num_samples[k] for k in self.C.cls_names] + [running_acc_6[-1]]
 			
 			running_stats.loc[index] = row + [loss_hist, cm, time.time()-t, time.time(),
-							miscls_test, miscls_train, model_num, y_true, str(Y_pred), list(self.Z_test)]
+							miscls_test, miscls_train, model_name+str(model_num), y_true, str(Y_pred), list(self.Z_test)]
 
 			running_stats.to_csv(self.C.run_stats_path, index=False)
 			self.pred_model.save(join(self.C.model_dir, model_name+'%d.hdf5' % model_num))
@@ -212,7 +212,7 @@ class CNNRunner():
 				row = _get_hyperparams_as_list(self.C, self.T) + [num_samples[k] for k in self.C.cls_names] + [running_acc_6[-1]]
 			
 			running_stats.loc[index] = row + ['loss_hist', cm, time.time()-t, time.time(),
-							miscls_test, miscls_train, model_num, y_true, str(Y_pred), list(self.Z_test)]
+							miscls_test, miscls_train, model_name+str(model_num), y_true, str(Y_pred), list(self.Z_test)]
 
 			running_stats.to_csv(self.C.run_stats_path, index=False)
 			for ix in range(self.C.ensemble_num):

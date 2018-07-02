@@ -540,28 +540,10 @@ def get_cnn_data(n=4, use_vois=True, Z_test_fixed=None, verbose=False):
 	return X_test, Y_test, train_generator, num_samples, [X_train_orig, Y_train_orig], [Z_test, Z_train_orig]
 
 def train_gen_ensemble(n=4, Z_exc=None):
-	"""Subroutine to run CNN
-	n is number of real samples
-	Z_test is filenames"""
 	orig_data_dict, num_samples = _collect_unaug_data()
-	test_ids = {} #filenames of test set
-	Z_test = []
+	test_ids = {cls: [z for z in orig_data_dict[cls][1] if z in Z_exc] for cls in orig_data_dict}
 
-	train_samples = {}
-
-	orders = {cls: np.where(np.isin(orig_data_dict[cls][1], Z_exc)) for cls in orig_data_dict}
-	for cls in C.cls_names:
-		orders[cls] = list(set(range(num_samples[cls])).difference(list(orders[cls][0]))) + list(orders[cls][0])
-
-		cls_num = C.cls_names.index(cls)
-		train_samples[cls] = num_samples[cls] - C.test_num
-		order = orders[cls]
-		test_ids[cls] = list(orig_data_dict[cls][-1][order[train_samples[cls]:]])
-		Z_test = Z_test + test_ids[cls]
-
-	train_generator = _train_gen_classifier(test_ids, n=n)
-
-	return train_generator
+	return _train_gen_classifier(test_ids, n=n)
 
 def load_data_capsnet(n=2, Z_test_fixed=None):
 	orig_data_dict, num_samples = _collect_unaug_data()
@@ -570,7 +552,6 @@ def load_data_capsnet(n=2, Z_test_fixed=None):
 	X_test = []
 	Y_test = []
 	Z_test = []
-
 	train_samples = {}
 
 	if Z_test_fixed is not None:
