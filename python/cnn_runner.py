@@ -114,7 +114,7 @@ class CNNRunner():
 			print("Accuracy: %d%% (avg: %d%%), time: %ds" % (running_acc_6[-1]*100, np.mean(running_acc_6)*100, time.time()-t))
 
 			if hasattr(self.C,'simplify_map'):
-				y_true_simp, y_pred_simp, _ = cnna.merge_classes(y_true, y_pred, self.C.cls_names)
+				y_true_simp, y_pred_simp = merge_classes(y_true, y_pred, self.C)
 				acc_3 = accuracy_score(y_true_simp, y_pred_simp)
 				row = _get_hyperparams_as_list(self.C, self.T) + [num_samples[k] for k in self.C.cls_names] + [running_acc_6[-1], acc_3]
 			else:
@@ -245,6 +245,13 @@ def get_run_stats_csv(C):
 			'y_true', 'y_pred_raw', 'z_test'])
 
 	return running_stats
+
+def merge_classes(y_true, y_pred, C):
+	"""From lists y_true and y_pred with class numbers, """
+	y_true_simp = np.array([C.simplify_map[C.cls_names[y]] for y in y_true])
+	y_pred_simp = np.array([C.simplify_map[C.cls_names[y]] for y in y_pred])
+	
+	return y_true_simp, y_pred_simp
 
 ####################################
 ### HYPERBAND

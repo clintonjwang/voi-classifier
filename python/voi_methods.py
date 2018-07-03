@@ -44,7 +44,7 @@ C = config.Config()
 ### QC methods
 #####################################
 
-def plot_check(num, lesion_id=None, normalize=[-1,1]):
+def plot_check(num, lesion_id=None, normalize=[-1,1], slice_frac=.5):
 	"""Plot the unscaled, cropped or augmented versions of a lesion.
 	Lesion selected at random from cls if lesion_id is None.
 	Either lesion_id or cls must be specified.
@@ -62,7 +62,7 @@ def plot_check(num, lesion_id=None, normalize=[-1,1]):
 		img = np.load(join(C.aug_dir, lesion_id + "_" + str(random.randint(0,C.aug_factor-1)) + ".npy"))
 	else:
 		raise ValueError(num + " should be 0 (uncropped), 1 (gross cropping), 2 (unaugmented) or 3 (augmented)")
-	vis.draw_slices(img, normalize=normalize)
+	vis.draw_slices(img, normalize=normalize, slice_frac=slice_frac)
 
 	return img
 
@@ -74,19 +74,19 @@ def remove_lesion_id(lesion_id):
 	for fn in glob.glob(join(C.aug_dir, lesion_id+"*")):
 		os.remove(fn)
 
-@drm.autofill_cls_arg
-def xref_dirs_with_excel(cls=None, fix_inplace=True):
+def xref_dirs_with_excel(fix_inplace=True):
 	"""Make sure the image directories have all the images expected based on the config settings
 	(aug factor and run number) and VOI spreadsheet contents.
 	If fix_inplace is True, reload any mismatched accnums."""
-	lesion_df = pd.read_csv(C.small_voi_path)
+	lesion_df = pd.read_csv(C.lesion_df_path)
 
-	print("Checking", cls)
 	bad_accnums = []
 
-	index = C.cls_names.index(cls)
-	accnum_df = C.sheetnames[index]
-	df = pd.read_excel(C.coord_xls_path, C.sheetnames[index])
+	if hasattr(C, 'sheetnames'):
+		df = pd.concat([pd.read_excel(C.coord_xls_path, sheetname) for sheetname in C.sheetnames])
+	else:
+		df = pd.read_excel(C.coord_xls_path, C.sheetname)
+		
 	lesion_df = drm.get_lesion_df()
 	xls_accnums = list(df[df['Run'] <= C.run_num]['acc #'].astype(str))
 	unique, counts = np.unique(xls_accnums, return_counts=True)
@@ -95,13 +95,13 @@ def xref_dirs_with_excel(cls=None, fix_inplace=True):
 
 	# Check for loaded images
 	for accnum in xls_set:
-		if not exists(C.full_img_dir + "\\" + cls + "\\" + accnum + ".npy"):
+		if not exists(join(C.full_img_dir, accnum+".npy")):
 			print(accnum, "is contained in the spreadsheet but has no loaded image in", C.full_img_dir)
 
 			bad_accnums.append(accnum)
 
 	# Check for lesion_df
-	accnums = list(lesion_df[lesion_df["cls"] == cls]["accnum"])
+	accnums = list(lesion_df["accnum"])
 	unique, counts = np.unique(accnums, return_counts=True)
 	diff = xls_set.difference(unique)
 	if len(diff) > 0:
@@ -121,7 +121,7 @@ def xref_dirs_with_excel(cls=None, fix_inplace=True):
 			bad_accnums.append(accnum)
 
 	# Check rough cropped lesions
-	accnums = [fn[:fn.find("_")] for fn in os.listdir(C.crops_dir + "\\" + cls)]
+	accnums = [fn[:fn.find("_")] for fn in os.listdir(C.crops_dir)]
 	unique, counts = np.unique(accnums, return_counts=True)
 	diff = xls_set.difference(unique)
 	if len(diff) > 0:
@@ -205,7 +205,7 @@ def load_accnum(cls=None, accnums=None, augment=True):
 		if not exists(join(base_dir, cls)):
 			os.makedirs(join(base_dir, cls))
 
-	drm.load_vois_batch(cls, accnums, overwrite=True)
+	drm.load_vois(cls, accnums, overwrite=True)
 	extract_vois(cls, accnums, overwrite=True)
 	save_unaugmented_set(cls, accnums, overwrite=True)
 	if augment:
@@ -495,7 +495,7 @@ def extract_vois(cls=None, accnums=None, lesion_ids=None, overwrite=False):
 
 @drm.autofill_cls_arg
 def save_unaugmented_set(cls=None, accnums=None, lesion_ids=None, custom_vois=None, lesion_ratio=None, overwrite=True):
-	"""Save unaugmented lesion images. Overwrites without checking."""
+	"""Save unaugmented lesion images."""
 
 	lesion_df = drm.get_lesion_df()
 
@@ -510,7 +510,7 @@ def save_unaugmented_set(cls=None, accnums=None, lesion_ids=None, custom_vois=No
 					x[:-4] in lesion_df[lesion_df["cls"] == cls].index]
 
 	for ix, lesion_id in enumerate(lesion_ids):
-		if not overwrite and exists(join(C.unaug_dir, lesion_id)):
+		if not overwrite and exists(join(C.unaug_dir, lesion_id + ".npy")):
 			continue
 		img = np.load(join(C.crops_dir, lesion_id + ".npy"))
 		try:
@@ -711,12 +711,12 @@ def _extract_voi(img, voi, pad_lims=[5,40]):
 	"""Input: image, a voi to center on, and the min dims of the unaugmented img.
 	Outputs loosely cropped voi-centered image and coords of the voi within this loosely cropped image.
 	"""
-	x1 = [voi['a_x1'], img.shape[1]-voi['a_y2'], img.shape[2]-voi['a_z2']]
-	x2 = [voi['a_x2'], img.shape[1]-voi['a_y1'], img.shape[2]-voi['a_z1']]
+	x1 = [voi['a_x1'], voi['a_y1'], voi['a_z1']]
+	x2 = [voi['a_x2'], voi['a_y2'], voi['a_z2']]
 	
 	# align phases
 	if not np.isnan(voi["v_x1"]):
-		dx = np.array([((voi["v_"+char+"1"] + voi["v_"+char+"2"]) - (x1[ix]+x2[ix])) / 2 for ix,char in enumerate(['x','y','z'])], int)
+		dx = np.array([((voi["v_"+char+"1"] + voi["v_"+char+"2"]) - (x1[ix]+x2[ix])) // 2 for ix,char in enumerate(['x','y','z'])], int)
 		pad = int(np.abs(dx).max()+1)
 		sl = [slice(pad+offset,-pad+offset) for offset in dx]
 		img[...,1] = np.pad(img[...,1], pad, 'constant')[sl]
@@ -727,14 +727,19 @@ def _extract_voi(img, voi, pad_lims=[5,40]):
 		sl = [slice(pad+offset,-pad+offset) for offset in dx]
 		img[...,2] = np.pad(img[...,2], pad, 'constant')[sl]
 
+	tmp = x2[-1]
+	x2[-1] = img.shape[2]-x1[-1]
+	x1[-1] = img.shape[2]-tmp
+
 	dx = np.array([x2[ix] - x1[ix] for ix in range(3)])
 	assert np.all(np.greater(x2,x1)), str(voi["accnum"])
 	pad = np.clip(dx * (math.sqrt(2) - 1) / 2, *pad_lims).astype(int) #min padding needed for rotation
 	x1_ = [max(x1[ix]-pad[ix], 0) for ix in range(3)]
 	x2_ = [min(x2[ix]+pad[ix], img.shape[ix]-1) for ix in range(3)]
 	sl = [slice(x1_[ix], x2_[ix]) for ix in range(3)]
+	sm_coords = [x1[ix] - x1_[ix] for ix in range(3)] + [x2[ix] - x1_[ix] for ix in range(3)]
 		
-	return img[sl], np.array(list(zip(x1_, x2_))).flatten()
+	return img[sl], sm_coords
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description='Convert DICOMs to npy files and transfer voi coordinates from excel to csv.')

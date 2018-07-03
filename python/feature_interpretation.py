@@ -995,33 +995,14 @@ def save_output(Z, y_pred, y_true, save_dir=None):
 				fn_suffix = " (good_pred %s).png" % cls_mapping[y_pred[i]],
 				save_dir=save_dir + "\\correct\\" + cls_mapping[y_true[i]])
 
-def merge_classes(y_true, y_pred, cls_mapping=None):
-	"""From lists y_true and y_pred with class numbers, """
-	if cls_mapping is None:
-		cls_mapping = C.cls_names
-	
-	y_true_simp = np.array([C.simplify_map[cls_mapping[y]] for y in y_true])
-	y_pred_simp = np.array([C.simplify_map[cls_mapping[y]] for y in y_pred])
-	
-	return y_true_simp, y_pred_simp, ['LR5', 'LR1', 'LRM']
 
 #####################################
 ### Subroutines
 #####################################
 
 def deprocess_image(x):
-	# normalize tensor: center on 0., ensure std is 0.1
+	# set mean to center and std to 10% of the full range
 	x -= x.mean()
 	x /= (x.std() + 1e-5)
-	x *= 0.1
-
-	# clip to [0, 1]
-	x += 0.5
-	x = np.clip(x, 0, 1)
-
-	# convert to RGB array
-	x *= 255
-	#x = x.transpose((1, 2, 3, 0))
-	x = np.clip(x, 0, 255).astype('uint8')
-	
-	return x#x[:,:,x.shape[2]//2,:]
+	x = (np.clip(x*.1+.5, 0, 1) * 255).astype('uint8')
+	return x

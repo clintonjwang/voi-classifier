@@ -10,9 +10,9 @@ from keras.optimizers import Adam
 import niftiutils.helper_fxns as hf
 
 class Config:
-	def __init__(self, dataset="lirads"):
-		self.run_num = 2
-		self.test_run_num = 2
+	def __init__(self, dataset="clinical"):
+		self.run_num = 4
+		self.test_run_num = 4
 		self.dims = [24,24,12]
 		self.nb_channels = 3
 		self.aug_factor = 100
@@ -56,7 +56,7 @@ class Config:
 			self.cls_names = ['hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh']
 			self.sheetnames = ['HCC', 'Cholangio', 'Colorectal', 'Cyst', 'Hemangioma', 'FNH']
 			self.short_cls_names = ['HCC', 'ICC', 'CRC Met.', 'Cyst', 'Hemang.', 'FNH']
-			self.dcm_dirs = ["Z:\\LIRADS\\DICOMs\\" + fn for fn in self.cls_names]
+			self.dcm_dirs = ["Z:\\LIRADS\\DICOMs\\" + cls for cls in self.cls_names]
 			self.simplify_map = {'hcc': 0, 'cyst': 1, 'hemangioma': 1, 'fnh': 1, 'cholangio': 2, 'colorectal': 2}
 			
 			if dataset == "lirads-expanded":
@@ -67,7 +67,7 @@ class Config:
 				self.cls_names = ['hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh', 'net', 'adenoma', 'abscess']
 				self.sheetnames = ['HCC', 'Cholangio', 'Colorectal', 'Cyst', 'Hemangioma', 'FNH', 'NET', 'Adenoma', 'Abscess']
 				self.short_cls_names = ['HCC', 'ICC', 'CRC Met.', 'Cyst', 'Hemang.', 'FNH', 'NET', 'Adenoma', 'Abscess']
-				self.dcm_dirs = ["Z:\\LIRADS\\DICOMs\\" + fn for fn in self.cls_names]
+				self.dcm_dirs = ["Z:\\LIRADS\\DICOMs\\" + cls for cls in self.cls_names]
 
 		elif dataset.startswith("etiology"):
 			self.dims = [32,32,16]
@@ -100,7 +100,7 @@ class Config:
 		self.full_img_dir = "Z:\\LIRADS\\full_imgs"
 		#self.patient_info_path = join(self.base_dir, "excel", "patient_data.csv")
 		self.dim_cols = ["voxdim_x", "voxdim_y", "voxdim_z"]
-		self.accnum_cols = ["MRN", "Sex", "AgeAtImaging", "Ethnicity"] + self.dim_cols
+		self.accnum_cols = ["MRN", "Sex", "AgeAtImaging", "Ethnicity"] + self.dim_cols + ["downsample"]
 
 		self.voi_cols = [hf.flatten([[ph+ch+'1', ph+ch+'2'] for ch in ['x','y','z']]) for ph in ['a_','v_','e_','sm_']]
 		self.art_cols, self.ven_cols, self.equ_cols, self.small_cols = self.voi_cols

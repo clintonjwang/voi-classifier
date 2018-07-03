@@ -225,22 +225,29 @@ def dcm2npy(cls=None, accnums=None, overwrite=False, exec_reg=False, save_seg=Fa
 		save_path = join(C.full_img_dir, accnum + ".npy")
 
 		if not exists(join(load_dir, C.phase_dirs[0])):
-			load_dir = join("Z:\\LIRADS\\DICOMs\\hcc", accnum)
+			load_dir = join("Z:\\LIRADS\\DICOMs", cls, accnum)
 			if not exists(join(load_dir, C.phase_dirs[0])):
 				continue
 		if not overwrite and exists(save_path) and accnum in accnum_df.index and \
 				not np.isnan(accnum_df.loc[accnum, "voxdim_x"]):
 			continue
 
+		flip = src_data_df.loc[src_data_df['acc #'] == accnum, "Flipped"].values[0]
+		if type(flip) != str:
+			flip = ''
+		elif flip == 'Yes':
+			flip_z = [True]*3
+		else:
+			flip_z = [char in flip for char in ['A','V','E']]
 		try:
 			if exists(join(load_dir, "nii_dir", "20s.nii.gz")):
-				art,D = hf.load_img(join(load_dir, "nii_dir", "20s.nii.gz"))
-				ven,_ = hf.load_img(join(load_dir, "nii_dir", "70s.nii.gz"))
-				eq,_ = hf.load_img(join(load_dir, "nii_dir", "3min.nii.gz"))
+				art,D = hf.nii_load(join(load_dir, "nii_dir", "20s.nii.gz"), flip_z=flip_z[0])
+				ven,_ = hf.nii_load(join(load_dir, "nii_dir", "70s.nii.gz"), flip_z=flip_z[1])
+				eq,_ = hf.nii_load(join(load_dir, "nii_dir", "3min.nii.gz"), flip_z=flip_z[2])
 			else:
-				art,D = hf.load_img(join(load_dir, C.phase_dirs[0]))
-				ven,_ = hf.load_img(join(load_dir, C.phase_dirs[1]))
-				eq,_ = hf.load_img(join(load_dir, C.phase_dirs[2]))
+				art,D = hf.dcm_load(join(load_dir, C.phase_dirs[0]), flip_z=flip_z[0])
+				ven,_ = hf.dcm_load(join(load_dir, C.phase_dirs[1]), flip_z=flip_z[1])
+				eq,_ = hf.dcm_load(join(load_dir, C.phase_dirs[2]), flip_z=flip_z[2])
 
 			if exec_reg:
 				art, ven, eq, slice_shift = reg.crop_reg(art, ven, eq)#, "bspline", num_iter=30)
@@ -255,6 +262,7 @@ def dcm2npy(cls=None, accnums=None, overwrite=False, exec_reg=False, save_seg=Fa
 			if downsample != 1:
 				img = tr.scale3d(img, [1/downsample, 1/downsample, 1])
 				D = [D[0]*downsample, D[1]*downsample, D[2]]
+				accnum_df.loc[accnum, C.dim_cols] = D
 		except:
 			raise ValueError(accnum)
 
@@ -265,7 +273,7 @@ def dcm2npy(cls=None, accnums=None, overwrite=False, exec_reg=False, save_seg=Fa
 
 		if cnt % 3 == 2:
 			print(".", end="")
-		accnum_df.loc[accnum] = get_patient_row(accnum, cls) + list(D)
+		accnum_df.loc[accnum] = get_patient_row(accnum, cls) + list(D) + [downsample]
 		accnum_df.to_csv(C.accnum_df_path)
 
 @autofill_cls_arg
@@ -274,6 +282,7 @@ def load_vois(cls=None, accnums=None, overwrite=False, save_seg=False):
 	dcm2npy() must be run first to produce full size npy images."""
 
 	src_data_df = get_coords_df(cls)
+	accnum_df = get_accnum_df()
 	lesion_df = get_lesion_df()
 	if accnums is None:
 		accnums = set(src_data_df['acc #'].values)
@@ -302,6 +311,9 @@ def load_vois(cls=None, accnums=None, overwrite=False, save_seg=False):
 
 		for _, row in df_subset.iterrows():
 			x,y,z = [[int(row[ch+'1']), int(row[ch+'2'])] for ch in ['x','y','z']]
+			if accnum_df.loc[accnum, "downsample"] != 1:
+				x /= accnum_df.loc[accnum, "downsample"]
+				y /= accnum_df.loc[accnum, "downsample"]
 			#if row['Flipped'] != "Yes":
 			#	z = [img.shape[2]-z[1], img.shape[2]-z[0]] # flip z
 
@@ -316,19 +328,25 @@ def load_vois(cls=None, accnums=None, overwrite=False, save_seg=False):
 
 			l_id = accnum + "_" + str(new_num)
 			lesion_df.loc[l_id, ["accnum", "cls", "run_num"] + C.art_cols] = \
-						[accnum, cls, int(row["Run"])]+x+y+z
+						[accnum, cls, int(row["Run"])]+list([*x,*y,*z])
 
 			if 'x3' in row and not np.isnan(row['x3']):
 				x,y,z = [[int(row[ch+'3']), int(row[ch+'4'])] for ch in ['x','y','z']]
+				if accnum_df.loc[accnum, "downsample"] != 1:
+					x /= accnum_df.loc[accnum, "downsample"]
+					y /= accnum_df.loc[accnum, "downsample"]
 				#if row['Flipped'] != "Yes":
 				#	z = [img.shape[2]-z[1], img.shape[2]-z[0]] # flip z
-				lesion_df.loc[l_id, C.ven_cols] = x+y+z
+				lesion_df.loc[l_id, C.ven_cols] = list([*x,*y,*z])
 				
 			if 'x5' in row and not np.isnan(row['x5']):
 				x,y,z = [[int(row[ch+'5']), int(row[ch+'6'])] for ch in ['x','y','z']]
+				if accnum_df.loc[accnum, "downsample"] != 1:
+					x /= accnum_df.loc[accnum, "downsample"]
+					y /= accnum_df.loc[accnum, "downsample"]
 				#if row['Flipped'] != "Yes":
 				#	z = [img.shape[2]-z[1], img.shape[2]-z[0]] # flip z
-				lesion_df.loc[l_id, C.equ_cols] = x+y+z
+				lesion_df.loc[l_id, C.equ_cols] = list([*x,*y,*z])
 
 		print(".", end="")
 		if cnt % 5 == 2:
