@@ -40,21 +40,21 @@ class DiseaseManifold():
 	"""N is the latent multivariate normal distribution.
 	Z is a categorical distribution to select"""
 
-	def __init__(self, T=None, Z_len=128, N_len=128, spatial_sparsity=.8):
-		#Z_len is the number of clinically distinct states on the manifold
-		#N_len is the number of dimensions of the latent vector
+	def __init__(self, T=None, num_states=128, latent_dims=64, spatial_sparsity=.8):
+		#num_states is the number of clinically distinct states on the manifold
+		#latent_dims is the dimensionality of the latent vector
 
 		if T is None:
 			T = config.Hyperparams()
-		self.Z_len = Z_len
-		self.N_len = N_len
+		self.Z_len = num_states
+		self.N_len = latent_dims
 		self.sparsity = int(Z_len*spatial_sparsity) #80% spatial sparsity
 		self.init_components(T)
 
 	def init_components(self, T):
 		"""Latent vector is a probability distribution (histogram) over regions of the manifold."""
 		self.mr_to_Z = densenet.DenseNet((*C.dims, C.nb_channels),
-			self.Z_len, depth=19, dropout_rate=T.dropout)
+			self.N_len, depth=19, dropout_rate=T.dropout)
 		#self.wholemr_to_Z = densenet.DenseNet((*C.context_dims, C.nb_channels),
 		#	self.Z_len, depth=19, dropout_rate=T.dropout)
 
@@ -76,18 +76,19 @@ class DiseaseManifold():
 		self.Z_to_cls = Model(z, cls_out)
 
 		self.mr_gan = dcgan.DCGAN("E:\\DiseaseManifold\\gan",
-				self.Z_len, self.build_generator, self.build_discriminator)
+				self.N_len, self.build_generator, self.build_discriminator)
+
 		self.Z_to_mr = self.mr_gan.generator
+		#z = layers.Input((self.Z_len,))
+		#x = self.z_to_n(z, self.sparsity)
 
 		#model = Model(img, [pred_sex, pred_age])
 		#model.compile(optimizer=optimizer, loss=['binary_crossentropy', 'mse'],
 		#				loss_weights=[1., 2.], metrics=['accuracy'])
 
 	def build_generator(self, mid_len=4, drop=.1):
-		z = layers.Input((self.Z_len,))
-		x = self.z_to_cls(z, self.sparsity)
-		x = layers.Dense(256, use_bias=False, kernel_initializer=keras.initializers.RandomUniform(minval=-1, maxval=1))(x)
-		x = cnnc.bn_relu_etc(x, drop=drop)
+		z = layers.Input((self.N_len,))
+		x = cnnc.bn_relu_etc(z, drop=drop, fc_u=256)
 		x = cnnc.bn_relu_etc(x, drop=drop, fc_u=1024)
 		x = cnnc.bn_relu_etc(x, drop=drop, fc_u=mid_len**3*16)
 		x = layers.Reshape((*[mid_len]*3, -1))(x)
@@ -118,11 +119,9 @@ class DiseaseManifold():
 
 		return model
 
-	def z_to_cls(self, in_layer, k, drop=.1):
+	def z_to_n(self, in_layer, k, drop=.1):
 		x = cnnc.spatial_sparsity(in_layer, k)
-		x = layers.Dense(64, use_bias=False)(x)
-		x = cnnc.bn_relu_etc(x, drop=drop)
-		x = cnnc.bn_relu_etc(x, drop=drop, fc_u=32)
+		x = layers.Dense(self.N_len, use_bias=False, kernel_initializer=keras.initializers.RandomUniform(minval=-1, maxval=1))(x)
 
 		return x
 

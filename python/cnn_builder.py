@@ -104,14 +104,12 @@ def build_cnn(optimizer='adam', padding=['same','same'], pool_sizes=[2,(2,2,1)],
 
 		return model"""
 
-	img = Input(shape=(*C.dims, 3))
+	img = Input(shape=(*C.dims, C.nb_channels))
 
 	art_x = Lambda(lambda x: K.expand_dims(x[...,0], axis=4))(img)
 	ven_x = Lambda(lambda x: K.expand_dims(x[...,1], axis=4))(img)
 	eq_x = Lambda(lambda x: K.expand_dims(x[...,2], axis=4))(img)
 	#art_x = cnnc.bn_relu_etc(art_x, dropout, mc_sampling, cv_u=f[0], cv_k=kernel_size)
-	#ven_x = cnnc.bn_relu_etc(ven_x, dropout, mc_sampling, cv_u=f[0], cv_k=kernel_size)
-	#eq_x = cnnc.bn_relu_etc(eq_x, dropout, mc_sampling, cv_u=f[0], cv_k=kernel_size)
 	art_x = layers.Conv3D(f[0], kernel_size, kernel_initializer="he_uniform", padding=padding[0])(art_x)
 	ven_x = layers.Conv3D(f[0], kernel_size, kernel_initializer="he_uniform", padding=padding[0])(ven_x)
 	eq_x = layers.Conv3D(f[0], kernel_size, kernel_initializer="he_uniform", padding=padding[0])(eq_x)
@@ -145,8 +143,8 @@ def build_cnn(optimizer='adam', padding=['same','same'], pool_sizes=[2,(2,2,1)],
 		y = cnnc._expand_dims(y)
 		y = layers.LocallyConnected1D(1, 1, activation='tanh')(y)
 		y = layers.Flatten()(y)
-		y = cnnc.bn_relu_etc(y, drop=.3)
-		#y = layers.Dropout(.3)(y)
+		#y = cnnc.bn_relu_etc(y, drop=.3)
+		y = layers.Dropout(.2)(y)
 		x = Concatenate(axis=1)([x, y])
 		
 	if C.aleatoric:

@@ -51,7 +51,7 @@ class CNNRunner():
 		else:
 			self.T = T
 
-	def run_fixed_hyperparams(self, overwrite=False, max_runs=999, model_name='models_'):
+	def run_fixed_hyperparams(self, overwrite=False, max_runs=999, Z_test=None, model_name='models_'):
 		"""Runs the CNN for max_runs times, saving performance metrics."""
 		if overwrite and exists(self.C.run_stats_path):
 			os.remove(self.C.run_stats_path)
@@ -73,7 +73,8 @@ class CNNRunner():
 				self.pred_model = cbuild.build_cnn_hyperparams(self.T)
 				self.train_model = self.pred_model
 
-			X_test, Y_test, train_gen, num_samples, train_orig, Z = cbuild.get_cnn_data(n=self.T.n)
+			X_test, Y_test, train_gen, num_samples, train_orig, Z = cbuild.get_cnn_data(n=self.T.n,
+					Z_test_fixed=Z_test)
 			self.Z_test, self.Z_train_orig = Z
 			X_train_orig, Y_train_orig = train_orig
 

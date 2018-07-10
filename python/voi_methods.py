@@ -67,6 +67,12 @@ def plot_check(num, lesion_id=None, normalize=[-1,1], slice_frac=.5):
 	return img
 
 def remove_lesion_id(lesion_id):
+	lesion_df = drm.get_lesion_df()
+	try:
+		lesion_df.drop(lesion_id, inplace=True)
+		lesion_df.to_csv(C.lesion_df_path)
+	except:
+		pass
 	for fn in glob.glob(join(C.crops_dir, lesion_id+"*")):
 		os.remove(fn)
 	for fn in glob.glob(join(C.unaug_dir, lesion_id+"*")):
@@ -181,18 +187,13 @@ def reset_accnum(accnum):
 	"""Reset an accession number (only assumes dcm2npy has been called)"""
 	accnum = str(accnum)
 
-	lesion_df = pd.read_csv(C.small_voi_path, index_col=0)
-	lesion_df["accnum"] = lesion_df["accnum"].astype(str)
-	lesion_df = lesion_df[lesion_df["accnum"] != accnum]
-	lesion_df.to_csv(C.small_voi_path)
-
 	for cls in C.cls_names:
 		for base_dir in [C.crops_dir, C.unaug_dir, C.aug_dir]:
 			for fn in glob.glob(join(base_dir, cls, accnum+"*")):
 				os.remove(fn)
 
 	lesion_df = drm.get_lesion_df()
-	lesion_df = drm._remove_accnums_from_vois(voi_df_art, voi_df_ven, voi_df_eq, [accnum])
+	lesion_df = drm._remove_accnums_from_vois(lesion_df, [accnum])
 	lesion_df.to_csv(C.lesion_df_path)
 
 	for cls in C.cls_names:
@@ -202,8 +203,8 @@ def load_accnum(cls=None, accnums=None, augment=True):
 	#Reloads cropped, scaled and augmented images. Updates voi_dfs and small_vois accordingly.
 	#May fail if the accnum already exists - should call reset_accnum instead
 	for base_dir in [C.crops_dir, C.unaug_dir, C.aug_dir]:
-		if not exists(join(base_dir, cls)):
-			os.makedirs(join(base_dir, cls))
+		if not exists(base_dir):
+			os.makedirs(base_dir)
 
 	drm.load_vois(cls, accnums, overwrite=True)
 	extract_vois(cls, accnums, overwrite=True)
@@ -513,6 +514,8 @@ def save_unaugmented_set(cls=None, accnums=None, lesion_ids=None, custom_vois=No
 		if not overwrite and exists(join(C.unaug_dir, lesion_id + ".npy")):
 			continue
 		img = np.load(join(C.crops_dir, lesion_id + ".npy"))
+		if img.size == 0:
+			raise ValueError(lesion_id)
 		try:
 			if C.pre_scale > 0:
 				img = tr.normalize_intensity(img, max_I=1, min_I=-1, frac=C.pre_scale)
@@ -717,12 +720,14 @@ def _extract_voi(img, voi, pad_lims=[5,40]):
 	# align phases
 	if not np.isnan(voi["v_x1"]):
 		dx = np.array([((voi["v_"+char+"1"] + voi["v_"+char+"2"]) - (x1[ix]+x2[ix])) // 2 for ix,char in enumerate(['x','y','z'])], int)
+		dx[-1] = -dx[-1]
 		pad = int(np.abs(dx).max()+1)
 		sl = [slice(pad+offset,-pad+offset) for offset in dx]
 		img[...,1] = np.pad(img[...,1], pad, 'constant')[sl]
 
 	if not np.isnan(voi["e_x1"]):
 		dx = np.array([((voi["e_"+char+"1"] + voi["e_"+char+"2"]) - (x1[ix]+x2[ix])) // 2 for ix,char in enumerate(['x','y','z'])], int)
+		dx[-1] = -dx[-1]
 		pad = int(np.abs(dx).max()+1)
 		sl = [slice(pad+offset,-pad+offset) for offset in dx]
 		img[...,2] = np.pad(img[...,2], pad, 'constant')[sl]
@@ -733,7 +738,7 @@ def _extract_voi(img, voi, pad_lims=[5,40]):
 
 	dx = np.array([x2[ix] - x1[ix] for ix in range(3)])
 	assert np.all(np.greater(x2,x1)), str(voi["accnum"])
-	pad = np.clip(dx * (math.sqrt(2) - 1) / 2, *pad_lims).astype(int) #min padding needed for rotation
+	pad = np.clip(dx * (math.sqrt(2) - 1) / 2 / C.lesion_ratio, *pad_lims).astype(int) #min padding needed for rotation
 	x1_ = [max(x1[ix]-pad[ix], 0) for ix in range(3)]
 	x2_ = [min(x2[ix]+pad[ix], img.shape[ix]-1) for ix in range(3)]
 	sl = [slice(x1_[ix], x2_[ix]) for ix in range(3)]

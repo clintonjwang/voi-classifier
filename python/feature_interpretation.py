@@ -105,7 +105,19 @@ def feature_id_bulk(model_nums, model_prefix='fixZ-ens_'):
 				df = predict_test_features(fullM, model_fc, all_dense, feature_dense, x_test, z_test)#, size_cutoff, lesion_sizes)
 				full_dfs.append(df)
 		else:
-			raise ValueError()
+			fullM = keras.models.load_model(join(C.model_dir, model_prefix+"%d.hdf5" % model_ix)) #models_305
+			M = keras.models.load_model(join(C.model_dir, model_prefix+"%d.hdf5" % model_ix)) #models_305
+			M = M.layers[1]
+			model_fc, _ = cbuild.build_cnn_hyperparams(T)
+			model_fc = model_fc.layers[1]
+			for l in range(len(model_fc.layers)):
+				model_fc.layers[l].set_weights(M.layers[l].get_weights())
+			model_fc = common.pop_n_layers(model_fc, 2)
+
+			all_dense = get_overall_activations(model_fc, orig_data_dict)
+			feature_dense = get_feature_activations(model_fc, Z_features, all_features)
+			df = predict_test_features(fullM, model_fc, all_dense, feature_dense, x_test, z_test)#, size_cutoff, lesion_sizes)
+			full_dfs.append(df)
 
 	return full_dfs
 
@@ -476,7 +488,7 @@ def get_feature_activations(model_fc, Z_features, all_features, models_conv=None
 	else:
 		return feature_dense, feature_conv3_ch, feature_conv3_sh, feature_conv2_ch, feature_conv1_ch
 
-def predict_test_features(full_model, model_fc, all_dense, feature_dense, x_test, z_test,
+def predict_test_features(full_model, model_fc, all_dense, feature_dense, x_test, z_test, priors=None,
 		size_cutoff=None, lesion_sizes=None, models_conv=None):
 	
 	df = pd.DataFrame(columns=['true_cls', 'pred_cls'] + \
@@ -500,7 +512,7 @@ def predict_test_features(full_model, model_fc, all_dense, feature_dense, x_test
 	lnZ = np.empty(num_features)
 	f_m = np.empty((num_features, num_neurons))
 	f_cov = np.empty((num_features, num_neurons, num_neurons))
-	for f_ix in range(num_features):
+	"""for f_ix in range(num_features):
 		#f_neurons = np.concatenate([feature_conv1_ch[all_features[f_ix]],
 		#                            feature_conv2_ch[all_features[f_ix]],
 		#                            feature_conv3_ch[all_features[f_ix]],
@@ -511,7 +523,12 @@ def predict_test_features(full_model, model_fc, all_dense, feature_dense, x_test
 
 		lnZ_f = -scipy.stats.multivariate_normal.logpdf(f_neurons, m, all_cov, allow_singular=True)
 		adj = np.amax(lnZ_f)
-		lnZ[f_ix] = np.log(np.mean(np.exp(lnZ_f - adj))) + adj
+		lnZ[f_ix] = np.log(np.mean(np.exp(lnZ_f - adj))) + adj"""
+
+	if priors is None: #Use uniform distribution
+		lnpf = np.log(np.ones(num_features) / num_features)
+	else:
+		lnpf = np.log(priors / np.max(priors))
 
 	for img_ix in range(len(z_test)):
 		test_dense = np.empty([0,T.dense_units])
@@ -556,10 +573,11 @@ def predict_test_features(full_model, model_fc, all_dense, feature_dense, x_test
 		for f_ix in range(num_features):  
 			#indices = np.random.randint(0,test_neurons.shape[0], 1000)
 			samp = test_neurons#[indices] #scipy.random.multivariate_normal(m_test, test_cov, size=10000)
-			lnphf = scipy.stats.multivariate_normal.logpdf(samp, f_m[f_ix], f_cov[f_ix], allow_singular=True)
+			lnph_f = scipy.stats.multivariate_normal.logpdf(samp, f_m[f_ix], f_cov[f_ix], allow_singular=True)
+			lnphf = lnph_f + lnpf[f_ix]
 			lnph = scipy.stats.multivariate_normal.logpdf(samp, m, all_cov, allow_singular=True)
 
-			adj = np.amax(lnphf - lnph)
+			adj = np.max(lnphf - lnph)
 			p_f[f_ix] = np.log(np.mean(np.exp(lnphf - lnph - adj))) + adj# + lnZ[f_ix]
 			
 		evidence = {all_features[f_ix]: p_f[f_ix] for f_ix in range(num_features)}

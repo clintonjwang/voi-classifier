@@ -43,7 +43,7 @@ import niftiutils.masks as masks
 import niftiutils.registration as reg
 import niftiutils.visualization as vis
 
-importlib.reload(reg)
+importlib.reload(hf)
 importlib.reload(masks)
 importlib.reload(config)
 C = config.Config()
@@ -91,9 +91,9 @@ def missing_dcms(cls=None):
 			subfolder = join(C.dcm_dir, accnum)
 
 		#if not exists(subfolder + "\\T1_multiphase"):
-		for ph in C.phases:
-			if not exists(join(subfolder, ph)):
-				print(subfolder, "is missing")
+		for ph in C.phase_dirs:
+			if not exists(join(subfolder, ph)) and not exists(join("Z:\\LIRADS\\DICOMs\\hcc", accnum, ph)):
+				print(subfolder, "is missing", ph)
 				break
 
 def tricolorize(accnums=None, save_path="D:\\Etiology\\imgs\\tricolor"):
@@ -205,6 +205,45 @@ def build_coords_df(accnum_xls_path):
 		writer.save()
 
 @autofill_cls_arg
+def dcm2nii(cls=None, accnums=None, overwrite=False):
+	"""Converts dcms to full-size npy, update accnum_df. Requires coords_df."""
+	
+	src_data_df = get_coords_df(cls)
+	if accnums is None:
+		accnums = list(set(src_data_df['acc #'].values))
+	else:
+		accnums = set(accnums).intersection(src_data_df['acc #'].values)
+
+	if hasattr(C,'dcm_dirs'):
+		root = C.dcm_dirs[C.cls_names.index(cls)]
+	else:
+		root = C.dcm_dir
+
+	for cnt, accnum in enumerate(accnums):
+		load_dir = join(root, accnum)
+
+		if not exists(join(load_dir, C.phase_dirs[0])):
+			load_dir = join("Z:\\LIRADS\\DICOMs\\hcc", accnum)
+			if not exists(join(load_dir, C.phase_dirs[0])):
+				continue
+		if not overwrite and exists(join(load_dir, "nii_dir", "20s.nii.gz")):
+			continue
+
+		try:
+			art,D = hf.dcm_load(join(load_dir, C.phase_dirs[0]), flip_x=False, flip_y=False)
+			ven,_ = hf.dcm_load(join(load_dir, C.phase_dirs[1]), flip_x=False, flip_y=False)
+			eq,_ = hf.dcm_load(join(load_dir, C.phase_dirs[2]), flip_x=False, flip_y=False)
+
+			nii_dir = join(load_dir, "nii_dir")
+			if not exists(nii_dir):
+				os.makedirs(nii_dir)
+			hf.save_nii(art, join(nii_dir, "20s.nii.gz"), D)
+			hf.save_nii(ven, join(nii_dir, "70s.nii.gz"), D)
+			hf.save_nii(eq, join(nii_dir, "3min.nii.gz"), D)
+		except:
+			raise ValueError(accnum)
+
+@autofill_cls_arg
 def dcm2npy(cls=None, accnums=None, overwrite=False, exec_reg=False, save_seg=False, downsample=1):
 	"""Converts dcms to full-size npy, update accnum_df. Requires coords_df."""
 	
@@ -225,7 +264,7 @@ def dcm2npy(cls=None, accnums=None, overwrite=False, exec_reg=False, save_seg=Fa
 		save_path = join(C.full_img_dir, accnum + ".npy")
 
 		if not exists(join(load_dir, C.phase_dirs[0])):
-			load_dir = join("Z:\\LIRADS\\DICOMs", cls, accnum)
+			load_dir = join("Z:\\LIRADS\\DICOMs\\hcc", accnum)
 			if not exists(join(load_dir, C.phase_dirs[0])):
 				continue
 		if not overwrite and exists(save_path) and accnum in accnum_df.index and \
@@ -234,16 +273,16 @@ def dcm2npy(cls=None, accnums=None, overwrite=False, exec_reg=False, save_seg=Fa
 
 		flip = src_data_df.loc[src_data_df['acc #'] == accnum, "Flipped"].values[0]
 		if type(flip) != str:
-			flip = ''
+			flip_z = [False]*3
 		elif flip == 'Yes':
 			flip_z = [True]*3
 		else:
 			flip_z = [char in flip for char in ['A','V','E']]
 		try:
 			if exists(join(load_dir, "nii_dir", "20s.nii.gz")):
-				art,D = hf.nii_load(join(load_dir, "nii_dir", "20s.nii.gz"), flip_z=flip_z[0])
-				ven,_ = hf.nii_load(join(load_dir, "nii_dir", "70s.nii.gz"), flip_z=flip_z[1])
-				eq,_ = hf.nii_load(join(load_dir, "nii_dir", "3min.nii.gz"), flip_z=flip_z[2])
+				art,D = hf.nii_load(join(load_dir, "nii_dir", "20s.nii.gz"), flip_x=True, flip_y=True, flip_z=flip_z[0])
+				ven,_ = hf.nii_load(join(load_dir, "nii_dir", "70s.nii.gz"), flip_x=True, flip_y=True, flip_z=flip_z[1])
+				eq,_ = hf.nii_load(join(load_dir, "nii_dir", "3min.nii.gz"), flip_x=True, flip_y=True, flip_z=flip_z[2])
 			else:
 				art,D = hf.dcm_load(join(load_dir, C.phase_dirs[0]), flip_z=flip_z[0])
 				ven,_ = hf.dcm_load(join(load_dir, C.phase_dirs[1]), flip_z=flip_z[1])
@@ -262,7 +301,6 @@ def dcm2npy(cls=None, accnums=None, overwrite=False, exec_reg=False, save_seg=Fa
 			if downsample != 1:
 				img = tr.scale3d(img, [1/downsample, 1/downsample, 1])
 				D = [D[0]*downsample, D[1]*downsample, D[2]]
-				accnum_df.loc[accnum, C.dim_cols] = D
 		except:
 			raise ValueError(accnum)
 
@@ -273,7 +311,7 @@ def dcm2npy(cls=None, accnums=None, overwrite=False, exec_reg=False, save_seg=Fa
 
 		if cnt % 3 == 2:
 			print(".", end="")
-		accnum_df.loc[accnum] = get_patient_row(accnum, cls) + list(D) + [downsample]
+		accnum_df.loc[accnum] = get_patient_row(load_dir) + list(D) + [downsample]
 		accnum_df.to_csv(C.accnum_df_path)
 
 @autofill_cls_arg
@@ -353,25 +391,20 @@ def load_vois(cls=None, accnums=None, overwrite=False, save_seg=False):
 			lesion_df.to_csv(C.lesion_df_path)
 	lesion_df.to_csv(C.lesion_df_path)
 
-def get_patient_row(accnum, cls=None):
-	if hasattr(C,'dcm_dirs'):
-		subdir = join(C.dcm_dirs[C.cls_names.index(cls)], accnum)
-	else:
-		subdir = join(C.dcm_dir, accnum)
-	fn = join(subdir, "T1_AP", "metadata.xml")
+def get_patient_row(load_dir):
+	fn = join(load_dir, C.phase_dirs[0], "metadata.xml")
 	if exists(fn):
 		f = open(fn, 'r')
 	else:
 		missing_metadata = True
-		foldernames = [x for x in os.listdir(subdir) if 'T1' in x or 'post' in x or 'post' in x]
+		foldernames = [x for x in os.listdir(load_dir) if 'T1' in x or 'post' in x]
 		for folder in foldernames:
-			fn = join(subdir, folder, "metadata.xml")
+			fn = join(load_dir, folder, "metadata.xml")
 			if exists(fn):
 				f = open(fn, 'r')
 				missing_metadata = False
 				break
 		if missing_metadata:
-			print(accnum, end=",")
 			return [np.nan]*4
 
 	return read_metadata(''.join(f.readlines()))
@@ -408,8 +441,10 @@ def read_metadata(metadata_txt):
 		ethnicity = "White"
 	elif ethnicity in ['B','BLACK']:
 		ethnicity = "Black"
-	elif ethnicity == 'H':
+	elif ethnicity in ['H', 'HISP']:
 		ethnicity = "Hispanic"
+	elif ethnicity in ['A','ASIAN']:
+		ethnicity = "Asian"
 	elif ethnicity == 'P':
 		ethnicity = "Pacific Islander"
 	elif ethnicity in ['O','OTHER']:
@@ -442,7 +477,6 @@ def load_patient_info(cls=None, accnums=None, overwrite=False, verbose=False):
 
 def load_clinical_vars():
 	#only for Paula clinical
-	xls_path=r"Z:\Paula\Clinical data project\coordinates + clinical variables.xlsx"
 	train_path="E:\\LIRADS\\excel\\clinical_data_train.xlsx"
 	test_path="E:\\LIRADS\\excel\\clinical_data_test.xlsx"
 
@@ -455,8 +489,8 @@ def load_clinical_vars():
 
 	DFs = {}
 	cols = ['age', 'gender', 'AST', 'ALT', 'ALP', 'albumin', 'TBIL', 'PT', 'INR']
-	for ix,cls in enumerate(C.sheetnames):
-		df = pd.read_excel(xls_path, sheet_name=cls, index_col=2)
+	for ix, cls in enumerate(C.sheetnames):
+		df = pd.read_excel(C.coord_xls_path, sheet_name=cls, index_col=2)
 		df = df[~df.index.duplicated(keep='first')]
 		df = df[['age ', 'gender ', 'AST <34', 'ALT <34',
 		   'alk.Phosphatase 30-130', 'Albumin: 3.5-5.0', 'Total Bilirubin <1.2',
@@ -479,7 +513,9 @@ def load_clinical_vars():
 		DFs[cls] = df
 
 	big_df = pd.concat([DFs[cls] for cls in DFs])
+	big_df.index = big_df.index.map(str)
 	big_df = big_df[~big_df.index.duplicated(keep='first')]
+	big_df = big_df[big_df.index.notnull()]
 	big_df.fillna(0).to_excel(test_path)
 
 	for cls in DFs:
@@ -488,13 +524,70 @@ def load_clinical_vars():
 			df[col].fillna(np.nanmedian(df[col]), inplace=True)
 		DFs[cls] = df
 
-	fill_df = pd.concat([DFs[cls] for cls in DFs])
-	fill_df = fill_df[~fill_df.index.duplicated(keep='first')]
-	fill_df.to_excel(train_path)
+	big_df = pd.concat([DFs[cls] for cls in DFs])
+	big_df.index = big_df.index.map(str)
+	big_df = big_df[~big_df.index.duplicated(keep='first')]
+	big_df = big_df[big_df.index.notnull()]
+	big_df.to_excel(train_path)
 
 ###########################
 ### Build/retrieve dataframes
 ###########################
+
+def semiauto_rename_phases(lesion_dir=None):
+	if lesion_dir is None:
+		if hasattr(C, 'dcm_dir'):
+			lesion_dir = C.dcm_dir
+		else:
+			for d in C.dcm_dirs:
+				semiauto_rename_phases(d)
+			return
+
+	for accnum in glob.glob(join(lesion_dir, "*")):
+		fnames = [join(accnum, x) for x in C.phase_dirs]
+		if np.all([exists(fnames[i]) for i in range(len(fnames))]):
+			continue
+
+		#PRE = [x for x in os.listdir(accnum) if "pre" in x] #("vibe" in x or "axial abd" in x) and 
+		#if len(PRE) > 1:
+		#    PRE = [x for x in PRE if "reg" in x]
+
+		DCE = [x for x in os.listdir(accnum) if ("vibe" in x or "dynamic" in x) and "post" in x and "sub" not in x]
+		if len(DCE) > 0:
+			DCE = hf.sort_by_series_num([x for x in DCE if "min" not in x])
+		else:
+			DCE = [x for x in os.listdir(accnum) if "art" in x and "reg" in x] + \
+					[x for x in os.listdir(accnum) if ("port" in x or "pv" in x) and "reg" in x] + \
+					[x for x in os.listdir(accnum) if "equ" in x and "reg" in x]
+			if len(DCE) == 0:
+				DCE = [x for x in os.listdir(accnum) if "ART" in x] + \
+						[x for x in os.listdir(accnum) if "PV" in x] + \
+						[x for x in os.listdir(accnum) if "DL" in x]
+				if len(DCE) == 0:
+					DCE = [x for x in os.listdir(accnum) if "ph1" in x.lower()] + \
+							[x for x in os.listdir(accnum) if "ph2" in x.lower()] + \
+							[x for x in os.listdir(accnum) if "ph3" in x.lower()]
+					
+		if len(DCE) < 3: #len(PRE) == 0 or 
+			DCE = [x for x in os.listdir(accnum) if ("vibe" in x or "dynamic" in x or "post" in x) and "pre" not in x]
+			if len(DCE) == 3:
+				for i in range(len(C.phase_dirs)):
+					os.rename(join(accnum, DCE[i]), join(accnum, C.phase_dirs[i]))
+			else:
+				print(accnum, DCE)
+
+		elif len(DCE) == 3:
+			for i in range(len(C.phase_dirs)):
+				os.rename(join(accnum, DCE[i]), join(accnum, C.phase_dirs[i]))
+
+		else:
+			print(accnum, DCE[0], DCE[1], DCE[2], DCE[3:], sep="\n")
+			correct = input()
+			if correct == "0":
+				for i in range(len(C.phase_dirs)):
+					os.rename(join(accnum, DCE[i]), join(accnum, C.phase_dirs[i]))
+			elif correct == "q":
+				return
 
 def get_lesion_df():
 	if exists(C.lesion_df_path):

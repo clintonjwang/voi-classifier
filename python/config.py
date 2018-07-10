@@ -11,8 +11,8 @@ import niftiutils.helper_fxns as hf
 
 class Config:
 	def __init__(self, dataset="clinical"):
-		self.run_num = 4
-		self.test_run_num = 4
+		self.run_num = 2
+		self.test_run_num = 2
 		self.dims = [24,24,12]
 		self.nb_channels = 3
 		self.aug_factor = 100
@@ -27,10 +27,10 @@ class Config:
 		self.post_scale = 0. # normalizes images at train/test time
 
 		#optional
-		self.focal_loss = 2.
-		self.aleatoric = True
+		self.focal_loss = 0.
+		self.aleatoric = False #currently cannot be used with multiple inputs
 		self.aug_pred = False
-		self.ensemble_num = 8
+		self.ensemble_num = 0
 		self.ensemble_frac = .7 #train each submodel on this fraction of training data
 
 		# Augmentation parameters
@@ -48,6 +48,8 @@ class Config:
 			self.base_dir = "E:\\LIRADS"
 			self.coord_xls_path = 'Z:\\LIRADS\\excel\\Prototype1e.xlsx'
 			if dataset == "clinical":
+				self.run_num = 4
+				self.test_run_num = 4
 				self.coord_xls_path = r"Z:\Paula\Clinical data project\3+4 POINT LESIONS ADDED coordinates + clinical variables.xlsx"
 				self.clinical_inputs = 9 # whether non-imaging inputs should be incorporated into the neural network
 			self.test_num = 10
@@ -79,12 +81,12 @@ class Config:
 			self.sheetname = "Lesion Coordinates"
 			self.base_dir = "D:\\Etiology"
 			#self.coord_xls_path = "D:\\Etiology\\excel\\coords.xlsx"
-			self.coord_xls_path = r"Z:\Sophie\Ethiologyproject\HCC Etiology Project Master Spreadsheet.xlsx"
+			self.coord_xls_path = r"Z:\Sophie\Etiologyproject\HCC Etiology Project Master Spreadsheet.xlsx"
 			self.test_num = 5
 			#self.full_img_dir = join(self.base_dir, "imgs", "full_imgs")
 
 			self.cls_names = ['HBV', 'HCV', 'EtOH', 'NASH']
-			self.dcm_dir = r"Z:\Sophie\Ethiologyproject\Additional MRIs"
+			self.dcm_dir = r"Z:\Sophie\Etiologyproject\Additional MRIs"
 			#self.dcm_dir = "D:\\Etiology\\Imaging"
 
 		elif dataset == "radpath":
@@ -135,7 +137,7 @@ class Hyperparams:
 		self.optimizer = Adam(lr=0.001)
 		self.early_stopping = EarlyStopping(monitor='loss', min_delta=0.002, patience=5)
 		self.skip_con = False
-		self.mc_sampling = True
+		self.mc_sampling = False #currently cannot be used with multiple inputs
 
 	def get_best_hyperparams(self, dataset):
 		if dataset == 'radpath':
@@ -148,16 +150,26 @@ class Hyperparams:
 			self.dense_units = 100
 			self.kernel_size = (3,3,2)
 			self.pool_sizes = [2,2]
+		elif dataset == 'lirads':
+			self.n = 4 #5
+			self.epochs = 40
+			self.steps_per_epoch = 80
+			self.dropout = .1
+			self.dense_units = 64
+			self.padding = ['same','valid']
+			self.f = [64,64,64,64]
+			self.kernel_size = (3,3,2)
+			self.pool_sizes = [2,2]
 		else:
 			self.kernel_size = (3,3,2)
 			self.n = 4 #5
-			self.epochs = 20
-			self.steps_per_epoch = 40
+			self.epochs = 30
+			self.steps_per_epoch = 300
 			self.dropout = .1
-			self.dense_units = 64
-			self.padding = ['same','same'] #['same','valid']
-			self.f = [64,64,64,64]
-			self.pool_sizes = [2,(3,3,2)] #[2,2]
+			self.dense_units = 100
+			self.padding = ['same','valid'] #['same','valid']
+			self.f = [64,100,100]
+			self.pool_sizes = [2,2] #[2,2]
 
 	def get_capsnet_params(self):
 		self.lr = 4
