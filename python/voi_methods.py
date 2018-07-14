@@ -66,20 +66,6 @@ def plot_check(num, lesion_id=None, normalize=[-1,1], slice_frac=.5):
 
 	return img
 
-def remove_lesion_id(lesion_id):
-	lesion_df = drm.get_lesion_df()
-	try:
-		lesion_df.drop(lesion_id, inplace=True)
-		lesion_df.to_csv(C.lesion_df_path)
-	except:
-		pass
-	for fn in glob.glob(join(C.crops_dir, lesion_id+"*")):
-		os.remove(fn)
-	for fn in glob.glob(join(C.unaug_dir, lesion_id+"*")):
-		os.remove(fn)
-	for fn in glob.glob(join(C.aug_dir, lesion_id+"*")):
-		os.remove(fn)
-
 def xref_dirs_with_excel(fix_inplace=True):
 	"""Make sure the image directories have all the images expected based on the config settings
 	(aug factor and run number) and VOI spreadsheet contents.
@@ -183,6 +169,18 @@ def xref_dirs_with_excel(fix_inplace=True):
 		for accnum in set(bad_accnums):
 			reset_accnum(accnum)
 
+def remove_lesion_id(lesion_id):
+	lesion_df = drm.get_lesion_df()
+	try:
+		lesion_df.drop(lesion_id, inplace=True)
+		lesion_df.to_csv(C.lesion_df_path)
+	except:
+		pass
+	for fn in glob.glob(join(C.crops_dir, lesion_id+"*")) + \
+				glob.glob(join(C.unaug_dir, lesion_id+"*")) + \
+				glob.glob(join(C.aug_dir, lesion_id+"*")):
+		os.remove(fn)
+
 def reset_accnum(accnum):
 	"""Reset an accession number (only assumes dcm2npy has been called)"""
 	accnum = str(accnum)
@@ -258,41 +256,6 @@ def save_vois_as_imgs(cls=None, lesion_ids=None, save_dir=None, normalize=None, 
 			suffix = fn_suffix
 
 		imsave("%s\\%s%s%s.png" % (save_dir, fn_prefix, fn[:-4], suffix), rescale(ret, rescale_factor, mode='constant'))
-
-@drm.autofill_cls_arg
-def save_segs_as_imgs(cls=None, lesion_ids=None, save_dir="D:\\Etiology\\screenshots", normalize=None, rescale_factor=3, fn_prefix="", fn_suffix=None, separate_by_cls=True):
-	"""Save all voi images as jpg."""
-	if separate_by_cls:
-		save_dir = join(save_dir, cls)
-		if fn_suffix is None:
-			fn_suffix = ""
-	if not exists(save_dir):
-		os.makedirs(save_dir)
-			
-	src_data_df = drm.get_coords_df(cls)
-	accnums = src_data_df["acc #"].values
-	lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir) if x[:x.find('_')] in accnums]
-
-	for fn in lesion_ids:
-		img = np.load(join(C.unaug_dir, fn+".npy"))
-		img_slice = img[:,:, img.shape[2]//2].astype(float)
-		img_slice = vis.normalize_img(img_slice, normalize)
-			
-		ch1 = np.transpose(img_slice[:,:,0], (1,0))
-		ch2 = np.transpose(img_slice[:,:,1], (1,0))
-		ch3 = np.transpose(img_slice[:,:,2], (1,0))
-
-		ret = np.empty([ch1.shape[0]*C.nb_channels, ch1.shape[1]])
-		ret[:ch1.shape[0],:] = ch1
-		ret[ch1.shape[0]:ch1.shape[0]*2,:] = ch2
-		ret[ch1.shape[0]*2:,:] = ch3
-		
-		if fn_suffix is None:
-			suffix = " (%s)" % cls
-		else:
-			suffix = fn_suffix
-
-		imsave("%s\\%s%s%s.png" % (save_dir, fn_prefix, fn, suffix), rescale(ret, rescale_factor, mode='constant'))
 
 @drm.autofill_cls_arg
 def save_imgs_with_bbox(cls=None, lesion_ids=None, save_dir=None, normalize=None, fixed_width=100, fn_prefix="", fn_suffix=None, separate_by_cls=True):
@@ -401,7 +364,240 @@ def semiauto_label_lesions(lesion_ids=None):
 ### Data Creation
 #####################################
 
-def extract_seg_vois(accnums=None):
+@drm.autofill_cls_arg
+def extract_vois(cls=None, accnums=None, lesion_ids=None, overwrite=False, pad_lims=[1,50]):
+	"""Produces grossly cropped but unscaled versions of the images.
+	This intermediate step makes debugging and visualization easier, and augmentation faster.
+	Rotation, scaling, etc. for augmentation can be done directly on these images.
+	drm.load_vois_batch() must be run first to populate the lesion_df.
+	Overwrites any existing images and lesion_df entries without checking."""
+	if not exists(C.crops_dir):
+		os.makedirs(C.crops_dir)
+
+	lesion_df = drm.get_lesion_df()
+	if lesion_ids is None:
+		if accnums is None:
+			lesion_ids = lesion_df[lesion_df["cls"] == cls].index
+		else:
+			lesion_ids = lesion_df[(lesion_df["accnum"].isin(accnums)) & (lesion_df["cls"] == cls)].index
+	else:
+		lesion_ids = set(lesion_ids).intersection(lesion_df[lesion_df["cls"] == cls].index)
+
+	for cnt, l_id in enumerate(lesion_ids):
+		if not overwrite and not np.isnan(lesion_df.loc[l_id, "sm_x1"]):
+			continue
+
+		img_path = join(C.full_img_dir, lesion_df.loc[l_id, "accnum"]+".npy")
+		if not exists(img_path):
+			continue
+
+		img = np.load(img_path)
+		img = tr.normalize_intensity(img, max_I=1, min_I=-1)
+		
+		voi = lesion_df.loc[l_id]
+
+		x1 = [voi['a_x1'], voi['a_y1'], voi['a_z1']]
+		x2 = [voi['a_x2'], voi['a_y2'], voi['a_z2']]
+		
+		# align phases
+		for ph,ax in [('v_',1),('e_',2)]:
+			if not np.isnan(voi[ph+"x1"]):
+				dx = np.array([((voi[ph+char+"1"] + voi[ph+char+"2"]) - (x1[ix]+x2[ix])) // 2 for ix,char in enumerate(['x','y','z'])], int)
+				dx[-1] = -dx[-1]
+				pad = int(np.abs(dx).max()+1)
+				sl = [slice(pad+offset,-pad+offset) for offset in dx]
+				img[...,ax] = np.pad(img[...,ax], pad, 'constant')[sl]
+
+		ax=2
+		tmp = x2[ax]
+		x2[ax] = img.shape[ax]-x1[ax]
+		x1[ax] = img.shape[ax]-tmp
+
+		dx = np.array([x2[ix] - x1[ix] for ix in range(3)])
+		assert np.all(np.greater(x2,x1)), str(voi["accnum"])
+		pad = np.clip(dx * .5 / C.lesion_ratio, *pad_lims).astype(int) + [10,10,1]
+		x1_ = [max(x1[ix]-pad[ix], 0) for ix in range(3)]
+		x2_ = [min(x2[ix]+pad[ix], img.shape[ix]) for ix in range(3)]
+		sl = [slice(x1_[ix], x2_[ix]) for ix in range(3)]
+		lesion_df.loc[l_id, C.pad_cols] = [abs((min(x1[ix]-x1_[ix], x2_[ix]-x2[ix])) * C.lesion_ratio) for ix in range(3)]
+
+		np.save(join(C.crops_dir, l_id), img[sl])
+
+		print(".", end="")
+		if cnt % 20 == 2:
+			lesion_df.to_csv(C.lesion_df_path)
+	
+	lesion_df.to_csv(C.lesion_df_path)
+
+@drm.autofill_cls_arg
+def save_unaugmented_set(cls=None, accnums=None, lesion_ids=None, lesion_ratio=None, overwrite=True):
+	"""Save unaugmented lesion images."""
+
+	lesion_df = drm.get_lesion_df()
+
+	if not exists(C.unaug_dir):
+		os.makedirs(C.unaug_dir)
+
+	if lesion_ids is None:
+		if accnums is None:
+			lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir) if x[:-4] in lesion_df[lesion_df["cls"] == cls].index]
+		else:
+			lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir) if x[:x.find('_')] in accnums and \
+					x[:-4] in lesion_df[lesion_df["cls"] == cls].index]
+	else:
+		lesion_ids = set(lesion_ids).intersection(lesion_df[lesion_df["cls"] == cls].index)
+
+	for ix, l_id in enumerate(lesion_ids):
+		if not overwrite and exists(join(C.unaug_dir, l_id + ".npy")):
+			continue
+		pad = lesion_df.loc[l_id, C.pad_cols].values.astype(int)
+		sl = [slice(pad[ix], min(1-pad[ix],-1)) for ix in range(3)]
+		img = np.load(join(C.crops_dir, l_id + ".npy"))
+		if img[sl].size == 0:
+			print(sl)
+			raise ValueError(l_id)
+
+		if C.pre_scale > 0:
+			img = tr.normalize_intensity(img, max_I=1, min_I=-1, frac=C.pre_scale)
+
+		img = tr.rescale_img(img[sl], C.dims)
+
+		np.save(join(C.unaug_dir, l_id), img)
+
+@drm.autofill_cls_arg
+def save_augmented_set(cls=None, accnums=None, num_cores=None, overwrite=True):
+	"""Augment all images in cls using CPU parallelization.
+	Overwrite can be an int, in which case it will create
+	augmented samples enumerated starting at that number."""
+
+	lesion_df = drm.get_lesion_df()
+
+	if not exists(C.aug_dir):
+		os.makedirs(C.aug_dir)
+
+	if accnums is not None:
+		lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir) if x[:x.find('_')] in accnums \
+					and x[:-4] in lesion_df[lesion_df["cls"] == cls].index]
+	else:
+		lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir) if x[:-4] in lesion_df.index]
+
+	t = time.time()
+	if num_cores is None:
+		if len(lesion_ids) > 10:
+			num_cores = multiprocessing.cpu_count() - 1
+		else:
+			num_cores = 1
+
+	if num_cores > 1:
+		Parallel(n_jobs=num_cores)(delayed(_save_augmented_img)(lesion_id, lesion_df.loc[lesion_id, C.pad_cols],
+			overwrite=overwrite) for lesion_id in lesion_ids)
+	else:
+		for lesion_id in lesion_ids:
+			_save_augmented_img(lesion_id, lesion_df.loc[lesion_id, C.pad_cols], overwrite=overwrite)
+
+	print(cls, time.time()-t)
+
+
+#####################################
+### Public Subroutines
+#####################################
+
+def padded_coords(lesion_df, lesion_id):
+	"""Ideally should place the voi in the same place in the image"""
+	return lesion_df.loc[lesion_id]
+
+#####################################
+### Subroutines
+#####################################
+
+def _draw_bbox(img_slice, voi):
+	"""Draw a colored box around the voi of an image slice showing how it would be cropped."""
+	
+	crop = [img_slice.shape[i] - round(C.dims[i]/C.lesion_ratio) for i in range(2)]
+	
+	x1 = crop[0]//2
+	x2 = -crop[0]//2
+	y1 = crop[1]//2
+	y2 = -crop[1]//2
+
+	img_slice[x1:x2, y2, 2, :] = 1
+	img_slice[x1:x2, y2, :2, :] = 1
+
+	img_slice[x1:x2, y1, 2, :] = 1
+	img_slice[x1:x2, y1, :2, :] = 1
+
+	img_slice[x1, y1:y2, 2, :] = 1
+	img_slice[x1, y1:y2, :2, :] = 1
+
+	img_slice[x2, y1:y2, 2, :] = 1
+	img_slice[x2, y1:y2, :2, :] = 1
+
+	dx = int(5/4*x1 - img_slice.shape[0]/4)
+	dy = int(5/4*y1 - img_slice.shape[1]/4)
+	
+	return img_slice[dx:-dx,dy:-dy,:,:]
+
+def _save_augmented_img(lesion_id, padding, overwrite=True):
+	"""Written in a way to allow partial overwriting"""
+	padding = padding.values.astype(int)
+	if lesion_id.find('.') != -1:
+		lesion_id = lesion_id[:-4]
+	if not overwrite and exists(join(C.aug_dir, lesion_id + "_0.npy")):
+		return
+
+	img = np.load(join(C.crops_dir, lesion_id + ".npy"))
+	if C.pre_scale > 0:
+		img = tr.normalize_intensity(img, max_I=1, min_I=-1, frac=C.pre_scale)
+
+	if type(overwrite) == int:
+		start=overwrite
+	else:
+		start=0
+	
+	aug_imgs = []
+	for img_num in range(start, C.aug_factor):
+		flip = [random.choice([-1, 1]) for _ in range(3)]
+		A = np.clip(np.random.multivariate_normal(padding,
+				(np.ones((3,3)) + .5*np.diag(padding))), padding*.7, padding*1.3).astype(int)
+		B = np.clip(np.random.multivariate_normal(padding,
+				(np.ones((3,3)) + .5*np.diag(padding))), padding*.7, padding*1.3).astype(int)
+		crops = np.concatenate([A,B*-1])
+
+		aug_img = img
+		for axis in range(2):
+			aug_img = tr.rotate(aug_img, random.randint(0, 359), axis=axis)
+		aug_img = tr.rotate(aug_img, random.choice([0, 180]), axis=2)
+		
+		sl_flip = []
+		for ix in range(3):
+			a = crops[ix] * flip[ix]
+			b = crops[ix+3] * flip[ix]
+			if flip[ix] == 1:
+				a = max(a,0)
+				b = min(b,-1)
+			else:
+				b = max(b,0)
+				a = min(a,-1)
+			sl_flip.append(slice(a,b, flip[ix]))
+		#sl_flip = [slice(crops[ix][0] * flip[ix]+trans[ix], crops[ix][1] * flip[ix]+trans[ix], flip[ix]) for ix in range(3)]
+		#sl = [slice(crops[ix]//2 *flip[ix] + trans[ix], -crops[ix]//2 *flip[ix] + trans[ix], flip[ix]) for ix in range(3)]
+		aug_img = aug_img[sl_flip]
+		if np.min(aug_img.shape) == 0:
+			print(sl_flip, img.shape, aug_img.shape)
+			raise ValueError()
+		aug_img = tr.rescale_img(aug_img, C.dims)
+		
+		for ix in range(3):
+			aug_img[...,ix] = aug_img[...,ix] * random.gauss(1,C.intensity_scaling[0]) + random.gauss(0,C.intensity_scaling[0]) + np.random.normal(0, C.intensity_scaling[1], C.dims)
+
+		np.save(join(C.aug_dir, lesion_id + "_" + str(img_num)), aug_img)
+
+
+#####################################
+### Obsolete
+#####################################
+
+"""def extract_seg_vois(accnums=None):
 	if not exists(C.crops_dir):
 		os.makedirs(C.crops_dir)
 	if accnums is None:
@@ -457,294 +653,39 @@ def save_seg_set(accnums=None, overwrite=True, unaug=True, aug=True, num_cores=N
 				_save_augmented_img(lesion_id, overwrite=overwrite)
 
 @drm.autofill_cls_arg
-def extract_vois(cls=None, accnums=None, lesion_ids=None, overwrite=False):
-	"""Produces grossly cropped but unscaled versions of the images.
-	This intermediate step makes debugging and visualization easier, and augmentation faster.
-	Rotation, scaling, etc. for augmentation can be done directly on these images.
-	drm.load_vois_batch() must be run first to populate the lesion_df.
-	Overwrites any existing images and lesion_df entries without checking."""
-	if not exists(C.crops_dir):
-		os.makedirs(C.crops_dir)
-
-	lesion_df = drm.get_lesion_df()
-	if lesion_ids is None:
-		if accnums is None:
-			lesion_ids = lesion_df[lesion_df["cls"] == cls].index
-		else:
-			lesion_ids = lesion_df[(lesion_df["accnum"].isin(accnums)) & (lesion_df["cls"] == cls)].index
-
-	for cnt, l_id in enumerate(lesion_ids):
-		if not overwrite and not np.isnan(lesion_df.loc[l_id, "sm_x1"]):
-			continue
-
-		img_path = join(C.full_img_dir, lesion_df.loc[l_id, "accnum"]+".npy")
-		if not exists(img_path):
-			continue
-
-		img = np.load(img_path)
-		img = tr.normalize_intensity(img, max_I=1, min_I=-1)
-		crop_img, coords = _extract_voi(img, lesion_df.loc[l_id])
-		lesion_df.loc[l_id, C.small_cols] = coords
-
-		np.save(join(C.crops_dir, l_id), crop_img)
-
-		print(".", end="")
-		if cnt % 20 == 2:
-			lesion_df.to_csv(C.lesion_df_path)
-	
-	lesion_df.to_csv(C.lesion_df_path)
-
-@drm.autofill_cls_arg
-def save_unaugmented_set(cls=None, accnums=None, lesion_ids=None, custom_vois=None, lesion_ratio=None, overwrite=True):
-	"""Save unaugmented lesion images."""
-
-	lesion_df = drm.get_lesion_df()
-
-	if not exists(C.unaug_dir):
-		os.makedirs(C.unaug_dir)
-
-	if lesion_ids is None:
-		if accnums is None:
-			lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir) if x[:-4] in lesion_df[lesion_df["cls"] == cls].index]
-		else:
-			lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir) if x[:x.find('_')] in accnums and \
-					x[:-4] in lesion_df[lesion_df["cls"] == cls].index]
-
-	for ix, lesion_id in enumerate(lesion_ids):
-		if not overwrite and exists(join(C.unaug_dir, lesion_id + ".npy")):
-			continue
-		img = np.load(join(C.crops_dir, lesion_id + ".npy"))
-		if img.size == 0:
-			raise ValueError(lesion_id)
-		try:
-			if C.pre_scale > 0:
-				img = tr.normalize_intensity(img, max_I=1, min_I=-1, frac=C.pre_scale)
-		except:
-			os.remove(join(C.crops_dir, lesion_id + ".npy"))
-		img = tr.rescale_img(img, C.dims)
-		#if custom_vois is None:
-		#	unaug_img = _resize_img(join(C.crops_dir, lesion_id + ".npy"),
-		#				lesion_df.loc[lesion_id, C.small_cols])
-		#else:
-		#	unaug_img = _resize_img(join(C.crops_dir, lesion_id + ".npy"), custom_vois[ix], lesion_ratio)
-
-		np.save(join(C.unaug_dir, lesion_id), img)
-
-@drm.autofill_cls_arg
-def save_augmented_set(cls=None, accnums=None, num_cores=None, overwrite=True):
-	"""Augment all images in cls using CPU parallelization.
-	Overwrite can be an int, in which case it will create
-	augmented samples enumerated starting at that number."""
-
-	lesion_df = drm.get_lesion_df()
-
-	if not exists(C.aug_dir):
-		os.makedirs(C.aug_dir)
-
-	if accnums is not None:
-		lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir) if x[:x.find('_')] in accnums]
-		for lesion_id in lesion_ids:
-			_save_augmented_img(lesion_id, lesion_df.loc[lesion_id, C.small_cols], overwrite=overwrite)
-
-	else:
-		lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir) if x[:-4] in lesion_df.index]
-
-		t = time.time()
-		if num_cores is None:
-			num_cores = multiprocessing.cpu_count() - 1
-
-		if num_cores > 1:
-			Parallel(n_jobs=num_cores)(delayed(_save_augmented_img)(lesion_id,
-				lesion_df.loc[lesion_id, C.small_cols],
-				overwrite=overwrite) for lesion_id in lesion_ids)
-		else:
-			for lesion_id in lesion_ids:
-				_save_augmented_img(lesion_id, lesion_df.loc[lesion_id, C.small_cols], overwrite=overwrite)
-
-		print(cls, time.time()-t)
-
-
-#####################################
-### Public Subroutines
-#####################################
-
-def padded_coords(lesion_df, lesion_id):
-	"""Ideally should place the voi in the same place in the image"""
-	return lesion_df.loc[lesion_id]
-
-def get_scale_ratios(voi, lesion_ratio=None):
-	"""Based on a voi in an image and the final dimensions desired,
-	determine how much the image needs to be scaled so that the voi fits
-	in the desired dimensions, with optional padding.
-
-	lesion_ratio of .8 means that the width of the lesion is 80% of the image width.
-	lesion_ratio of 1 means no padding is added."""
-
-	if lesion_ratio is None:
-		lesion_ratio = C.lesion_ratio
-
-	dx = [voi[ix+1] - voi[ix] for ix in [0,2,4]]
-	scale_ratios = [C.dims[ix]/dx[ix] * lesion_ratio for ix in range(3)]
-
-	return scale_ratios
-
-#####################################
-### Subroutines
-#####################################
-
-def _draw_bbox(img_slice, voi):
-	"""Draw a colored box around the voi of an image slice showing how it would be cropped."""
-
-	scale_ratios = get_scale_ratios(voi)
-	
-	crop = [img_slice.shape[i] - round(C.dims[i]/scale_ratios[i]) for i in range(2)]
-	
-	x1 = crop[0]//2
-	x2 = -crop[0]//2
-	y1 = crop[1]//2
-	y2 = -crop[1]//2
-
-	img_slice[x1:x2, y2, 2, :] = 1
-	img_slice[x1:x2, y2, :2, :] = 1
-
-	img_slice[x1:x2, y1, 2, :] = 1
-	img_slice[x1:x2, y1, :2, :] = 1
-
-	img_slice[x1, y1:y2, 2, :] = 1
-	img_slice[x1, y1:y2, :2, :] = 1
-
-	img_slice[x2, y1:y2, 2, :] = 1
-	img_slice[x2, y1:y2, :2, :] = 1
-
-	dx = int(5/4*x1 - img_slice.shape[0]/4)
-	dy = int(5/4*y1 - img_slice.shape[1]/4)
-	
-	return img_slice[dx:-dx,dy:-dy,:,:]
-
-def _augment_img(img, num_samples, voi=None, save_name=None, overwrite=True):
-	"""For rescaling an img to final_dims while scaling to make sure the image contains the voi."""
-	if type(overwrite) == int:
-		start=overwrite
-	else:
-		start=0
-	
-	if voi is not None:
-		buffer1 = C.lesion_ratio-.1
-		buffer2 = C.lesion_ratio+.1
-		scale_ratios = [1]*3#get_scale_ratios(voi, lesion_ratio=1)
-	else:
-		scale_ratios = [1]*3
-		buffer1 = 1.
-		buffer2 = 1.2
-
-	aug_imgs = []
-	
-	for img_num in range(start, num_samples):		
-		flip = [random.choice([-1, 1]) for _ in range(3)]
-
-		if voi is None:
-			aug_img = img[::flip[0], ::flip[1], ::flip[2], ...]
-
-			if np.min(img.shape[:-1]) > 8:
-				sl = [slice(random.randint(0,2), random.randint(-3,-1)) for _ in range(3)]
-				aug_img = aug_img[sl]
-
-			aug_img = tr.rescale_img(aug_img, C.dims)
-			for axis in range(3):
-				aug_img = tr.rotate(aug_img, random.choice([0, 90, 180, 270]), axis=axis)
-
-		else:
-			scales = [random.uniform(scale_ratios[ix]*buffer1, scale_ratios[ix]*buffer2) for ix in range(3)]
-			trans = [random.randint(-C.translate[ix], C.translate[ix]) for ix in range(3)]
-
-			aug_img = img
-			for axis in range(3):
-				aug_img = tr.rotate(aug_img, random.randint(0, 359), axis=axis)
+def save_segs_as_imgs(cls=None, lesion_ids=None, save_dir="D:\\Etiology\\screenshots", normalize=None, rescale_factor=3, fn_prefix="", fn_suffix=None, separate_by_cls=True):
+	if separate_by_cls:
+		save_dir = join(save_dir, cls)
+		if fn_suffix is None:
+			fn_suffix = ""
+	if not exists(save_dir):
+		os.makedirs(save_dir)
 			
-			aug_img = tr.rescale_img(aug_img, scales)
-			crops = np.clip([aug_img.shape[i] - C.dims[i] for i in range(3)], 0, 50)
-			#for i in range(3):
-			#	assert crops[i]>=
+	src_data_df = drm.get_coords_df(cls)
+	accnums = src_data_df["acc #"].values
+	lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir) if x[:x.find('_')] in accnums]
 
-			#aug_img = tr.offset_phases(aug_img, max_offset=2, max_z_offset=1)
-			sl = [slice(crops[ix]//2 *flip[ix] + trans[ix], -crops[ix]//2 *flip[ix] + trans[ix], flip[ix]) for ix in range(3)]
-			aug_img = aug_img[sl]
-			if np.min(aug_img.shape) == 0:
-				return
-			aug_img = tr.rescale_img(aug_img, C.dims)
+	for fn in lesion_ids:
+		img = np.load(join(C.unaug_dir, fn+".npy"))
+		img_slice = img[:,:, img.shape[2]//2].astype(float)
+		img_slice = vis.normalize_img(img_slice, normalize)
+			
+		ch1 = np.transpose(img_slice[:,:,0], (1,0))
+		ch2 = np.transpose(img_slice[:,:,1], (1,0))
+		ch3 = np.transpose(img_slice[:,:,2], (1,0))
+
+		ret = np.empty([ch1.shape[0]*C.nb_channels, ch1.shape[1]])
+		ret[:ch1.shape[0],:] = ch1
+		ret[ch1.shape[0]:ch1.shape[0]*2,:] = ch2
+		ret[ch1.shape[0]*2:,:] = ch3
 		
-		for ix in range(3):
-			aug_img[...,ix] = aug_img[...,ix] * random.gauss(1,C.intensity_scaling[0]) + random.gauss(0,C.intensity_scaling[1])
+		if fn_suffix is None:
+			suffix = " (%s)" % cls
+		else:
+			suffix = fn_suffix
 
-		np.save(save_name + "_" + str(img_num), aug_img)
-
-def _save_augmented_img(lesion_id, voi=None, overwrite=True):
-	"""Written in a way to allow partial overwriting"""
-	if lesion_id.find('.') != -1:
-		lesion_id = lesion_id[:-4]
-	if not overwrite and exists(join(C.aug_dir, lesion_id + "_0.npy")):
-		return
-
-	img = np.load(join(C.crops_dir, lesion_id + ".npy"))
-	if C.pre_scale > 0:
-		img = tr.normalize_intensity(img, max_I=1, min_I=-1, frac=C.pre_scale)
-	_augment_img(img, C.aug_factor, voi=voi, save_name=join(C.aug_dir, lesion_id), overwrite=overwrite)
-
-def _resize_img(img_path, voi, lesion_ratio=None):
-	"""For rescaling an img to final_dims while scaling to make sure the image contains the voi.
-	Do not reuse img
-	"""
-	scale_ratios = get_scale_ratios(voi, lesion_ratio=lesion_ratio)
-
-	img = np.load(img_path)
-	if C.pre_scale > 0:
-		img = tr.normalize_intensity(img, max_I=1, min_I=-1, frac=C.pre_scale)
-	img = tr.rescale_img(img, scale_ratios)
-
-	crop = [img.shape[i] - C.dims[i] for i in range(3)]
-
-	for i in range(3):
-		assert crop[i]>=0
-	
-	img = img[crop[0]//2:-crop[0]//2, crop[1]//2:-crop[1]//2, crop[2]//2:-crop[2]//2, :]
-
-	return img
-
-def _extract_voi(img, voi, pad_lims=[5,40]):
-	"""Input: image, a voi to center on, and the min dims of the unaugmented img.
-	Outputs loosely cropped voi-centered image and coords of the voi within this loosely cropped image.
-	"""
-	x1 = [voi['a_x1'], voi['a_y1'], voi['a_z1']]
-	x2 = [voi['a_x2'], voi['a_y2'], voi['a_z2']]
-	
-	# align phases
-	if not np.isnan(voi["v_x1"]):
-		dx = np.array([((voi["v_"+char+"1"] + voi["v_"+char+"2"]) - (x1[ix]+x2[ix])) // 2 for ix,char in enumerate(['x','y','z'])], int)
-		dx[-1] = -dx[-1]
-		pad = int(np.abs(dx).max()+1)
-		sl = [slice(pad+offset,-pad+offset) for offset in dx]
-		img[...,1] = np.pad(img[...,1], pad, 'constant')[sl]
-
-	if not np.isnan(voi["e_x1"]):
-		dx = np.array([((voi["e_"+char+"1"] + voi["e_"+char+"2"]) - (x1[ix]+x2[ix])) // 2 for ix,char in enumerate(['x','y','z'])], int)
-		dx[-1] = -dx[-1]
-		pad = int(np.abs(dx).max()+1)
-		sl = [slice(pad+offset,-pad+offset) for offset in dx]
-		img[...,2] = np.pad(img[...,2], pad, 'constant')[sl]
-
-	tmp = x2[-1]
-	x2[-1] = img.shape[2]-x1[-1]
-	x1[-1] = img.shape[2]-tmp
-
-	dx = np.array([x2[ix] - x1[ix] for ix in range(3)])
-	assert np.all(np.greater(x2,x1)), str(voi["accnum"])
-	pad = np.clip(dx * (math.sqrt(2) - 1) / 2 / C.lesion_ratio, *pad_lims).astype(int) #min padding needed for rotation
-	x1_ = [max(x1[ix]-pad[ix], 0) for ix in range(3)]
-	x2_ = [min(x2[ix]+pad[ix], img.shape[ix]-1) for ix in range(3)]
-	sl = [slice(x1_[ix], x2_[ix]) for ix in range(3)]
-	sm_coords = [x1[ix] - x1_[ix] for ix in range(3)] + [x2[ix] - x1_[ix] for ix in range(3)]
-		
-	return img[sl], sm_coords
+		imsave("%s\\%s%s%s.png" % (save_dir, fn_prefix, fn, suffix), rescale(ret, rescale_factor, mode='constant'))
+"""
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description='Convert DICOMs to npy files and transfer voi coordinates from excel to csv.')

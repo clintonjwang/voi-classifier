@@ -10,7 +10,7 @@ from keras.optimizers import Adam
 import niftiutils.helper_fxns as hf
 
 class Config:
-	def __init__(self, dataset="clinical"):
+	def __init__(self, dataset="lirads"):
 		self.run_num = 2
 		self.test_run_num = 2
 		self.dims = [24,24,12]
@@ -23,7 +23,7 @@ class Config:
 		self.clinical_inputs = 0 # whether non-imaging inputs should be incorporated into the neural network
 
 		self.lesion_ratio = 0.7 # ratio of the lesion side length to the length of the cropped image
-		self.pre_scale = .5 # normalizes images at augmentation time
+		self.pre_scale = .7 # normalizes images while saving augmented/unaugmented images
 		self.post_scale = 0. # normalizes images at train/test time
 
 		#optional
@@ -34,8 +34,7 @@ class Config:
 		self.ensemble_frac = .7 #train each submodel on this fraction of training data
 
 		# Augmentation parameters
-		self.intensity_scaling = [.05,.05]
-		self.translate = [2,2,1]
+		self.intensity_scaling = [.1,.01]
 
 		self.use_dataset(dataset)
 
@@ -92,7 +91,8 @@ class Config:
 		elif dataset == "radpath":
 			self.base_dir = "D:\\Radpath"
 			self.coord_xls_path = "Z:\\Paula\\Radpath\\new coordinates_CW.xlsx"
-			self.test_num = 10
+			self.test_num = 5
+			self.dims = [32,32,16]
 
 			self.cls_names = ['hcc', 'non-hcc']
 			self.sheetnames = ['HCC', 'Non-HCC']
@@ -104,9 +104,10 @@ class Config:
 		self.dim_cols = ["voxdim_x", "voxdim_y", "voxdim_z"]
 		self.accnum_cols = ["MRN", "Sex", "AgeAtImaging", "Ethnicity"] + self.dim_cols + ["downsample"]
 
-		self.voi_cols = [hf.flatten([[ph+ch+'1', ph+ch+'2'] for ch in ['x','y','z']]) for ph in ['a_','v_','e_','sm_']]
-		self.art_cols, self.ven_cols, self.equ_cols, self.small_cols = self.voi_cols
-		self.voi_cols = hf.flatten(self.voi_cols)
+		self.voi_cols = [hf.flatten([[ph+ch+'1', ph+ch+'2'] for ch in ['x','y','z']]) for ph in ['a_','v_','e_']]
+		self.art_cols, self.ven_cols, self.equ_cols = self.voi_cols
+		self.pad_cols = ['pad_x','pad_y','pad_z']
+		self.voi_cols = hf.flatten(self.voi_cols) + self.pad_cols
 
 		# An accnum must be in accnum_df for it to be processed
 		self.accnum_df_path = join("Z:\\LIRADS\\excel", "accnum_data.csv")
@@ -122,7 +123,7 @@ class Config:
 		self.model_dir = join(self.base_dir, "models")
 
 class Hyperparams:
-	def __init__(self):
+	def __init__(self, dataset=None):
 		self.n = 4
 		self.cnn_type = 'vanilla'
 		self.steps_per_epoch = 50
@@ -137,27 +138,31 @@ class Hyperparams:
 		self.optimizer = Adam(lr=0.001)
 		self.early_stopping = EarlyStopping(monitor='loss', min_delta=0.002, patience=5)
 		self.skip_con = False
-		self.mc_sampling = False #currently cannot be used with multiple inputs
+		self.mc_sampling = True #currently cannot be used with multiple inputs
+
+		if dataset is not None:
+			self.get_best_hyperparams(dataset)
 
 	def get_best_hyperparams(self, dataset):
 		if dataset == 'radpath':
-			self.n = 32
-			self.steps_per_epoch = 100
+			self.n = 8
+			self.cnn_type = 'vanilla'
 			self.epochs = 30
-			self.f = [64,80,80]
-			self.padding = ['same','valid']
-			self.dropout = 0.1
+			self.steps_per_epoch = 150
+			self.f = [64,100,100]
 			self.dense_units = 100
+			self.padding = ['valid','valid']
+			self.dropout = .2
 			self.kernel_size = (3,3,2)
-			self.pool_sizes = [2,2]
+			self.pool_sizes = [(2,2,1),(2,2,1)]
 		elif dataset == 'lirads':
 			self.n = 4 #5
-			self.epochs = 40
-			self.steps_per_epoch = 80
-			self.dropout = .1
-			self.dense_units = 64
+			self.epochs = 30
+			self.steps_per_epoch = 300
+			self.dropout = .2
+			self.dense_units = 100
 			self.padding = ['same','valid']
-			self.f = [64,64,64,64]
+			self.f = [64,100,100]
 			self.kernel_size = (3,3,2)
 			self.pool_sizes = [2,2]
 		else:

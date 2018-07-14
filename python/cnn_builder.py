@@ -27,9 +27,6 @@ from keras.models import Model
 from keras.optimizers import Adam
 from keras.regularizers import l2
 from keras.utils import np_utils
-from keras_contrib.layers.normalization import InstanceNormalization
-from scipy.misc import imsave
-from skimage.transform import rescale
 from sklearn.metrics import accuracy_score, confusion_matrix, f1_score
 
 import config
@@ -106,10 +103,9 @@ def build_cnn(optimizer='adam', padding=['same','same'], pool_sizes=[2,(2,2,1)],
 
 	img = Input(shape=(*C.dims, C.nb_channels))
 
-	art_x = Lambda(lambda x: K.expand_dims(x[...,0], axis=4))(img)
+	"""art_x = Lambda(lambda x: K.expand_dims(x[...,0], axis=4))(img)
 	ven_x = Lambda(lambda x: K.expand_dims(x[...,1], axis=4))(img)
 	eq_x = Lambda(lambda x: K.expand_dims(x[...,2], axis=4))(img)
-	#art_x = cnnc.bn_relu_etc(art_x, dropout, mc_sampling, cv_u=f[0], cv_k=kernel_size)
 	art_x = layers.Conv3D(f[0], kernel_size, kernel_initializer="he_uniform", padding=padding[0])(art_x)
 	ven_x = layers.Conv3D(f[0], kernel_size, kernel_initializer="he_uniform", padding=padding[0])(ven_x)
 	eq_x = layers.Conv3D(f[0], kernel_size, kernel_initializer="he_uniform", padding=padding[0])(eq_x)
@@ -119,7 +115,11 @@ def build_cnn(optimizer='adam', padding=['same','same'], pool_sizes=[2,(2,2,1)],
 		x = cnnc.bn_relu_etc(x, dropout, mc_sampling)
 	else:
 		x = cnnc.bn_relu_etc(x)
-		x = layers.SpatialDropout3D(dropout)(x)
+		x = layers.SpatialDropout3D(dropout)(x)"""
+
+	x = cnnc.bn_relu_etc(img, cv_u=f[0], cv_k=kernel_size)
+	x = layers.SpatialDropout3D(dropout)(x)
+
 	x = layers.MaxPooling3D(pool_sizes[0])(x)
 
 	for layer_num in range(1,len(f)):
@@ -739,12 +739,12 @@ def _train_gen_classifier(test_ids, accnums=None, n=12):
 				lesion_id = img_fn[:img_fn.rfind('_')]
 				if lesion_id not in test_ids[cls]:
 					x1[train_cnt] = np.load(join(C.aug_dir, img_fn))
-					try:
-						if C.post_scale > 0:
+					if C.post_scale > 0:
+						try:
 							x1[train_cnt] = tr.normalize_intensity(x1[train_cnt], 1., -1., C.post_scale)
-					except:
-						print(lesion_id)
-						vm.reset_accnum(lesion_id[:lesion_id.find('_')])
+						except:
+							raise ValueError(lesion_id)
+							#vm.reset_accnum(lesion_id[:lesion_id.find('_')])
 
 					if C.dual_img_inputs:
 						tmp = np.load(join(C.crops_dir, lesion_id+".npy"))

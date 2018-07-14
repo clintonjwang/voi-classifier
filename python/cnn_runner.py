@@ -51,7 +51,7 @@ class CNNRunner():
 		else:
 			self.T = T
 
-	def run_fixed_hyperparams(self, overwrite=False, max_runs=999, Z_test=None, model_name='models_'):
+	def run_fixed_hyperparams(self, overwrite=False, max_runs=999, Z_test=None, model_name='models_', verbose=True):
 		"""Runs the CNN for max_runs times, saving performance metrics."""
 		if overwrite and exists(self.C.run_stats_path):
 			os.remove(self.C.run_stats_path)
@@ -60,7 +60,7 @@ class CNNRunner():
 
 		model_names = glob.glob(join(self.C.model_dir, model_name+"*"))
 		if len(model_names) > 0:
-			model_num = max([int(x[x.find('_')+1:x.find('.')]) for x in model_names]) + 1
+			model_num = max([int(x[x.rfind('_')+1:x.find('.')]) for x in model_names]) + 1
 		else:
 			model_num = 0
 
@@ -80,8 +80,8 @@ class CNNRunner():
 
 			t = time.time()
 			hist = self.train_model.fit_generator(train_gen, self.T.steps_per_epoch,
-					self.T.epochs, verbose=False)
-			loss_hist = hist.history['loss']
+					self.T.epochs, verbose=verbose, validation_data=[X_test, Y_test])
+			loss_hist = hist.history['val_loss']
 
 			Y_pred = self.pred_model.predict(X_train_orig)
 			y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_train_orig])

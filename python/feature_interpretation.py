@@ -70,10 +70,6 @@ def feature_id_bulk(model_nums, model_prefix='fixZ-ens_'):
 	x_test = all_imgs[test_indices]
 	z_test = all_lesionids[test_indices]
 
-	#voi_df = drm.get_voi_dfs()
-	#lesion_sizes = [np.product(voi_df.loc[z, ["real_dx","real_dy","real_dz"]].values)**(1/3) for z in z_test]
-	#size_cutoff = np.percentile(np.product(voi_df.loc[voi_df["cls"]=="fnh", ["real_dx","real_dy","real_dz"]].values,1)**(1/3), 75)
-
 	full_dfs = []
 
 	for model_ix in model_nums:
@@ -88,18 +84,6 @@ def feature_id_bulk(model_nums, model_prefix='fixZ-ens_'):
 					model_fc.layers[l].set_weights(M.layers[l].get_weights())
 				model_fc = common.pop_n_layers(model_fc, 2)
 
-				"""model = keras.models.load_model(join(C.model_dir, model_prefix+"%d.hdf5" % model_ix)) #models_305
-				model_fc = keras.models.load_model(join(C.model_dir, model_prefix+"%d.hdf5" % model_ix)) #models_305
-				common.pop_n_layers(model_fc, 2)"""
-				#model_fc = cbuild.pretrain_cnn(model, padding=['same','valid'], last_layer=-2, add_activ=True)
-
-				"""fixed_indices = np.empty([num_features, num_annotations])
-				for f_ix,f in enumerate(all_features):
-					if not np.all(np.isin(Z_features[f], all_lesionids)):
-						print(f,set(Z_features[f]).difference(all_lesionids))
-					fixed_indices[f_ix, :] = np.where(np.isin(all_lesionids, random.sample(set(Z_features[f]), num_annotations)))[0]
-				fixed_indices = fixed_indices.astype(int)"""
-
 				all_dense = get_overall_activations(model_fc, orig_data_dict)
 				feature_dense = get_feature_activations(model_fc, Z_features, all_features)
 				df = predict_test_features(fullM, model_fc, all_dense, feature_dense, x_test, z_test)#, size_cutoff, lesion_sizes)
@@ -107,9 +91,11 @@ def feature_id_bulk(model_nums, model_prefix='fixZ-ens_'):
 		else:
 			fullM = keras.models.load_model(join(C.model_dir, model_prefix+"%d.hdf5" % model_ix)) #models_305
 			M = keras.models.load_model(join(C.model_dir, model_prefix+"%d.hdf5" % model_ix)) #models_305
-			M = M.layers[1]
-			model_fc, _ = cbuild.build_cnn_hyperparams(T)
-			model_fc = model_fc.layers[1]
+			model_fc = cbuild.build_cnn_hyperparams(T)
+			if C.aleatoric:
+				M = M.layers[1]
+				model_fc = model_fc[0]
+				model_fc = model_fc.layers[1]
 			for l in range(len(model_fc.layers)):
 				model_fc.layers[l].set_weights(M.layers[l].get_weights())
 			model_fc = common.pop_n_layers(model_fc, 2)
@@ -120,6 +106,8 @@ def feature_id_bulk(model_nums, model_prefix='fixZ-ens_'):
 			full_dfs.append(df)
 
 	return full_dfs
+
+
 
 def process_feat_id_dfs(all_features, DFs):
 	num_features = len(all_features) # number of features
@@ -467,7 +455,7 @@ def get_feature_activations(model_fc, Z_features, all_features, models_conv=None
 		Z = Z_features[f]
 		for img_id in range(len(Z)):
 			for aug_id in range(C.aug_factor):
-				img = np.load(os.path.join(C.aug_dir, "%s_%d.npy" % (Z[img_id], aug_id)))
+				img = np.load(join(C.aug_dir, "%s_%d.npy" % (Z[img_id], aug_id)))
 				
 				activ = model_fc.predict(np.expand_dims(img, 0))
 				feature_dense[f] = np.concatenate([feature_dense[f], activ], axis=0)
@@ -549,7 +537,7 @@ def predict_test_features(full_model, model_fc, all_dense, feature_dense, x_test
 
 		p_f = np.empty(num_features)
 		for aug_id in range(25):
-			img = np.load(os.path.join(C.aug_dir, "%s_%d.npy" % (z, aug_id)))
+			img = np.load(join(C.aug_dir, "%s_%d.npy" % (z, aug_id)))
 
 			activ = model_fc.predict(np.expand_dims(img, 0))
 			test_dense = np.concatenate([test_dense, activ], axis=0)
@@ -628,8 +616,6 @@ def predict_test_features(full_model, model_fc, all_dense, feature_dense, x_test
 ###########################
 
 def tsne(filter_results):
-	
-
 	X = []
 	z = [0]
 	for i,cls in enumerate(C.cls_names):
@@ -881,7 +867,7 @@ def visualize_layer_weighted(model, layer_name, save_path, channel_weights=None,
 
 	img = input_img_data[0]
 	img = deprocess_image(img)
-	hf.draw_slices(img, save_path=os.path.join(save_path, "%s_filter.png" % layer_name))
+	hf.draw_slices(img, save_path=join(save_path, "%s_filter.png" % layer_name))
 
 def visualize_layer(model, layer_name, save_path, channel_ixs=None, init_img=None):
 	"""Visualize the model inputs that would maximally activate a layer.
@@ -936,7 +922,7 @@ def visualize_layer(model, layer_name, save_path, channel_ixs=None, init_img=Non
 
 	img = input_img_data[0]
 	img = deprocess_image(img)
-	hf.draw_slices(img, save_path=os.path.join(save_path, "%s_filter.png" % layer_name))
+	hf.draw_slices(img, save_path=join(save_path, "%s_filter.png" % layer_name))
 
 def visualize_channel(model, layer_name, save_path, num_ch=None):
 	"""Visualize the model inputs that would maximally activate a layer.
@@ -981,7 +967,7 @@ def visualize_channel(model, layer_name, save_path, num_ch=None):
 
 		img = input_img_data[0]
 		img = deprocess_image(img)
-		hf.save_slices(img, save_path=os.path.join(save_path, "%s_filter_%d.png" % (layer_name, filter_index)))
+		hf.save_slices(img, save_path=join(save_path, "%s_filter_%d.png" % (layer_name, filter_index)))
 
 ###########################
 ### FOR OUTPUTTING IMAGES AFTER TRAINING
@@ -998,9 +984,9 @@ def save_output(Z, y_pred, y_true, save_dir=None):
 	cls_mapping = C.cls_names
 
 	for cls in cls_mapping:
-		if not os.path.exists(save_dir + "\\correct\\" + cls):
+		if not exists(save_dir + "\\correct\\" + cls):
 			os.makedirs(save_dir + "\\correct\\" + cls)
-		if not os.path.exists(save_dir + "\\incorrect\\" + cls):
+		if not exists(save_dir + "\\incorrect\\" + cls):
 			os.makedirs(save_dir + "\\incorrect\\" + cls)
 
 	for i in range(len(Z)):

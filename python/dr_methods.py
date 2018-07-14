@@ -30,6 +30,7 @@ import os
 import random
 import time
 from os.path import *
+import subprocess
 
 import numpy as np
 import pandas as pd
@@ -66,6 +67,13 @@ def autofill_cls_arg(func):
 ###########################
 ### QC methods
 ###########################
+
+def open_dcm_folder(cls, accnum):
+	if hasattr(C,'dcm_dirs'):
+		root = C.dcm_dirs[C.cls_names.index(cls)]
+	else:
+		root = C.dcm_dir
+	os.startfile(join(root,accnum))
 
 @autofill_cls_arg
 def check_accnum_df(cls=None):
@@ -205,7 +213,7 @@ def build_coords_df(accnum_xls_path):
 		writer.save()
 
 @autofill_cls_arg
-def dcm2nii(cls=None, accnums=None, overwrite=False):
+def dcm2nii(cls=None, accnums=None, overwrite=False, exec_reg=False):
 	"""Converts dcms to full-size npy, update accnum_df. Requires coords_df."""
 	
 	src_data_df = get_coords_df(cls)
@@ -233,6 +241,10 @@ def dcm2nii(cls=None, accnums=None, overwrite=False):
 			art,D = hf.dcm_load(join(load_dir, C.phase_dirs[0]), flip_x=False, flip_y=False)
 			ven,_ = hf.dcm_load(join(load_dir, C.phase_dirs[1]), flip_x=False, flip_y=False)
 			eq,_ = hf.dcm_load(join(load_dir, C.phase_dirs[2]), flip_x=False, flip_y=False)
+
+			if exec_reg:
+				ven,_ = reg.reg_elastix(moving=ven, fixed=art)
+				eq,_ = reg.reg_elastix(moving=eq, fixed=art)
 
 			nii_dir = join(load_dir, "nii_dir")
 			if not exists(nii_dir):
@@ -296,7 +308,7 @@ def dcm2npy(cls=None, accnums=None, overwrite=False, exec_reg=False, save_seg=Fa
 			img = np.stack((art, ven, eq), -1)
 
 			if np.product(art.shape) > C.max_size:
-				downsample = 2
+				downsample = min((np.product(art.shape) / C.max_size)**(1/3), 1.5)
 
 			if downsample != 1:
 				img = tr.scale3d(img, [1/downsample, 1/downsample, 1])
@@ -335,7 +347,7 @@ def load_vois(cls=None, accnums=None, overwrite=False, save_seg=False):
 	for cnt, accnum in enumerate(accnums):
 		df_subset = src_data_df[src_data_df['acc #'] == accnum]
 
-		if save_seg:
+		"""if save_seg:
 			load_dir = join(C.dcm_dir, accnum)
 			I,_ = hf.nii_load(join(load_dir, "nii_dir", "20s.nii.gz"))
 			
@@ -345,15 +357,13 @@ def load_vois(cls=None, accnums=None, overwrite=False, save_seg=False):
 				for i in ['x','y']:
 					for j in ['1','2']:
 						df_subset[i+j] = df_subset[i+j] / downsample
-			sm.save_segs([accnum], downsample)
+			sm.save_segs([accnum], downsample)"""
 
 		for _, row in df_subset.iterrows():
 			x,y,z = [[int(row[ch+'1']), int(row[ch+'2'])] for ch in ['x','y','z']]
 			if accnum_df.loc[accnum, "downsample"] != 1:
 				x /= accnum_df.loc[accnum, "downsample"]
 				y /= accnum_df.loc[accnum, "downsample"]
-			#if row['Flipped'] != "Yes":
-			#	z = [img.shape[2]-z[1], img.shape[2]-z[0]] # flip z
 
 			lesion_ids = lesion_df[lesion_df["accnum"] == accnum].index
 			if len(lesion_ids) > 0:
@@ -373,8 +383,6 @@ def load_vois(cls=None, accnums=None, overwrite=False, save_seg=False):
 				if accnum_df.loc[accnum, "downsample"] != 1:
 					x /= accnum_df.loc[accnum, "downsample"]
 					y /= accnum_df.loc[accnum, "downsample"]
-				#if row['Flipped'] != "Yes":
-				#	z = [img.shape[2]-z[1], img.shape[2]-z[0]] # flip z
 				lesion_df.loc[l_id, C.ven_cols] = list([*x,*y,*z])
 				
 			if 'x5' in row and not np.isnan(row['x5']):
@@ -382,8 +390,6 @@ def load_vois(cls=None, accnums=None, overwrite=False, save_seg=False):
 				if accnum_df.loc[accnum, "downsample"] != 1:
 					x /= accnum_df.loc[accnum, "downsample"]
 					y /= accnum_df.loc[accnum, "downsample"]
-				#if row['Flipped'] != "Yes":
-				#	z = [img.shape[2]-z[1], img.shape[2]-z[0]] # flip z
 				lesion_df.loc[l_id, C.equ_cols] = list([*x,*y,*z])
 
 		print(".", end="")
@@ -449,7 +455,7 @@ def read_metadata(metadata_txt):
 		ethnicity = "Pacific Islander"
 	elif ethnicity in ['O','OTHER']:
 		ethnicity = "Other"
-	elif ethnicity in ['U', "PT REFUSED"] or len(ethnicity) > 20:
+	elif ethnicity in ['U', "PT REFUSED", "UNKNOWN"] or len(ethnicity) > 20:
 		ethnicity = "Unknown"
 	else:
 		raise ValueError(ethnicity)
@@ -610,7 +616,10 @@ def get_accnum_df():
 
 def get_coords_df(cls=None):
 	if hasattr(C,'sheetnames'):
-		df = pd.read_excel(C.coord_xls_path, C.sheetnames[C.cls_names.index(cls)])
+		if cls is not None:
+			df = pd.read_excel(C.coord_xls_path, C.sheetnames[C.cls_names.index(cls)])
+		else:
+			df = pd.concat([pd.read_excel(C.coord_xls_path, C.sheetnames[C.cls_names.index(cls)]) for cls in C.cls_names])
 	else:
 		df = pd.read_excel(C.coord_xls_path, C.sheetname)
 		if cls is not None:
