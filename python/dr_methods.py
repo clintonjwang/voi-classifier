@@ -451,7 +451,7 @@ def read_metadata(metadata_txt):
 		ethnicity = "Hispanic"
 	elif ethnicity in ['A','ASIAN']:
 		ethnicity = "Asian"
-	elif ethnicity == 'P':
+	elif ethnicity in ['P', 'PAC ISLANDER']:
 		ethnicity = "Pacific Islander"
 	elif ethnicity in ['O','OTHER']:
 		ethnicity = "Other"

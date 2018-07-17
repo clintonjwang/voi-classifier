@@ -23,7 +23,7 @@ class Config:
 		self.clinical_inputs = 0 # whether non-imaging inputs should be incorporated into the neural network
 
 		self.lesion_ratio = 0.7 # ratio of the lesion side length to the length of the cropped image
-		self.pre_scale = .7 # normalizes images while saving augmented/unaugmented images
+		self.pre_scale = .8 # normalizes images while saving augmented/unaugmented images
 		self.post_scale = 0. # normalizes images at train/test time
 
 		#optional
@@ -53,6 +53,7 @@ class Config:
 				self.clinical_inputs = 9 # whether non-imaging inputs should be incorporated into the neural network
 			self.test_num = 10
 			self.aug_factor = 100
+			self.Z_reader = ['E103312835_1','12823036_0','12569915_0','E102093118_0','E102782525_0','12799652_0','E100894274_0','12874178_3','E100314676_0','12842070_0','13092836_2','12239783_0','12783467_0','13092966_0','E100962970_0','E100183257_1','E102634440_0','E106182827_0','12582632_0','E100121654_0','E100407633_0','E105310461_0','12788616_0','E101225606_0','12678910_1','E101083458_1','12324408_0','13031955_0','E101415263_0','E103192914_0','12888679_2','E106096969_0','E100192709_1','13112385_1','E100718398_0','12207268_0','E105244287_0','E102095465_0','E102613189_0','12961059_0','11907521_0','E105311123_0','12552705_0','E100610622_0','12975280_0','E105918926_0','E103020139_1','E101069048_1','E105427046_0','13028374_0','E100262351_0','12302576_0','12451831_0','E102929168_0','E100383453_0','E105344747_0','12569826_0','E100168661_0','12530153_0','E104697262_0']
 
 			self.cls_names = ['hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh']
 			self.sheetnames = ['HCC', 'Cholangio', 'Colorectal', 'Cyst', 'Hemangioma', 'FNH']
@@ -93,6 +94,7 @@ class Config:
 			self.coord_xls_path = "Z:\\Paula\\Radpath\\new coordinates_CW.xlsx"
 			self.test_num = 5
 			self.dims = [32,32,16]
+			self.Z_reader = ['E106405787_0','E106329048_0','E106158268_0','E106120112_0','E106097391_0','E106097366_0','E106004664_0','E105906532_0','E105799828_0','E105492224_0','E105344790_0','E105333398_0','E105326292_0','E105310461_0','E105160323_0','E105152299_0','E105124678_0','E105110150_0','E105095742_0','E105066561_0','E104833037_0','E104587275_0','E104270981_0','E104201087_0','E104140436_0','E104099161_0','E104082888_0','E103678771_0','E103570649_0','E103314435_0','E103306623_0','E103301795_0','E103020139_1','E102929168_0','E102634440_0','E102589834_0','E102424706_0','E102388865_0','E102256903_0','E102130844_0','E102088195_1','E102031795_0','E102027289_0','E101949001_0','E101895019_0','E101892543_0','E101880575_0','E101805234_0','E101790015_0','E101784996_0','E101779513_0','E101773506_0','E101686218_0','E101523098_3','E101449797_0','E101442376_0','E101396972_0','E101290891_0','E101158768_1','E101068962_0']
 
 			self.cls_names = ['hcc', 'non-hcc']
 			self.sheetnames = ['HCC', 'Non-HCC']
@@ -138,7 +140,7 @@ class Hyperparams:
 		self.optimizer = Adam(lr=0.001)
 		self.early_stopping = EarlyStopping(monitor='loss', min_delta=0.002, patience=5)
 		self.skip_con = False
-		self.mc_sampling = True #currently cannot be used with multiple inputs
+		self.mc_sampling = False #currently cannot be used with multiple inputs
 
 		if dataset is not None:
 			self.get_best_hyperparams(dataset)
@@ -146,10 +148,9 @@ class Hyperparams:
 	def get_best_hyperparams(self, dataset):
 		if dataset == 'radpath':
 			self.n = 8
-			self.cnn_type = 'vanilla'
 			self.epochs = 30
 			self.steps_per_epoch = 150
-			self.f = [64,100,100]
+			self.f = [64,100,100,100]
 			self.dense_units = 100
 			self.padding = ['valid','valid']
 			self.dropout = .2
@@ -159,7 +160,7 @@ class Hyperparams:
 			self.n = 4 #5
 			self.epochs = 30
 			self.steps_per_epoch = 300
-			self.dropout = .2
+			self.dropout = .1
 			self.dense_units = 100
 			self.padding = ['same','valid']
 			self.f = [64,100,100]

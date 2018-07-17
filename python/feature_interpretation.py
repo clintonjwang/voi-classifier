@@ -26,6 +26,7 @@ import operator
 import os
 from os.path import *
 import pandas as pd
+from math import log, exp, sqrt
 import random
 import math
 from sklearn.manifold import TSNE
@@ -106,8 +107,6 @@ def feature_id_bulk(model_nums, model_prefix='fixZ-ens_'):
 			full_dfs.append(df)
 
 	return full_dfs
-
-
 
 def process_feat_id_dfs(all_features, DFs):
 	num_features = len(all_features) # number of features
@@ -264,34 +263,6 @@ def calculate_W(f_conv_ch, all_features, relevant_features, num_rel_f, num_chann
 
 	return W
 
-def calculate_W_old(f_conv_ch, all_features, relevant_features, num_rel_f, num_channels):
-	gauss = get_gaussian_mask(1)
-	feature_avgs = np.zeros((num_rel_f, num_channels))
-	for i, f_ix in enumerate(relevant_features):
-		f = all_features[f_ix]
-		for ch_ix in range(num_channels):
-			feature_avgs[i, ch_ix] = (f_conv_ch[f][:,:,:,ch_ix] * gauss / np.mean(gauss)).mean()
-		#feature_avgs[i] = f_conv_ch[f].mean((0,1,2))
-		
-	channel_separations = np.empty((num_rel_f, num_channels)) # separation between channel mean activations for the relevant features
-	for i in range(num_rel_f):
-		channel_separations[i] = (np.amax(feature_avgs, 0) - feature_avgs[i]) / np.mean(feature_avgs, 0)
-
-	channel_separations *= 10
-
-	W = np.zeros((num_rel_f, num_channels))
-	for ch_ix in range(num_channels):
-		#f_ix = list(channel_separations[:,ch_ix]).index(0)
-		#W[f_ix,ch_ix] = channel_separations[:,ch_ix].mean()
-		W[:,ch_ix] = np.median(channel_separations[:,ch_ix]) - channel_separations[:,ch_ix]
-		
-	for f_ix in range(num_rel_f):
-		W[f_ix,:] += np.mean(W[f_ix,:])
-
-	W[W < 0] = 0
-
-	return W
-
 def get_saliency_map(W, test_neurons, num_rel_f):
 	D = np.empty(test_neurons.shape[:3])
 	for x in range(D.shape[0]):
@@ -309,19 +280,6 @@ def get_saliency_map(W, test_neurons, num_rel_f):
 			sal_map[f_num, (D <= np.percentile(D, 75)) & (D > np.percentile(D, 50))] += \
 					W[f_num, ch_ix+num_ch*2] * test_neurons[(D <= np.percentile(D, 75)) & (D > np.percentile(D, 50)),ch_ix]
 			sal_map[f_num, D > np.percentile(D, 75)] += W[f_num, ch_ix+num_ch*3] * test_neurons[D > np.percentile(D, 75),ch_ix]
-		sal_map[f_num] /= np.sum(W[f_num])
-		
-	#for f_num in range(num_rel_f):
-	#    for spatial_ix in np.ndindex(test_neurons.shape[:-1]):
-	#        sal_map[f_num, spatial_ix] = sal_map[f_num, spatial_ix]**2 / sal_map[:, spatial_ix].sum()
-			
-	return sal_map
-
-def get_saliency_map_old(W, test_neurons, num_rel_f):
-	sal_map = np.zeros((num_rel_f, *test_neurons.shape[:3]))
-	for f_num in range(num_rel_f):
-		for ch_ix in range(test_neurons.shape[-1]):
-			sal_map[f_num] += W[f_num, ch_ix] * test_neurons[:,:,:,ch_ix]
 		sal_map[f_num] /= np.sum(W[f_num])
 		
 	#for f_num in range(num_rel_f):
@@ -476,7 +434,170 @@ def get_feature_activations(model_fc, Z_features, all_features, models_conv=None
 	else:
 		return feature_dense, feature_conv3_ch, feature_conv3_sh, feature_conv2_ch, feature_conv1_ch
 
-def predict_test_features(full_model, model_fc, all_dense, feature_dense, x_test, z_test, priors=None,
+def predict_test_features(full_model, model_fc, all_dense, feature_dense, x_test, z_test, priors=None, models_conv=None):
+	all_features = list(feature_dense.keys())
+	num_features = len(all_features)
+
+	df = pd.DataFrame(columns=['true_cls', 'pred_cls'] + \
+				[s for i in range(1,num_features+1) for s in ['feature_%d' % i,'strength_%d' % i]])
+
+	lesion_ids = {}
+	for cls in C.cls_names:
+		src_data_df = drm.get_coords_df(cls)
+		accnums = src_data_df["acc #"].values
+		lesion_ids[cls] = [x[:-4] for x in os.listdir(C.crops_dir) if x[:x.find('_')] in accnums]
+
+	all_neurons = all_dense #np.concatenate([all_conv1_ch, all_conv2_ch, all_conv3_ch, all_dense], axis=1)
+	m = all_neurons.mean(axis=0)
+	all_cov = np.cov(all_neurons.T)
+
+	num_neurons = all_neurons.shape[-1]
+
+	if priors is None: #Use uniform distribution
+		pf = .5*np.ones(num_features)
+	else:
+		pf = priors
+
+	for img_ix in range(len(z_test)):
+		print('.',end='')
+		test_dense = np.empty([0,T.dense_units])
+		test_conv3_ch = np.empty([0,T.f[2]])
+		test_conv3_sh = np.empty([0,T.f[2]*4])
+		test_conv2_ch = np.empty([0,T.f[1]])
+		test_conv1_ch = np.empty([0,T.f[0]*3])
+		z = z_test[img_ix]
+		for cls in C.cls_names:
+			if z in lesion_ids[cls]:
+				row = [cls]
+				break
+
+		x = np.expand_dims(x_test[img_ix], axis=0)
+		preds = full_model.predict(x, verbose=False)[0]
+		row.append(C.cls_names[list(preds).index(max(preds))])
+
+		for aug_id in range(2):
+			img = np.load(join(C.aug_dir, "%s_%d.npy" % (z, aug_id)))
+
+			activ = model_fc.predict(np.expand_dims(img, 0))
+			test_dense = np.concatenate([test_dense, activ], axis=0)
+			
+			if models_conv is not None:
+				activ = model_conv3.predict(np.expand_dims(img, 0))
+				test_conv3_ch = np.concatenate([test_conv3_ch, activ.mean(axis=(1,2,3))], axis=0)
+				test_conv3_sh = np.concatenate([test_conv3_sh, get_shells(activ, D)], axis=0)
+				
+				activ = model_conv2.predict(np.expand_dims(img, 0))
+				test_conv2_ch = np.concatenate([test_conv2_ch, activ.mean(axis=(1,2,3))], axis=0)
+				
+				activ = model_conv1.predict(np.expand_dims(img, 0))
+				test_conv1_ch = np.concatenate([test_conv1_ch, activ.mean(axis=(1,2,3))], axis=0)
+
+		pf_x = np.zeros(num_features)
+		pH_f = np.zeros(num_features)
+		for x_ix in range(test_dense.shape[0]):
+			pH = kde_rodeo(test_dense[x_ix], all_dense)
+			for f_ix in range(num_features):
+				pH_f[f_ix] = kde_rodeo(test_dense[x_ix], feature_dense[all_features[f_ix]])
+			pf_x += np.log(pH_f/pH)
+		pf_x = np.exp(pf_x/test_dense.shape[0])*pf
+		
+		evidence = {all_features[f_ix]: pf_x[f_ix] for f_ix in range(num_features)}
+
+		for f,strength in sorted(evidence.items(), key=lambda x:x[1], reverse=True):
+			row += [f, strength]
+			
+		df.loc[z] = row
+
+	return df
+
+@njit
+def kde_rodeo(x, X):
+	d = X.shape[-1] # number of dimensions in the hidden layer
+	n = X.shape[0] # number of samples from the population
+	beta = .9
+	c0 = 100.
+	cn = log(d)
+	h = np.ones(d) * c0/log(log(n))
+
+	K_k = np.zeros(n)
+	for i in range(n):
+		K_k[i] = exp(-np.sum(((x-X[i])/h)**2/2))
+
+	A = list(range(d))
+
+	Z = np.zeros((d,n))
+	rm_set = []
+	while len(A) > 0:
+		for j in A:
+			for i in range(n):
+				Z[j,i] = ((x[j] - X[i,j])**2 - h[j]**2) * K_k[i]
+			sj = np.std(Z[j])
+			Zj = np.mean(Z[j])
+			lj = sj*sqrt(2*log(n*cn))
+			if np.abs(Zj) > lj:
+				h[j] *= beta
+			else:
+				rm_set.append(j)
+
+		ix = 0
+		while ix < len(A):
+			if A[ix] not in rm_set:
+				A.pop(ix);
+			else:
+				ix += 1
+	H = 1
+	for hi in h:
+		H *= hi
+
+	return np.mean(K_k)/H
+
+@njit
+def kde_rodeo_backup(x, X):
+	d = X.shape[-1] # number of dimensions in the hidden layer
+	n = X.shape[0] # number of samples from the population
+	beta = .9
+	c0 = 100.
+	cn = log(d)
+	h = np.ones(d) * c0/log(log(n))
+
+	K_k = np.zeros(n)
+	for i in range(n):
+		K_k[i] = exp(-np.sum(((x-X[i])/h)**2/2))
+
+	A = list(range(d))
+
+	Z = np.zeros((d,n))
+	rm_set = []
+	while len(A) > 0:
+		for j in A:
+			for i in range(n):
+				Z[j,i] = ((x[j] - X[i,j])**2 - h[j]**2) * K_k[i]
+			sj = np.std(Z[j])
+			Zj = np.mean(Z[j])
+			lj = sj*sqrt(2*log(n*cn))
+			if np.abs(Zj) > lj:
+				h[j] *= beta
+			else:
+				rm_set.append(j)
+
+		ix = 0
+		while ix < len(A):
+			if A[ix] not in rm_set:
+				A.pop(ix);
+			else:
+				ix += 1
+		#A = list(set(A).difference(rm_set))
+
+	H = 1
+	for hi in h:
+		H *= hi
+		#if hi > c0/log(log(n)) - 1e5:
+		#	continue
+		#	raise ValueError("c0 not high enough")
+
+	return np.mean(K_k)/H
+
+def predict_features_gaussian(full_model, model_fc, all_dense, feature_dense, x_test, z_test, priors=None,
 		size_cutoff=None, lesion_sizes=None, models_conv=None):
 	
 	df = pd.DataFrame(columns=['true_cls', 'pred_cls'] + \

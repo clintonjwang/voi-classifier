@@ -103,7 +103,7 @@ def build_cnn(optimizer='adam', padding=['same','same'], pool_sizes=[2,(2,2,1)],
 
 	img = Input(shape=(*C.dims, C.nb_channels))
 
-	"""art_x = Lambda(lambda x: K.expand_dims(x[...,0], axis=4))(img)
+	art_x = Lambda(lambda x: K.expand_dims(x[...,0], axis=4))(img)
 	ven_x = Lambda(lambda x: K.expand_dims(x[...,1], axis=4))(img)
 	eq_x = Lambda(lambda x: K.expand_dims(x[...,2], axis=4))(img)
 	art_x = layers.Conv3D(f[0], kernel_size, kernel_initializer="he_uniform", padding=padding[0])(art_x)
@@ -115,10 +115,10 @@ def build_cnn(optimizer='adam', padding=['same','same'], pool_sizes=[2,(2,2,1)],
 		x = cnnc.bn_relu_etc(x, dropout, mc_sampling)
 	else:
 		x = cnnc.bn_relu_etc(x)
-		x = layers.SpatialDropout3D(dropout)(x)"""
+		x = layers.SpatialDropout3D(dropout)(x)
 
-	x = cnnc.bn_relu_etc(img, cv_u=f[0], cv_k=kernel_size)
-	x = layers.SpatialDropout3D(dropout)(x)
+	#x = cnnc.bn_relu_etc(img, cv_u=f[0], cv_k=kernel_size)
+	#x = layers.SpatialDropout3D(dropout)(x)
 
 	x = layers.MaxPooling3D(pool_sizes[0])(x)
 
@@ -133,7 +133,8 @@ def build_cnn(optimizer='adam', padding=['same','same'], pool_sizes=[2,(2,2,1)],
 		x = cnnc.bn_relu_etc(x, dropout, mc_sampling, cv_u=f[layer_num], cv_k=kernel_size, cv_pad=padding[1])
 
 	x = layers.MaxPooling3D(pool_sizes[1])(x)
-	x = Flatten()(x)
+	x = layers.GlobalAveragePooling3D()(x)
+	#x = Flatten()(x)
 	x = cnnc.bn_relu_etc(x, dropout, mc_sampling, fc_u=dense_units)
 
 	if C.clinical_inputs > 0:
@@ -797,7 +798,7 @@ def _collect_unaug_data(use_vois=True):
 		lesion_df = lesion_df[lesion_df["run_num"] <= C.test_run_num]
 
 	if C.clinical_inputs > 0:
-		test_path="E:\\LIRADS\\excel\\clinical_data_test.xlsx"
+		test_path = "E:\\LIRADS\\excel\\clinical_data_test.xlsx"
 		clinical_df = pd.read_excel(test_path, index_col=0)
 		clinical_df.index = clinical_df.index.astype(str)
 
