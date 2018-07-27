@@ -71,6 +71,9 @@ def feature_id_bulk(model_nums, model_prefix='fixZ-ens_'):
 	x_test = all_imgs[test_indices]
 	z_test = all_lesionids[test_indices]
 
+	train_indices = np.where(~np.isin(all_lesionids, C.Z_reader))[0]
+	z_train = all_lesionids[train_indices]
+
 	full_dfs = []
 
 	for model_ix in model_nums:
@@ -85,7 +88,7 @@ def feature_id_bulk(model_nums, model_prefix='fixZ-ens_'):
 					model_fc.layers[l].set_weights(M.layers[l].get_weights())
 				model_fc = common.pop_n_layers(model_fc, 2)
 
-				all_dense = get_overall_activations(model_fc, orig_data_dict)
+				all_dense = get_overall_activations(model_fc, z_train)
 				feature_dense = get_feature_activations(model_fc, Z_features, all_features)
 				df = predict_test_features(fullM, model_fc, all_dense, feature_dense, x_test, z_test)#, size_cutoff, lesion_sizes)
 				full_dfs.append(df)
@@ -101,7 +104,7 @@ def feature_id_bulk(model_nums, model_prefix='fixZ-ens_'):
 				model_fc.layers[l].set_weights(M.layers[l].get_weights())
 			model_fc = common.pop_n_layers(model_fc, 2)
 
-			all_dense = get_overall_activations(model_fc, orig_data_dict)
+			all_dense = get_overall_activations(model_fc, z_train)
 			feature_dense = get_feature_activations(model_fc, Z_features, all_features)
 			df = predict_test_features(fullM, model_fc, all_dense, feature_dense, x_test, z_test)#, size_cutoff, lesion_sizes)
 			full_dfs.append(df)
@@ -110,7 +113,7 @@ def feature_id_bulk(model_nums, model_prefix='fixZ-ens_'):
 
 def process_feat_id_dfs(all_features, DFs):
 	num_features = len(all_features) # number of features
-	data_dir = r"C:\Users\Clinton\Documents\voi-classifier\data"
+	data_dir = join(C.base_dir, 'excel')
 	answer_key = join(data_dir, "ground_truth.xlsx")
 	answer_key = pd.read_excel(answer_key, index_col=0)
 
@@ -161,7 +164,7 @@ def process_feat_id_dfs(all_features, DFs):
 					continue
 				answer_features = row[['feature_1', 'feature_2', 'feature_3', 'feature_4']].dropna().values
 				ignore_features = row[['ignore_1', 'ignore_2']].dropna().values
-				pred_features = df.loc[key][['feature_1', 'feature_2', 'feature_3', 'feature_4']].dropna().values
+				pred_features = df.loc[key, ['feature_1', 'feature_2', 'feature_3', 'feature_4']].dropna().values
 				num += len([f for f in answer_features if f in pred_features])
 				prec_den += len([f for f in pred_features if f not in ignore_features])
 				rec_den += len(answer_features)
@@ -356,12 +359,11 @@ def get_rotations(x, front_model, rcnn=False):
 
 
 ###########################
-### ???
+### Feature ID subroutines
 ###########################
 
-def get_overall_activations(model_fc, orig_data_dict, models_conv=None):
-	Z = np.concatenate([orig_data_dict[cls][1] for cls in C.cls_names], 0)
-	num_samples = C.aug_factor*len(Z)
+def get_overall_activations(model_fc, Z, models_conv=None, samples=30):
+	num_samples = samples*len(Z)
 
 	all_dense = np.empty([num_samples,T.dense_units])
 	all_conv3_sh = np.empty([num_samples,T.f[2]*4])
@@ -372,10 +374,10 @@ def get_overall_activations(model_fc, orig_data_dict, models_conv=None):
 	all_conv1_ch = np.empty([num_samples,T.f[0]*3])
 
 	for img_id in range(len(Z)):
-		for aug_id in range(C.aug_factor):
+		for aug_id in range(samples):
 			img = np.load(join(C.aug_dir, "%s_%d.npy" % (Z[img_id], aug_id)))
 			img = np.expand_dims(img, 0)
-			ix = img_id*C.aug_factor + aug_id
+			ix = img_id*samples + aug_id
 			
 			activ = model_fc.predict(img)[0]
 			activ[activ < 0] = 0
@@ -438,8 +440,7 @@ def predict_test_features(full_model, model_fc, all_dense, feature_dense, x_test
 	all_features = list(feature_dense.keys())
 	num_features = len(all_features)
 
-	df = pd.DataFrame(columns=['true_cls', 'pred_cls'] + \
-				[s for i in range(1,num_features+1) for s in ['feature_%d' % i,'strength_%d' % i]])
+	df = pd.DataFrame(columns=['true_cls', 'pred_cls'] + all_features)
 
 	lesion_ids = {}
 	for cls in C.cls_names:
@@ -454,7 +455,7 @@ def predict_test_features(full_model, model_fc, all_dense, feature_dense, x_test
 	num_neurons = all_neurons.shape[-1]
 
 	if priors is None: #Use uniform distribution
-		pf = .5*np.ones(num_features)
+		pf = np.ones(num_features)
 	else:
 		pf = priors
 
@@ -475,7 +476,7 @@ def predict_test_features(full_model, model_fc, all_dense, feature_dense, x_test
 		preds = full_model.predict(x, verbose=False)[0]
 		row.append(C.cls_names[list(preds).index(max(preds))])
 
-		for aug_id in range(2):
+		for aug_id in range(15):
 			img = np.load(join(C.aug_dir, "%s_%d.npy" % (z, aug_id)))
 
 			activ = model_fc.predict(np.expand_dims(img, 0))
@@ -495,83 +496,82 @@ def predict_test_features(full_model, model_fc, all_dense, feature_dense, x_test
 		pf_x = np.zeros(num_features)
 		pH_f = np.zeros(num_features)
 		for x_ix in range(test_dense.shape[0]):
-			pH = kde_rodeo(test_dense[x_ix], all_dense)
+			pH = kde_rodeo_local(test_dense[x_ix], all_dense)
 			for f_ix in range(num_features):
-				pH_f[f_ix] = kde_rodeo(test_dense[x_ix], feature_dense[all_features[f_ix]])
-			pf_x += np.log(pH_f/pH)
-		pf_x = np.exp(pf_x/test_dense.shape[0])*pf
-		
-		evidence = {all_features[f_ix]: pf_x[f_ix] for f_ix in range(num_features)}
-
-		for f,strength in sorted(evidence.items(), key=lambda x:x[1], reverse=True):
-			row += [f, strength]
+				pH_f[f_ix] = kde_rodeo_local(test_dense[x_ix], feature_dense[all_features[f_ix]])
+			pf_x += pH_f/pH
+		pf_x = pf_x/test_dense.shape[0]*pf
+		row += list(pf_x)
 			
 		df.loc[z] = row
 
 	return df
 
 @njit
-def kde_rodeo(x, X):
+def kde_rodeo_global(x, X):
 	d = X.shape[-1] # number of dimensions in the hidden layer
 	n = X.shape[0] # number of samples from the population
+	m = x.shape[0] # number of samples for the global bandwidth
 	beta = .9
-	c0 = 100.
+	c0 = 1000.
 	cn = log(d)
 	h = np.ones(d) * c0/log(log(n))
 
-	K_k = np.zeros(n)
-	for i in range(n):
-		K_k[i] = exp(-np.sum(((x-X[i])/h)**2/2))
+	for k in range(m):
+		K = np.zeros(n)
+		for i in range(n):
+			K[i] = exp(-np.sum(((x[k]-X[i])/h)**2/2))
 
-	A = list(range(d))
+		A = list(range(d))
 
-	Z = np.zeros((d,n))
-	rm_set = []
-	while len(A) > 0:
-		for j in A:
-			for i in range(n):
-				Z[j,i] = ((x[j] - X[i,j])**2 - h[j]**2) * K_k[i]
-			sj = np.std(Z[j])
-			Zj = np.mean(Z[j])
-			lj = sj*sqrt(2*log(n*cn))
-			if np.abs(Zj) > lj:
-				h[j] *= beta
-			else:
-				rm_set.append(j)
+		Z = np.zeros((d,n))
+		while len(A) > 0:
+			rm_set = []
+			for j in A:
+				for i in range(n):
+					Z[j,i] = ((x[j] - X[i,j])**2 - h[j]**2) * K[i]
+				sj = np.std(Z[j])
+				Zj = np.mean(Z[j])
+				lj = sj**2 + 2*sj*sqrt(log(n*cn))
+				if np.abs(Zj) > lj:
+					h[j] *= beta
+				else:
+					rm_set.append(j)
 
-		ix = 0
-		while ix < len(A):
-			if A[ix] not in rm_set:
-				A.pop(ix);
-			else:
-				ix += 1
-	H = 1
-	for hi in h:
-		H *= hi
+			ix = 0
+			while ix < len(A):
+				if A[ix] in rm_set:
+					A.pop(ix);
+				else:
+					ix += 1
+		H = 1
+		for hi in h:
+			H *= hi
 
-	return np.mean(K_k)/H
+	return np.mean(K)/H
 
 @njit
-def kde_rodeo_backup(x, X):
+def kde_rodeo_local(x, X):
+	#uniform, local rodeo http://www.cs.cmu.edu/~hanliu/papers/drodeo_aistats.pdf
 	d = X.shape[-1] # number of dimensions in the hidden layer
 	n = X.shape[0] # number of samples from the population
 	beta = .9
-	c0 = 100.
+	c0 = 50.
 	cn = log(d)
-	h = np.ones(d) * c0/log(log(n))
+	h = np.ones(d) * c0#/log(log(n))
 
-	K_k = np.zeros(n)
+	K = np.zeros(n)
 	for i in range(n):
-		K_k[i] = exp(-np.sum(((x-X[i])/h)**2/2))
+		K[i] = exp(-np.sum(((x-X[i])/h)**2/2))
 
 	A = list(range(d))
 
 	Z = np.zeros((d,n))
-	rm_set = []
 	while len(A) > 0:
+		rm_set = []
 		for j in A:
 			for i in range(n):
-				Z[j,i] = ((x[j] - X[i,j])**2 - h[j]**2) * K_k[i]
+				Z[j,i] = ((x[j] - X[i,j])**2 - h[j]**2) * K[i]
 			sj = np.std(Z[j])
 			Zj = np.mean(Z[j])
 			lj = sj*sqrt(2*log(n*cn))
@@ -582,20 +582,17 @@ def kde_rodeo_backup(x, X):
 
 		ix = 0
 		while ix < len(A):
-			if A[ix] not in rm_set:
+			if A[ix] in rm_set:
 				A.pop(ix);
 			else:
 				ix += 1
-		#A = list(set(A).difference(rm_set))
-
 	H = 1
 	for hi in h:
 		H *= hi
-		#if hi > c0/log(log(n)) - 1e5:
-		#	continue
-		#	raise ValueError("c0 not high enough")
+		if hi > c0 - 1e-4:
+			print('c0 not high enough', hi)
 
-	return np.mean(K_k)/H
+	return np.mean(K)/H
 
 def predict_features_gaussian(full_model, model_fc, all_dense, feature_dense, x_test, z_test, priors=None,
 		size_cutoff=None, lesion_sizes=None, models_conv=None):
@@ -733,34 +730,6 @@ def predict_features_gaussian(full_model, model_fc, all_dense, feature_dense, x_
 	return df
 
 ###########################
-### Output graphs
-###########################
-
-def tsne(filter_results):
-	X = []
-	z = [0]
-	for i,cls in enumerate(C.cls_names):
-		X.append(filter_results[cls])
-		z.append(len(filter_results[cls]) + z[-1])
-	z.append(len(X))
-	X = np.concatenate(X, axis=0)
-
-	X_emb = TSNE(n_components=2, init='pca').fit_transform(X)
-
-	fig = plt.figure()
-	ax = fig.add_subplot(111)
-	for i, cls in enumerate(C.cls_names):
-		ax.scatter(X_emb[z[i]:z[i+1], 0], X_emb[z[i]:z[i+1], 1], color=plt.cm.Set1(i/6.), marker='.', alpha=.8)
-
-	ax.legend(C.short_cls_names, framealpha=0.5)
-	ax.set_title("t-SNE")
-	ax.xaxis.set_major_formatter(NullFormatter())
-	ax.yaxis.set_major_formatter(NullFormatter())
-	ax.axis('tight')
-
-	return fig
-
-###########################
 ### Analyze annotations
 ###########################
 
@@ -827,7 +796,7 @@ def get_evidence_strength(feature_filters, pred_filters):
 			
 		strength += min(p/t, 1.1)#t*p / filter_avgs[i]**.7
 	return (strength / num_key_filters / 1.1)**.3
-
+	
 ###########################
 ### Bayesian Modeling
 ###########################
@@ -848,12 +817,6 @@ def obtain_params(A):
 	- F () is the list of feature labels
 	"""
 	return np.linalg.lstsq(A, F)
-
-def obtain_params_dnu(A):
-	"""Returns mu and var for the normal distribution p(A|f) based on the annotated set
-	- A (100*10) is the list of annotated image activations for a given feature
-	"""
-	return np.mean(A, axis=0), np.std(A, axis=0)
 
 def fit_ls(A, Theta):
 	"""
@@ -876,6 +839,10 @@ def get_distribution(feature, population_activations):
 	"""Returns the set of feature labels f that minimizes -log( p(A|f;mu,var) )
 	"""
 	pass
+
+###########################
+### Feature visualization
+###########################
 
 def visualize_activations(model, save_path, target_values, init_img=None, rotate=True, stepsize=.01, num_steps=25):
 	"""Visualize the model inputs that would match an activation pattern.
@@ -1091,7 +1058,7 @@ def visualize_channel(model, layer_name, save_path, num_ch=None):
 		hf.save_slices(img, save_path=join(save_path, "%s_filter_%d.png" % (layer_name, filter_index)))
 
 ###########################
-### FOR OUTPUTTING IMAGES AFTER TRAINING
+### Misc
 ###########################
 
 def save_output(Z, y_pred, y_true, save_dir=None):
@@ -1120,10 +1087,29 @@ def save_output(Z, y_pred, y_true, save_dir=None):
 				fn_suffix = " (good_pred %s).png" % cls_mapping[y_pred[i]],
 				save_dir=save_dir + "\\correct\\" + cls_mapping[y_true[i]])
 
+def tsne(filter_results):
+	X = []
+	z = [0]
+	for i,cls in enumerate(C.cls_names):
+		X.append(filter_results[cls])
+		z.append(len(filter_results[cls]) + z[-1])
+	z.append(len(X))
+	X = np.concatenate(X, axis=0)
 
-#####################################
-### Subroutines
-#####################################
+	X_emb = TSNE(n_components=2, init='pca').fit_transform(X)
+
+	fig = plt.figure()
+	ax = fig.add_subplot(111)
+	for i, cls in enumerate(C.cls_names):
+		ax.scatter(X_emb[z[i]:z[i+1], 0], X_emb[z[i]:z[i+1], 1], color=plt.cm.Set1(i/6.), marker='.', alpha=.8)
+
+	ax.legend(C.short_cls_names, framealpha=0.5)
+	ax.set_title("t-SNE")
+	ax.xaxis.set_major_formatter(NullFormatter())
+	ax.yaxis.set_major_formatter(NullFormatter())
+	ax.axis('tight')
+
+	return fig
 
 def deprocess_image(x):
 	# set mean to center and std to 10% of the full range

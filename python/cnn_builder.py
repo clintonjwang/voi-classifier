@@ -26,8 +26,8 @@ from keras.layers.normalization import BatchNormalization
 from keras.models import Model
 from keras.optimizers import Adam
 from keras.regularizers import l2
-from keras.utils import np_utils
 from sklearn.metrics import accuracy_score, confusion_matrix, f1_score
+from keras.utils import np_utils, multi_gpu_model
 
 import config
 import dr_methods as drm
@@ -56,11 +56,11 @@ def build_cnn_hyperparams(T=None):
 		T = config.Hyperparams()
 
 	if T.cnn_type == 'inception':
-		M = build_inception(T.optimizer)
+		M = build_inception(T.optimizer, T)
 
 	elif T.cnn_type == 'dense':
 		M = densenet.DenseNet((*C.dims, C.nb_channels), C.nb_classes,
-			optimizer=T.optimizer, depth=T.depth, growth_rate=T.f[1]//4, nb_filter=T.f[0]//2,
+			optimizer=T.optimizer, depth=T.depth, nb_dense_block=4, growth_rate=T.f[1]//4, nb_filter=T.f[0]//2,
         	pool_type='max', dropout_rate=T.dropout)
 
 	elif C.dual_img_inputs:
@@ -133,8 +133,8 @@ def build_cnn(optimizer='adam', padding=['same','same'], pool_sizes=[2,(2,2,1)],
 		x = cnnc.bn_relu_etc(x, dropout, mc_sampling, cv_u=f[layer_num], cv_k=kernel_size, cv_pad=padding[1])
 
 	x = layers.MaxPooling3D(pool_sizes[1])(x)
-	x = layers.GlobalAveragePooling3D()(x)
-	#x = Flatten()(x)
+	#x = layers.GlobalAveragePooling3D()(x)
+	x = Flatten()(x)
 	x = cnnc.bn_relu_etc(x, dropout, mc_sampling, fc_u=dense_units)
 
 	if C.clinical_inputs > 0:
@@ -166,21 +166,23 @@ def build_cnn(optimizer='adam', padding=['same','same'], pool_sizes=[2,(2,2,1)],
 	else:
 		model = Model([img, clinical_inputs], pred_class)
 
+	#model = multi_gpu_model(model, gpus=4)
 	model.compile(optimizer=optimizer, loss=loss, metrics=metrics)
 
 	return model
 
-def build_inception(optimizer='adam'):
+def build_inception(optimizer='adam', T=None):
 	"""Main class for setting up a CNN. Returns the compiled model."""
 
 	img = Input(shape=(*C.dims, 3))
 
-	x = cnnc.bn_relu_etc(img, drop=.1, cv_u=64, pool=2)
-	x = cnnc.Inception3D(x)
+	x = cnnc.bn_relu_etc(img, drop=T.dropout, cv_u=64, pool=2)
+	x = cnnc.Inception3D(x, f=[64,128])
 	x = cnnc.bn_relu_etc(x, pool=2)
-	x = cnnc.bn_relu_etc(x, drop=.1, cv_u=64, pool=3)
+	x = cnnc.bn_relu_etc(x, drop=T.dropout, cv_u=128)
+	x = cnnc.bn_relu_etc(x, drop=T.dropout, cv_u=128, pool=2)
 	x = Flatten()(x)
-	x = cnnc.bn_relu_etc(x, fc_u=64)
+	x = cnnc.bn_relu_etc(x, drop=T.dropout, fc_u=128)
 
 	if C.clinical_inputs > 0:
 		clinical_inputs = Input(shape=(C.clinical_inputs,))
@@ -188,9 +190,9 @@ def build_inception(optimizer='adam'):
 		y = cnnc._expand_dims(y)
 		y = layers.LocallyConnected1D(1, 1, activation='tanh')(y)
 		y = layers.Flatten()(y)
+		y = layers.Dropout(T.dropout)(y)
 		x = Concatenate(axis=1)([x, y])
-		
-	x = layers.Dropout(.2)(x)
+
 	if C.aleatoric:
 		pred_class = Dense(C.nb_classes+1)(x)
 		loss = 'categorical_crossentropy'
@@ -582,49 +584,6 @@ def load_data_capsnet(n=2, Z_test_fixed=None):
 ### Training Submodules
 ####################################
 
-"""def _train_gen_capsnet(test_ids, n=4):
-	while True:
-		x1 = np.empty((n*C.nb_classes, *C.dims, C.nb_channels))
-		y = np.zeros((n*C.nb_classes, C.nb_classes))
-
-		train_cnt = 0
-		for cls in C.cls_names:
-			img_fns = os.listdir(C.aug_dir)
-			while n > 0:
-				img_fn = random.choice(img_fns)
-				lesion_id = img_fn[:img_fn.rfind('_')]
-				if lesion_id not in test_ids[cls]:
-					x1[train_cnt] = np.load(join(C.aug_dir, img_fn))
-					
-					y[train_cnt][C.cls_names.index(cls)] = 1
-					
-					train_cnt += 1
-					if train_cnt % n == 0:
-						break
-
-		x_batch = np.array(x1)
-		y_batch = np.array(y)
-		yield ([x_batch, y_batch], [y_batch, x_batch])"""
-
-"""def _train_gen_unet(test_accnums=[]):
-	raise ValueError("Not usable")
-	lesion_df_art = drm.get_lesion_df()[0]
-	lesion_df_art.accnum = lesion_df_art.accnum.astype(str)
-	img_fns = [fn for fn in glob.glob(join(C.full_img_dir, "*.npy")) if not fn.endswith("_seg.npy") \
-				and basename(fn)[:-4] not in test_accnums]
-
-	while True:
-		img_fn = random.choice(img_fns)
-		img = np.load(img_fn)
-		img = tr.rescale_img(img, C.dims)
-		seg = np.load(img_fn[:-4]+"_seg.npy")
-		seg = tr.rescale_img(seg, C.dims) > .5
-		seg = np_utils.to_categorical(seg, 2).astype(int)
-		cls = np_utils.to_categorical(C.cls_names.index(lesion_df_art.loc[lesion_df_art["accnum"] \
-			== basename(img_fn[:-4]), "cls"].values[0]), len(C.cls_names)).astype(int)
-
-		yield [np.expand_dims(img, 0), np.expand_dims(seg, 0), np.expand_dims(cls, 0)], None"""
-
 def pretrain_gen(self, side_len, n=8, test_accnums=[]):
 	dims_df = pd.read_csv(C.dims_df_path, index_col=0)
 	dims_df.index = dims_df.index.map(str)
@@ -724,40 +683,45 @@ def _train_gen_classifier(test_ids, accnums=None, n=12):
 	if type(accnums) == dict:
 		img_fns = {cls:[fn for fn in os.listdir(C.aug_dir) if fn[:fn.find('_')] in accnums[cls]] for cls in C.cls_names}
 
+	x1 = np.empty((n*C.nb_classes, *C.dims, C.nb_channels))
+	y = np.zeros((n*C.nb_classes, C.nb_classes))
+
+	if C.dual_img_inputs:
+		x2 = np.empty((n*C.nb_classes, *C.context_dims, C.nb_channels))
+	elif C.clinical_inputs:
+		x2 = np.empty((n*C.nb_classes, C.clinical_inputs))
+
 	while True:
-		x1 = np.empty((n*C.nb_classes, *C.dims, C.nb_channels))
-		y = np.zeros((n*C.nb_classes, C.nb_classes))
-
-		if C.dual_img_inputs:
-			x2 = np.empty((n*C.nb_classes, *C.context_dims, C.nb_channels))
-		elif C.clinical_inputs:
-			x2 = np.empty((n*C.nb_classes, C.clinical_inputs))
-
 		train_cnt = 0
 		for cls in C.cls_names:
 			while n > 0:
 				img_fn = random.choice(img_fns[cls])
 				lesion_id = img_fn[:img_fn.rfind('_')]
-				if lesion_id not in test_ids[cls]:
+				if lesion_id in test_ids[cls]:
+					continue
+					
+				try:
 					x1[train_cnt] = np.load(join(C.aug_dir, img_fn))
-					if C.post_scale > 0:
-						try:
-							x1[train_cnt] = tr.normalize_intensity(x1[train_cnt], 1., -1., C.post_scale)
-						except:
-							raise ValueError(lesion_id)
-							#vm.reset_accnum(lesion_id[:lesion_id.find('_')])
+				except:
+					print(join(C.aug_dir, img_fn))
+				if C.post_scale > 0:
+					try:
+						x1[train_cnt] = tr.normalize_intensity(x1[train_cnt], 1., -1., C.post_scale)
+					except:
+						raise ValueError(lesion_id)
+						#vm.reset_accnum(lesion_id[:lesion_id.find('_')])
 
-					if C.dual_img_inputs:
-						tmp = np.load(join(C.crops_dir, lesion_id+".npy"))
-						x2[train_cnt] = tr.rescale_img(tmp, C.context_dims)[0]
-					elif C.clinical_inputs > 0:
-						x2[train_cnt] = clinical_df.loc[lesion_id[:lesion_id.find('_')]].values[:C.clinical_inputs]
-					
-					y[train_cnt][C.cls_names.index(cls)] = 1
-					
-					train_cnt += 1
-					if train_cnt % n == 0:
-						break
+				if C.dual_img_inputs:
+					tmp = np.load(join(C.crops_dir, lesion_id+".npy"))
+					x2[train_cnt] = tr.rescale_img(tmp, C.context_dims)[0]
+				elif C.clinical_inputs > 0:
+					x2[train_cnt] = clinical_df.loc[lesion_id[:lesion_id.find('_')]].values[:C.clinical_inputs]
+				
+				y[train_cnt][C.cls_names.index(cls)] = 1
+				
+				train_cnt += 1
+				if train_cnt % n == 0:
+					break
 
 		if C.dual_img_inputs or C.clinical_inputs>0:
 			yield [np.array(x1), np.array(x2)], np.array(y)

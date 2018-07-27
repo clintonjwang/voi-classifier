@@ -255,7 +255,7 @@ def save_vois_as_imgs(cls=None, lesion_ids=None, save_dir=None, normalize=None, 
 		else:
 			suffix = fn_suffix
 
-		imsave("%s\\%s%s%s.png" % (save_dir, fn_prefix, fn[:-4], suffix), rescale(ret, rescale_factor, mode='constant'))
+		imsave(join(save_dir, "%s%s%s.png" % (fn_prefix, fn[:-4], suffix)), rescale(ret, rescale_factor, mode='constant'))
 
 @drm.autofill_cls_arg
 def save_imgs_with_bbox(cls=None, lesion_ids=None, save_dir=None, normalize=None, fixed_width=100, fn_prefix="", fn_suffix=None, separate_by_cls=True):
@@ -415,7 +415,7 @@ def extract_vois(cls=None, accnums=None, lesion_ids=None, overwrite=False, pad_l
 
 		dx = np.array([x2[ix] - x1[ix] for ix in range(3)])
 		assert np.all(np.greater(x2,x1)), str(voi["accnum"])
-		pad = np.clip(dx * .5 / C.lesion_ratio, *pad_lims).astype(int) + [10,10,1]
+		pad = np.clip(dx * .5 / C.lesion_ratio, *pad_lims).astype(int) + [10,10,-1]
 		x1_ = [max(x1[ix]-pad[ix], 0) for ix in range(3)]
 		x2_ = [min(x2[ix]+pad[ix], img.shape[ix]) for ix in range(3)]
 		sl = [slice(x1_[ix], x2_[ix]) for ix in range(3)]

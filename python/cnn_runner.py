@@ -55,14 +55,6 @@ class CNNRunner():
 		"""Runs the CNN for max_runs times, saving performance metrics."""
 		if overwrite and exists(self.C.run_stats_path):
 			os.remove(self.C.run_stats_path)
-		running_stats = get_run_stats_csv(self.C)
-		index = len(running_stats)
-
-		model_names = glob.glob(join(self.C.model_dir, model_name+"*"))
-		if len(model_names) > 0:
-			model_num = max([int(x[x.rfind('_')+1:x.find('.')]) for x in model_names]) + 1
-		else:
-			model_num = 0
 
 		running_acc_6 = []
 
@@ -79,9 +71,19 @@ class CNNRunner():
 			X_train_orig, Y_train_orig = train_orig
 
 			t = time.time()
-			hist = self.train_model.fit_generator(train_gen, self.T.steps_per_epoch,
-					self.T.epochs, verbose=verbose, validation_data=[X_test, Y_test])
-			loss_hist = hist.history['val_loss']
+
+			if self.T.steps_per_epoch > 32:
+				hist = self.train_model.fit_generator(train_gen, self.T.steps_per_epoch,
+						self.T.epochs, verbose=verbose, callbacks=[self.T.early_stopping], validation_data=[X_test, Y_test])
+				loss_hist = hist.history['val_loss']
+			else:
+				self.pred_model = self.train_model.layers[-2]
+				self.pred_model.compile('adam', loss='categorical_crossentropy', metrics=['accuracy'])
+				for _ in range(5):
+					hist = self.train_model.fit_generator(train_gen, self.T.steps_per_epoch,
+							self.T.epochs, verbose=verbose, callbacks=[self.T.early_stopping])#, validation_data=[X_test, Y_test])
+					print(self.pred_model.evaluate(X_test, Y_test, verbose=False))
+				loss_hist = hist.history['loss']
 
 			Y_pred = self.pred_model.predict(X_train_orig)
 			y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_train_orig])
@@ -121,13 +123,18 @@ class CNNRunner():
 			else:
 				row = _get_hyperparams_as_list(self.C, self.T) + [num_samples[k] for k in self.C.cls_names] + [running_acc_6[-1]]
 			
-			running_stats.loc[index] = row + [loss_hist, cm, time.time()-t, time.time(),
+			model_names = glob.glob(join(self.C.model_dir, model_name+"*"))
+			if len(model_names) > 0:
+				model_num = max([int(x[x.rfind('_')+1:x.find('.')]) for x in model_names]) + 1
+			else:
+				model_num = 0
+			running_stats = get_run_stats_csv(self.C)
+			running_stats.loc[len(running_stats)] = row + [loss_hist, cm, time.time()-t, time.time(),
 							miscls_test, miscls_train, model_name+str(model_num), y_true, str(Y_pred), list(self.Z_test)]
 
 			running_stats.to_csv(self.C.run_stats_path, index=False)
 			self.pred_model.save(join(self.C.model_dir, model_name+'%d.hdf5' % model_num))
 			model_num += 1
-			index += 1
 
 	def run_ensemble(self, overwrite=False, max_runs=999, Z_test=None, model_name='ensembles_'):
 		"""Runs the CNN for max_runs times, saving performance metrics."""
@@ -185,7 +192,7 @@ class CNNRunner():
 			elif self.T.mc_sampling:
 				Y_pred = []
 				for ix in range(len(self.Z_test)):
-					x = np.tile(X_test[ix], (100, 1,1,1,1))
+					x = np.tile(X_test[ix], (1024, 1,1,1,1))
 					y = np.concatenate([m.predict(x) for m in self.M], 0)
 					Y_pred.append(np.median(y, 0))
 				Y_pred = np.array(Y_pred)

@@ -619,7 +619,7 @@ def get_coords_df(cls=None):
 		if cls is not None:
 			df = pd.read_excel(C.coord_xls_path, C.sheetnames[C.cls_names.index(cls)])
 		else:
-			df = pd.concat([pd.read_excel(C.coord_xls_path, C.sheetnames[C.cls_names.index(cls)]) for cls in C.cls_names])
+			df = pd.concat([pd.read_excel(C.coord_xls_path, C.sheetnames[C.cls_names.index(cls)], sort=False) for cls in C.cls_names])
 	else:
 		df = pd.read_excel(C.coord_xls_path, C.sheetname)
 		if cls is not None:
