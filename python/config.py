@@ -15,7 +15,7 @@ class Config:
 		self.test_run_num = 2
 		self.dims = [32,32,16]
 		self.nb_channels = 3
-		self.aug_factor = 100
+		self.aug_factor = 256
 
 		self.max_size = 350*350*100
 		self.context_dims = [36,36,12]
@@ -157,12 +157,12 @@ class Hyperparams:
 			self.pool_sizes = [(2,2,1),(2,2,1)]
 		elif dataset == 'lirads':
 			self.n = 4 #5
-			self.epochs = 300
-			self.steps_per_epoch = 180
-			self.dropout = .25
+			self.epochs = 256
+			self.steps_per_epoch = 256
+			self.dropout = .2
 			self.dense_units = 128
 			self.padding = ['same','valid']
-			self.f = [128,128,128,128]
+			self.f = [64,128,128,128]
 			self.kernel_size = (3,3,2)
 			self.pool_sizes = [2,2]
 		else:

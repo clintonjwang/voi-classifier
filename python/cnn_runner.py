@@ -59,22 +59,26 @@ class CNNRunner():
 		running_acc_6 = []
 
 		for _ in range(max_runs):
-			if self.C.aleatoric:
-				self.pred_model, self.train_model = cbuild.build_cnn_hyperparams(self.T)
-			else:
-				self.pred_model = cbuild.build_cnn_hyperparams(self.T)
-				self.train_model = self.pred_model
 
 			X_test, Y_test, train_gen, num_samples, train_orig, Z = cbuild.get_cnn_data(n=self.T.n,
 					Z_test_fixed=Z_test)
 			self.Z_test, self.Z_train_orig = Z
 			X_train_orig, Y_train_orig = train_orig
 
+
+			if self.C.aleatoric:
+				self.pred_model, self.train_model = cbuild.build_cnn_hyperparams(self.T)
+				val_data = [X_test, Y_test], None
+			else:
+				self.pred_model = cbuild.build_cnn_hyperparams(self.T)
+				self.train_model = self.pred_model
+				val_data = [X_test, Y_test]
+
 			t = time.time()
 
 			if self.T.steps_per_epoch > 32:
 				hist = self.train_model.fit_generator(train_gen, self.T.steps_per_epoch,
-						self.T.epochs, verbose=verbose, callbacks=[self.T.early_stopping], validation_data=[X_test, Y_test])
+						self.T.epochs, verbose=verbose, callbacks=[self.T.early_stopping], validation_data=val_data)
 				loss_hist = hist.history['val_loss']
 			else:
 				self.pred_model = self.train_model.layers[-2]
@@ -101,7 +105,7 @@ class CNNRunner():
 			elif self.T.mc_sampling:
 				Y_pred = []
 				for ix in range(len(self.Z_test)):
-					x = np.tile(X_test[ix], (100, 1,1,1,1))
+					x = np.tile(X_test[ix], (256, 1,1,1,1))
 					y = self.pred_model.predict(x)
 					Y_pred.append(np.median(y, 0))
 				Y_pred = np.array(Y_pred)

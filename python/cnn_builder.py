@@ -676,7 +676,7 @@ def _train_gen_classifier(test_ids, accnums=None, n=12):
 				(lesion_df["run_num"] <= C.run_num), "accnum"].values
 
 	if C.clinical_inputs > 0:
-		train_path="E:\\LIRADS\\excel\\clinical_data_test.xlsx" #clinical_data_train
+		train_path = join(C.base_dir, "excel", "clinical_data_test.xlsx")
 		clinical_df = pd.read_excel(train_path, index_col=0)
 		clinical_df.index = clinical_df.index.astype(str)
 
@@ -762,7 +762,7 @@ def _collect_unaug_data(use_vois=True):
 		lesion_df = lesion_df[lesion_df["run_num"] <= C.test_run_num]
 
 	if C.clinical_inputs > 0:
-		test_path = "E:\\LIRADS\\excel\\clinical_data_test.xlsx"
+		test_path = join(C.base_dir, "excel", "clinical_data_test.xlsx")
 		clinical_df = pd.read_excel(test_path, index_col=0)
 		clinical_df.index = clinical_df.index.astype(str)
 

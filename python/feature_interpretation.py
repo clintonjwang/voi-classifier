@@ -88,8 +88,8 @@ def feature_id_bulk(model_nums, model_prefix='fixZ-ens_'):
 					model_fc.layers[l].set_weights(M.layers[l].get_weights())
 				model_fc = common.pop_n_layers(model_fc, 2)
 
-				all_dense = get_overall_activations(model_fc, z_train)
-				feature_dense = get_feature_activations(model_fc, Z_features, all_features)
+				all_dense = get_overall_activations(z_train, model_fc)
+				feature_dense = get_feature_activations(Z_features, all_features, model_fc)
 				df = predict_test_features(fullM, model_fc, all_dense, feature_dense, x_test, z_test)#, size_cutoff, lesion_sizes)
 				full_dfs.append(df)
 		else:
@@ -119,6 +119,7 @@ def process_feat_id_dfs(all_features, DFs):
 
 	FEAT_DATA = np.zeros((num_features,3))
 	CLS_DATA = np.zeros((C.nb_classes,3))
+	LbyL = np.zeros(2)
 	MISCLS = np.zeros(4)
 	FIRST = np.zeros(2)
 	MISFIRST = np.zeros(2)
@@ -173,6 +174,21 @@ def process_feat_id_dfs(all_features, DFs):
 			recall_history[cls].append(num/rec_den)
 		CLS_DATA += acc_df.values.astype(float)
 
+		# lesion by lesion
+		num, prec, rec = 0,0,0
+		n=0
+		for key, row in answer_key.iterrows():
+			answer_features = row[['feature_1', 'feature_2', 'feature_3', 'feature_4']].dropna().values
+			ignore_features = row[['ignore_1', 'ignore_2']].dropna().values
+			pred_features = df.loc[key][['feature_1', 'feature_2', 'feature_3', 'feature_4']].dropna().values
+			num = len([f for f in answer_features if f in pred_features])
+			rec += num/len(answer_features)
+			prec_den = len([f for f in pred_features if f not in ignore_features])
+			if prec_den > 0:
+				prec += num/prec_den
+				n+=1
+		LbyL += np.array([prec/n, rec/len(answer_key)], float)
+
 		# misclassified lesions only
 		num, prec_den, rec_den = 0,0,0
 		n=0
@@ -213,7 +229,7 @@ def process_feat_id_dfs(all_features, DFs):
 	feat_df = pd.DataFrame(FEAT_DATA, index=sorted(all_features), columns=["num_correct", "pred_freq", "true_freq"])
 	cls_df = pd.DataFrame(CLS_DATA, index=sorted(C.cls_names), columns=["num_correct", "pred_freq", "true_freq"])
 
-	return feat_df, cls_df, MISCLS, FIRST, MISFIRST, prec_history, recall_history
+	return feat_df, cls_df, LbyL, MISCLS, FIRST, MISFIRST, prec_history, recall_history
 
 @njit
 def get_spatial_overlap(w, f_c3_ch, ch_weights, num_rel_f):
@@ -362,8 +378,8 @@ def get_rotations(x, front_model, rcnn=False):
 ### Feature ID subroutines
 ###########################
 
-def get_overall_activations(model_fc, Z, models_conv=None, samples=30):
-	num_samples = samples*len(Z)
+def get_overall_activations(Z, model_fc=None, models_conv=None, samples=1000):
+	num_samples = samples*6
 
 	all_dense = np.empty([num_samples,T.dense_units])
 	all_conv3_sh = np.empty([num_samples,T.f[2]*4])
@@ -373,38 +389,37 @@ def get_overall_activations(model_fc, Z, models_conv=None, samples=30):
 	all_conv2_ch = np.empty([num_samples,T.f[1]])
 	all_conv1_ch = np.empty([num_samples,T.f[0]*3])
 
-	for img_id in range(len(Z)):
-		for aug_id in range(samples):
-			img = np.load(join(C.aug_dir, "%s_%d.npy" % (Z[img_id], aug_id)))
+	ix = 0
+	for cls in C.cls_names:
+		for _ in range(samples):
+			img_id = random.choice(Z[cls])
+			aug_id = random.randint(0, C.aug_factor-1)
+			img = np.load(join(C.aug_dir, "%s_%d.npy" % (img_id, aug_id)))
 			img = np.expand_dims(img, 0)
-			ix = img_id*samples + aug_id
 			
-			activ = model_fc.predict(img)[0]
-			activ[activ < 0] = 0
-			all_dense[ix] = activ
+			if model_fc is not None:
+				all_dense[ix] = model_fc.predict(img)[0]
 			
 			if models_conv is not None:
 				activ = model_conv3.predict(img)[0]
-				activ[activ < 0] = 0
 				all_conv3_ch[ix] = activ.mean((0,1,2))
 				all_conv3_sh[ix] = get_shells(activ, D)
 				
 				activ = model_conv2.predict(img)[0]
-				activ[activ < 0] = 0
 				all_conv2_ch[ix] = activ.mean((0,1,2))
 				all_conv2_sh[ix] = get_shells(activ, D)
 				
 				activ = model_conv1.predict(img)[0]
-				activ[activ < 0] = 0
 				all_conv1_ch[ix] = activ.mean((0,1,2))
 				all_conv1_sh[ix] = get_shells(activ, D)
+			ix += 1
 
 	if models_conv is None:
 		return all_dense
 	else:
 		return all_dense, all_conv3_ch, all_conv3_sh, all_conv2_ch, all_conv2_sh, all_conv1_ch, all_conv1_sh
 
-def get_feature_activations(model_fc, Z_features, all_features, models_conv=None):
+def get_feature_activations(Z_features, all_features, model_fc=None, models_conv=None):
 	feature_dense = {f:np.empty([0,T.dense_units]) for f in all_features}
 	feature_conv3_sh = {f:np.empty([0,T.f[2]*4]) for f in all_features}
 	feature_conv3_ch = {f:np.empty([0,T.f[2]]) for f in all_features}
@@ -417,8 +432,9 @@ def get_feature_activations(model_fc, Z_features, all_features, models_conv=None
 			for aug_id in range(C.aug_factor):
 				img = np.load(join(C.aug_dir, "%s_%d.npy" % (Z[img_id], aug_id)))
 				
-				activ = model_fc.predict(np.expand_dims(img, 0))
-				feature_dense[f] = np.concatenate([feature_dense[f], activ], axis=0)
+				if model_fc is not None:
+					activ = model_fc.predict(np.expand_dims(img, 0))
+					feature_dense[f] = np.concatenate([feature_dense[f], activ], axis=0)
 			
 				if models_conv is not None:
 					activ = model_conv3.predict(np.expand_dims(img, 0))
@@ -436,7 +452,7 @@ def get_feature_activations(model_fc, Z_features, all_features, models_conv=None
 	else:
 		return feature_dense, feature_conv3_ch, feature_conv3_sh, feature_conv2_ch, feature_conv1_ch
 
-def predict_test_features(full_model, model_fc, all_dense, feature_dense, x_test, z_test, priors=None, models_conv=None):
+def predict_test_features(full_model, model_fc, all_dense, feature_dense, x_test, z_test, Z_features=None, priors=None, models_conv=None, num_samples=15):
 	all_features = list(feature_dense.keys())
 	num_features = len(all_features)
 
@@ -476,7 +492,7 @@ def predict_test_features(full_model, model_fc, all_dense, feature_dense, x_test
 		preds = full_model.predict(x, verbose=False)[0]
 		row.append(C.cls_names[list(preds).index(max(preds))])
 
-		for aug_id in range(15):
+		for aug_id in range(num_samples):
 			img = np.load(join(C.aug_dir, "%s_%d.npy" % (z, aug_id)))
 
 			activ = model_fc.predict(np.expand_dims(img, 0))
@@ -498,7 +514,10 @@ def predict_test_features(full_model, model_fc, all_dense, feature_dense, x_test
 		for x_ix in range(test_dense.shape[0]):
 			pH = kde_rodeo_local(test_dense[x_ix], all_dense)
 			for f_ix in range(num_features):
-				pH_f[f_ix] = kde_rodeo_local(test_dense[x_ix], feature_dense[all_features[f_ix]])
+				if Z_features is None or z in Z_features[all_features[f_ix]]:
+					pH_f[f_ix] = kde_rodeo_local(test_dense[x_ix], feature_dense[all_features[f_ix]])
+				else:
+					pH_f[f_ix] = 0
 			pf_x += pH_f/pH
 		pf_x = pf_x/test_dense.shape[0]*pf
 		row += list(pf_x)
@@ -751,7 +770,7 @@ def collect_features():
 
 	return features_by_cls, feat_count
 
-def get_annotated_files(features_by_cls):
+def get_annotated_files(features_by_cls, num_samples=None):
 	try:
 		feature_sheet = pd.read_excel(C.coord_xls_path, "Descriptions")
 	except:
@@ -775,7 +794,8 @@ def get_annotated_files(features_by_cls):
 	for f in Z_features:
 		if len(Z_features[f]) < 10:
 			print(f, Z_features[f])
-		#Z_features[f] = np.random.choice(Z_features[f], num_samples, replace=False)
+		if num_samples is not None:
+			Z_features[f] = np.random.choice(Z_features[f], num_samples, replace=False)
 
 	return Z_features
 
