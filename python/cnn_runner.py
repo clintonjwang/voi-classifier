@@ -98,7 +98,7 @@ class CNNRunner():
 				x = np.empty((self.C.aug_factor, *self.C.dims, self.C.nb_channels))
 				Y_pred = []
 				for z in self.Z_test:
-					x = np.stack([np.load(fn) for fn in glob.glob(join(C.aug_dir,"*")) if basename(fn).startswith(z)], 0)
+					x = np.stack([np.load(fn) for fn in glob.glob(join(self.C.aug_dir,"*")) if basename(fn).startswith(z)], 0)
 					y = self.pred_model.predict(x)
 					Y_pred.append(np.median(y, 0))
 				Y_pred = np.array(Y_pred)
@@ -189,7 +189,7 @@ class CNNRunner():
 				x = np.empty((self.C.aug_factor, *self.C.dims, self.C.nb_channels))
 				Y_pred = []
 				for z in self.Z_test:
-					x = np.stack([np.load(fn) for fn in glob.glob(join(C.aug_dir,"*")) if basename(fn).startswith(z)], 0)
+					x = np.stack([np.load(fn) for fn in glob.glob(join(self.C.aug_dir,"*")) if basename(fn).startswith(z)], 0)
 					y = np.concatenate([m.predict(x) for m in self.M], 0)
 					Y_pred.append(np.median(y, 0))
 				Y_pred = np.array(Y_pred)

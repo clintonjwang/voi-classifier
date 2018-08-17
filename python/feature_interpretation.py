@@ -452,7 +452,78 @@ def get_feature_activations(Z_features, all_features, model_fc=None, models_conv
 	else:
 		return feature_dense, feature_conv3_ch, feature_conv3_sh, feature_conv2_ch, feature_conv1_ch
 
-def predict_test_features(full_model, model_fc, all_dense, feature_dense, x_test, z_test, Z_features=None, priors=None, models_conv=None, num_samples=15):
+def predict_test_features(full_model, model_fc, all_neurons, feature_neurons, x_test, z_test, Z_features=None, priors=None, models_conv=None, num_samples=15):
+	all_features = list(feature_neurons.keys())
+	num_features = len(all_features)
+
+	df = pd.DataFrame(columns=['true_cls', 'pred_cls'] + all_features)
+
+	lesion_ids = {}
+	for cls in C.cls_names:
+		src_data_df = drm.get_coords_df(cls)
+		accnums = src_data_df["acc #"].values
+		lesion_ids[cls] = [x[:-4] for x in os.listdir(C.crops_dir) if x[:x.find('_')] in accnums]
+
+	num_neurons = all_neurons.shape[-1]
+
+	if priors is None: #Use uniform distribution
+		pf = np.ones(num_features)
+	else:
+		pf = priors
+
+	for img_ix in range(len(z_test)):
+		print('.',end='')
+		test_dense = np.empty([0,T.dense_units])
+		test_conv3_ch = np.empty([0,T.f[2]])
+		test_conv3_sh = np.empty([0,T.f[2]*4])
+		test_conv2_ch = np.empty([0,T.f[1]])
+		test_conv1_ch = np.empty([0,T.f[0]*3])
+		z = z_test[img_ix]
+		for cls in C.cls_names:
+			if z in lesion_ids[cls]:
+				row = [cls]
+				break
+
+		x = np.expand_dims(x_test[img_ix], axis=0)
+		preds = full_model.predict(x, verbose=False)[0]
+		row.append(C.cls_names[list(preds).index(max(preds))])
+
+		for aug_id in range(num_samples):
+			img = np.load(join(C.aug_dir, "%s_%d.npy" % (z, aug_id)))
+
+			activ = model_fc.predict(np.expand_dims(img, 0))
+			test_dense = np.concatenate([test_dense, activ], axis=0)
+			
+			if models_conv is not None:
+				activ = model_conv3.predict(np.expand_dims(img, 0))
+				test_conv3_ch = np.concatenate([test_conv3_ch, activ.mean(axis=(1,2,3))], axis=0)
+				test_conv3_sh = np.concatenate([test_conv3_sh, get_shells(activ, D)], axis=0)
+				
+				activ = model_conv2.predict(np.expand_dims(img, 0))
+				test_conv2_ch = np.concatenate([test_conv2_ch, activ.mean(axis=(1,2,3))], axis=0)
+				
+				activ = model_conv1.predict(np.expand_dims(img, 0))
+				test_conv1_ch = np.concatenate([test_conv1_ch, activ.mean(axis=(1,2,3))], axis=0)
+		
+		#np.concatenate([all_conv1_ch, all_conv2_ch, all_conv3_ch, all_dense], axis=1)
+		pf_x = np.zeros(num_features)
+		pH_f = np.zeros(num_features)
+		for x_ix in range(test_dense.shape[0]):
+			pH = kde_rodeo_local(test_dense[x_ix], all_dense)
+			for f_ix in range(num_features):
+				if Z_features is None or z in Z_features[all_features[f_ix]]:
+					pH_f[f_ix] = kde_rodeo_local(test_dense[x_ix], feature_neurons[all_features[f_ix]])
+				else:
+					pH_f[f_ix] = 0
+			pf_x += pH_f/pH
+		pf_x = pf_x/test_dense.shape[0]*pf
+		row += list(pf_x)
+			
+		df.loc[z] = row
+
+	return df
+
+def predict_features(full_model, model_fc, all_dense, feature_dense, x_test, z_test, Z_features=None, priors=None, models_conv=None, num_samples=15):
 	all_features = list(feature_dense.keys())
 	num_features = len(all_features)
 

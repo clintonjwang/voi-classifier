@@ -103,7 +103,7 @@ def build_cnn(optimizer='adam', padding=['same','same'], pool_sizes=[2,(2,2,1)],
 
 	img = Input(shape=(*C.dims, C.nb_channels))
 
-	art_x = Lambda(lambda x: K.expand_dims(x[...,0], axis=4))(img)
+	"""art_x = Lambda(lambda x: K.expand_dims(x[...,0], axis=4))(img)
 	ven_x = Lambda(lambda x: K.expand_dims(x[...,1], axis=4))(img)
 	eq_x = Lambda(lambda x: K.expand_dims(x[...,2], axis=4))(img)
 	art_x = layers.Conv3D(f[0], kernel_size, kernel_initializer="he_uniform", padding=padding[0])(art_x)
@@ -115,11 +115,9 @@ def build_cnn(optimizer='adam', padding=['same','same'], pool_sizes=[2,(2,2,1)],
 		x = cnnc.bn_relu_etc(x, dropout, mc_sampling)
 	else:
 		x = cnnc.bn_relu_etc(x)
-		x = layers.SpatialDropout3D(dropout)(x)
+		x = layers.SpatialDropout3D(dropout)(x)"""
 
-	#x = cnnc.bn_relu_etc(img, cv_u=f[0], cv_k=kernel_size)
-	#x = layers.SpatialDropout3D(dropout)(x)
-
+	x = cnnc.bn_relu_etc(img, dropout, mc_sampling, cv_u=f[0], cv_k=kernel_size, cv_pad=padding[0])
 	x = layers.MaxPooling3D(pool_sizes[0])(x)
 
 	for layer_num in range(1,len(f)):

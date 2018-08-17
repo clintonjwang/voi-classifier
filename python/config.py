@@ -15,15 +15,15 @@ class Config:
 		self.test_run_num = 2
 		self.dims = [32,32,16]
 		self.nb_channels = 3
-		self.aug_factor = 256
+		self.aug_factor = 128
 
 		self.max_size = 350*350*100
-		self.context_dims = [36,36,12]
+		self.context_dims = [64,64,16]
 		self.dual_img_inputs = False # whether to use both tight and gross image croppings for the network
 		self.clinical_inputs = 0 # whether non-imaging inputs should be incorporated into the neural network
 
 		self.lesion_ratio = .7 # ratio of the lesion side length to the length of the cropped image
-		self.pre_scale = .9 # normalizes images while saving augmented/unaugmented images
+		self.pre_scale = .8 # normalizes images while saving augmented/unaugmented images
 		self.post_scale = 0. # normalizes images at train/test time
 
 		#optional
@@ -45,19 +45,19 @@ class Config:
 		self.dataset = dataset
 		if dataset.startswith("lirads") or dataset == "clinical":
 			self.base_dir = "/home/idealab/Documents/Clinton/LIRADS"
-			self.coord_xls_path = '/mnt/LIRADS/excel/Prototype1e.xlsx'
+			self.coord_xls_path = '/mnt/LIRADS/LIRADS/excel/Prototype1e.xlsx'
 			if dataset == "clinical":
 				self.run_num = 4
 				self.test_run_num = 4
 				self.coord_xls_path = r"Z:\Paula\Clinical data project\3+4 POINT LESIONS ADDED coordinates + clinical variables.xlsx"
 				self.clinical_inputs = 9 # whether non-imaging inputs should be incorporated into the neural network
-			self.test_num = 10
+			self.test_num = 5
 			self.Z_reader = ['E103312835_1','12823036_0','12569915_0','E102093118_0','E102782525_0','12799652_0','E100894274_0','12874178_3','E100314676_0','12842070_0','13092836_2','12239783_0','12783467_0','13092966_0','E100962970_0','E100183257_1','E102634440_0','E106182827_0','12582632_0','E100121654_0','E100407633_0','E105310461_0','12788616_0','E101225606_0','12678910_1','E101083458_1','12324408_0','13031955_0','E101415263_0','E103192914_0','12888679_2','E106096969_0','E100192709_1','13112385_1','E100718398_0','12207268_0','E105244287_0','E102095465_0','E102613189_0','12961059_0','11907521_0','E105311123_0','12552705_0','E100610622_0','12975280_0','E105918926_0','E103020139_1','E101069048_1','E105427046_0','13028374_0','E100262351_0','12302576_0','12451831_0','E102929168_0','E100383453_0','E105344747_0','12569826_0','E100168661_0','12530153_0','E104697262_0']
 
 			self.cls_names = ['hcc', 'cholangio', 'colorectal', 'cyst', 'hemangioma', 'fnh']
 			self.sheetnames = ['HCC', 'Cholangio', 'Colorectal', 'Cyst', 'Hemangioma', 'FNH']
 			self.short_cls_names = ['HCC', 'ICC', 'CRC Met.', 'Cyst', 'Hemang.', 'FNH']
-			self.dcm_dirs = [join("/mnt/LIRADS/DICOMs", cls) for cls in self.cls_names]
+			self.dcm_dirs = [join("/mnt/LIRADS/LIRADS/DICOMs", cls) for cls in self.cls_names]
 			self.simplify_map = {'hcc': 0, 'cyst': 1, 'hemangioma': 1, 'fnh': 1, 'cholangio': 2, 'colorectal': 2}
 			
 			if dataset == "lirads-expanded":
@@ -100,7 +100,7 @@ class Config:
 			self.short_cls_names = self.sheetnames
 			self.dcm_dir = "Z:\\Paula\\Radpath\\Imaging"
 
-		self.full_img_dir = "/mnt/LIRADS/full_imgs"
+		self.full_img_dir = "/mnt/LIRADS/LIRADS/full_imgs"
 		#self.patient_info_path = join(self.base_dir, "excel", "patient_data.csv")
 		self.dim_cols = ["voxdim_x", "voxdim_y", "voxdim_z"]
 		self.accnum_cols = ["MRN", "Sex", "AgeAtImaging", "Ethnicity"] + self.dim_cols + ["downsample"]
@@ -111,7 +111,7 @@ class Config:
 		self.voi_cols = hf.flatten(self.voi_cols) + self.pad_cols
 
 		# An accnum must be in accnum_df for it to be processed
-		self.accnum_df_path = join("/mnt/LIRADS/excel", "accnum_data.csv")
+		self.accnum_df_path = join("/mnt/LIRADS/LIRADS/excel", "accnum_data.csv")
 		# A lesion must be in lesion_df for it to be processed
 		self.lesion_df_path = join(self.base_dir, "excel", "lesion_data.csv")
 		self.run_stats_path = join(self.base_dir, "excel", "overnight_run.csv")
@@ -137,7 +137,7 @@ class Hyperparams:
 		self.kernel_size = (3,3,2)
 		self.pool_sizes = [2,2]
 		self.optimizer = Adam(lr=0.0001)
-		self.early_stopping = EarlyStopping(monitor='loss', min_delta=0.001, patience=25)
+		self.early_stopping = EarlyStopping(monitor='loss', min_delta=0.0001, patience=25)
 		self.skip_con = False
 		self.mc_sampling = False #currently cannot be used with multiple inputs
 
@@ -157,12 +157,12 @@ class Hyperparams:
 			self.pool_sizes = [(2,2,1),(2,2,1)]
 		elif dataset == 'lirads':
 			self.n = 4 #5
-			self.epochs = 256
+			self.epochs = 350
 			self.steps_per_epoch = 256
 			self.dropout = .2
 			self.dense_units = 128
 			self.padding = ['same','valid']
-			self.f = [64,128,128,128]
+			self.f = [128,128,128,128]
 			self.kernel_size = (3,3,2)
 			self.pool_sizes = [2,2]
 		else:
