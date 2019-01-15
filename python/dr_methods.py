@@ -25,7 +25,7 @@ Author: Clinton Wang, E-mail: `clintonjwang@gmail.com`, Github: `https://github.
 import argparse
 import datetime
 import glob
-import importlib
+from importlib import reload
 import os
 import random
 import time
@@ -37,16 +37,13 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 import config
-import seg_methods as sm
-import niftiutils.helper_fxns as hf
+import niftiutils.io as io
 import niftiutils.transforms as tr
 import niftiutils.masks as masks
-import niftiutils.registration as reg
-import niftiutils.visualization as vis
+import niftiutils.reg as reg
+import niftiutils.vis as vis
 
-importlib.reload(hf)
-importlib.reload(masks)
-importlib.reload(config)
+reload(config)
 C = config.Config()
 
 def autofill_cls_arg(func):
@@ -112,7 +109,7 @@ def tricolorize(accnums=None, save_path="D:\\Etiology\\imgs\\tricolor"):
 		accnums = [x[:-4] for x in os.listdir(C.full_img_dir) if not x.endswith("seg.npy")]
 	for accnum in accnums:
 		I = np.load(join(C.full_img_dir, accnum+".npy"))
-		hf.save_tricolor_dcm(join(save_path, accnum), imgs=I)
+		io.save_tricolor_dcm(join(save_path, accnum), imgs=I)
 
 def tumor_cont(accnums=None, save_path="D:\\Etiology\\imgs\\contours"):
 	if not exists(save_path):
@@ -130,7 +127,7 @@ def tumor_cont(accnums=None, save_path="D:\\Etiology\\imgs\\contours"):
 		try:
 			#Z = masks.crop_vicinity(I,M, padding=.1, add_mask_cont=True)
 			I,crops = masks.crop_vicinity(I,M, padding=.1, return_crops=True)
-			M = hf.crop_nonzero(M, crops)[0]
+			M = io.crop_nonzero(M, crops)[0]
 			sl = I.shape[2]//2
 			Z = vis.create_contour_img(I[...,sl], M[...,sl])
 
@@ -187,11 +184,11 @@ def build_coords_df(accnum_xls_path):
 				masks.off2ids(join(load_dir, 'Segs', 'tumor_20s.off'))
 
 			try:
-				art,D = hf.nii_load(join(load_dir, "nii_dir", "20s.nii.gz"))
+				art,D = io.nii_load(join(load_dir, "nii_dir", "20s.nii.gz"))
 			except:
 				raise ValueError(load_dir)
-			#ven,_ = hf.dcm_load(join(load_dir, C.phases[1]))
-			#equ,_ = hf.dcm_load(join(load_dir, C.phases[2]))
+			#ven,_ = io.dcm_load(join(load_dir, C.phases[1]))
+			#equ,_ = io.dcm_load(join(load_dir, C.phases[2]))
 
 			for fn in glob.glob(join(load_dir, 'Segs', 'tumor_20s_*.ids')):
 				try:
@@ -201,7 +198,7 @@ def build_coords_df(accnum_xls_path):
 				lesion_id = accnum + fn[fn.rfind('_'):-4]
 				coords_df.loc[lesion_id] = [accnum, "1", ""] + coords[0] + coords[1]
 				#	M = masks.get_mask(fn, D, img.shape)
-				#	M = hf.crop_nonzero(M, C)[0]"""
+				#	M = io.crop_nonzero(M, C)[0]"""
 			coords_df.loc[accnum+"_0"] = [accnum, "1", ""] + [0]*6
 
 			print('.', end='')
@@ -238,9 +235,9 @@ def dcm2nii(cls=None, accnums=None, overwrite=False, exec_reg=False):
 			continue
 
 		try:
-			art,D = hf.dcm_load(join(load_dir, C.phase_dirs[0]), flip_x=False, flip_y=False)
-			ven,_ = hf.dcm_load(join(load_dir, C.phase_dirs[1]), flip_x=False, flip_y=False)
-			eq,_ = hf.dcm_load(join(load_dir, C.phase_dirs[2]), flip_x=False, flip_y=False)
+			art,D = io.dcm_load(join(load_dir, C.phase_dirs[0]), flip_x=False, flip_y=False)
+			ven,_ = io.dcm_load(join(load_dir, C.phase_dirs[1]), flip_x=False, flip_y=False)
+			eq,_ = io.dcm_load(join(load_dir, C.phase_dirs[2]), flip_x=False, flip_y=False)
 
 			if exec_reg:
 				ven,_ = reg.reg_elastix(moving=ven, fixed=art)
@@ -249,9 +246,9 @@ def dcm2nii(cls=None, accnums=None, overwrite=False, exec_reg=False):
 			nii_dir = join(load_dir, "nii_dir")
 			if not exists(nii_dir):
 				os.makedirs(nii_dir)
-			hf.save_nii(art, join(nii_dir, "20s.nii.gz"), D)
-			hf.save_nii(ven, join(nii_dir, "70s.nii.gz"), D)
-			hf.save_nii(eq, join(nii_dir, "3min.nii.gz"), D)
+			io.save_nii(art, join(nii_dir, "20s.nii.gz"), D)
+			io.save_nii(ven, join(nii_dir, "70s.nii.gz"), D)
+			io.save_nii(eq, join(nii_dir, "3min.nii.gz"), D)
 		except:
 			raise ValueError(accnum)
 
@@ -292,13 +289,13 @@ def dcm2npy(cls=None, accnums=None, overwrite=False, exec_reg=False, save_seg=Fa
 			flip_z = [char in flip for char in ['A','V','E']]
 		try:
 			if exists(join(load_dir, "nii_dir", "20s.nii.gz")):
-				art,D = hf.nii_load(join(load_dir, "nii_dir", "20s.nii.gz"), flip_x=True, flip_y=True, flip_z=flip_z[0])
-				ven,_ = hf.nii_load(join(load_dir, "nii_dir", "70s.nii.gz"), flip_x=True, flip_y=True, flip_z=flip_z[1])
-				eq,_ = hf.nii_load(join(load_dir, "nii_dir", "3min.nii.gz"), flip_x=True, flip_y=True, flip_z=flip_z[2])
+				art,D = io.nii_load(join(load_dir, "nii_dir", "20s.nii.gz"), flip_x=True, flip_y=True, flip_z=flip_z[0])
+				ven,_ = io.nii_load(join(load_dir, "nii_dir", "70s.nii.gz"), flip_x=True, flip_y=True, flip_z=flip_z[1])
+				eq,_ = io.nii_load(join(load_dir, "nii_dir", "3min.nii.gz"), flip_x=True, flip_y=True, flip_z=flip_z[2])
 			else:
-				art,D = hf.dcm_load(join(load_dir, C.phase_dirs[0]), flip_z=flip_z[0])
-				ven,_ = hf.dcm_load(join(load_dir, C.phase_dirs[1]), flip_z=flip_z[1])
-				eq,_ = hf.dcm_load(join(load_dir, C.phase_dirs[2]), flip_z=flip_z[2])
+				art,D = io.dcm_load(join(load_dir, C.phase_dirs[0]), flip_z=flip_z[0])
+				ven,_ = io.dcm_load(join(load_dir, C.phase_dirs[1]), flip_z=flip_z[1])
+				eq,_ = io.dcm_load(join(load_dir, C.phase_dirs[2]), flip_z=flip_z[2])
 
 			if exec_reg:
 				art, ven, eq, slice_shift = reg.crop_reg(art, ven, eq)#, "bspline", num_iter=30)
@@ -319,6 +316,7 @@ def dcm2npy(cls=None, accnums=None, overwrite=False, exec_reg=False, save_seg=Fa
 		np.save(join(C.full_img_dir, accnum+".npy"), img)
 
 		if save_seg:
+			import seg_methods as sm
 			sm.save_segs([accnum], downsample, slice_shift, art.shape[-1])
 
 		if cnt % 3 == 2:
@@ -349,7 +347,7 @@ def load_vois(cls=None, accnums=None, overwrite=False, save_seg=False):
 
 		"""if save_seg:
 			load_dir = join(C.dcm_dir, accnum)
-			I,_ = hf.nii_load(join(load_dir, "nii_dir", "20s.nii.gz"))
+			I,_ = io.nii_load(join(load_dir, "nii_dir", "20s.nii.gz"))
 			
 			downsample = 1
 			if np.product(I.shape) > C.max_size:
@@ -425,7 +423,7 @@ def read_metadata(metadata_txt):
 	search_terms = [mrn_tag, birthdate_tag, curdate_tag, sex_tag, ethnic_tag]
 
 	for search_term in search_terms:
-		result[search_term] = hf.get_dcm_header_value(metadata_txt, search_term)
+		result[search_term] = io.get_dcm_header_value(metadata_txt, search_term)
 
 	mrn = result[mrn_tag]
 	try:
@@ -560,7 +558,7 @@ def semiauto_rename_phases(lesion_dir=None):
 
 		DCE = [x for x in os.listdir(accnum) if ("vibe" in x or "dynamic" in x) and "post" in x and "sub" not in x]
 		if len(DCE) > 0:
-			DCE = hf.sort_by_series_num([x for x in DCE if "min" not in x])
+			DCE = io.sort_by_series_num([x for x in DCE if "min" not in x])
 		else:
 			DCE = [x for x in os.listdir(accnum) if "art" in x and "reg" in x] + \
 					[x for x in os.listdir(accnum) if ("port" in x or "pv" in x) and "reg" in x] + \

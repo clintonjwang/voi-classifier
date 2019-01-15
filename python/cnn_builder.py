@@ -31,20 +31,11 @@ from keras.utils import np_utils, multi_gpu_model
 
 import config
 import dr_methods as drm
-import niftiutils.helper_fxns as hf
 import niftiutils.transforms as tr
-import niftiutils.deep_learning.cnn_components as cnnc
-import niftiutils.deep_learning.dcgan as dcgan
-import niftiutils.deep_learning.densenet as densenet
-import niftiutils.deep_learning.uncertainty as uncert
-import niftiutils.deep_learning.common as common
+import niftiutils.tf_nn.components as cnnc
+import niftiutils.tf_nn.common as common
 import voi_methods as vm
 
-importlib.reload(config)
-importlib.reload(uncert)
-importlib.reload(drm)
-importlib.reload(cnnc)
-importlib.reload(common)
 C = config.Config()
 
 ####################################

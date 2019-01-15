@@ -28,12 +28,8 @@ import time
 
 import dr_methods as drm
 import voi_methods as vm
-import feature_interpretation as cnna
 import cnn_builder as cbuild
-import niftiutils.helper_fxns as hf
 
-importlib.reload(config)
-importlib.reload(cbuild)
 
 ####################################
 ### RUN!
@@ -120,12 +116,12 @@ class CNNRunner():
 			running_acc_6.append(accuracy_score(y_true, y_pred))
 			print("Accuracy: %d%% (avg: %d%%), time: %ds" % (running_acc_6[-1]*100, np.mean(running_acc_6)*100, time.time()-t))
 
-			if hasattr(self.C,'simplify_map'):
+			"""if hasattr(self.C,'simplify_map'):
 				y_true_simp, y_pred_simp = merge_classes(y_true, y_pred, self.C)
 				acc_3 = accuracy_score(y_true_simp, y_pred_simp)
 				row = _get_hyperparams_as_list(self.C, self.T) + [num_samples[k] for k in self.C.cls_names] + [running_acc_6[-1], acc_3]
-			else:
-				row = _get_hyperparams_as_list(self.C, self.T) + [num_samples[k] for k in self.C.cls_names] + [running_acc_6[-1]]
+			else:"""
+			row = _get_hyperparams_as_list(self.C, self.T) + [num_samples[k] for k in self.C.cls_names] + [running_acc_6[-1]]
 			
 			model_names = glob.glob(join(self.C.model_dir, model_name+"*"))
 			if len(model_names) > 0:

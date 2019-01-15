@@ -7,7 +7,8 @@ Author: Clinton Wang, E-mail: `clintonjwang@gmail.com`, Github: `https://github.
 from os.path import *
 from keras.callbacks import EarlyStopping
 from keras.optimizers import Adam
-import niftiutils.helper_fxns as hf
+import niftiutils.io as io
+import numpy as np
 
 class Config:
 	def __init__(self, dataset="lirads"):
@@ -105,10 +106,10 @@ class Config:
 		self.dim_cols = ["voxdim_x", "voxdim_y", "voxdim_z"]
 		self.accnum_cols = ["MRN", "Sex", "AgeAtImaging", "Ethnicity"] + self.dim_cols + ["downsample"]
 
-		self.voi_cols = [hf.flatten([[ph+ch+'1', ph+ch+'2'] for ch in ['x','y','z']]) for ph in ['a_','v_','e_']]
+		self.voi_cols = [list(np.array([[ph+ch+'1', ph+ch+'2'] for ch in ['x','y','z']]).flatten()) for ph in ['a_','v_','e_']]
 		self.art_cols, self.ven_cols, self.equ_cols = self.voi_cols
 		self.pad_cols = ['pad_x','pad_y','pad_z']
-		self.voi_cols = hf.flatten(self.voi_cols) + self.pad_cols
+		self.voi_cols = list(np.array(self.voi_cols).flatten()) + self.pad_cols
 
 		# An accnum must be in accnum_df for it to be processed
 		self.accnum_df_path = join("/mnt/LIRADS/LIRADS/excel", "accnum_data.csv")

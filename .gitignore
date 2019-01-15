@@ -1,8 +1,11 @@
 python/result*
 documents
 data
-api_retrieval.ipynb
-*(outdated).ipynb
+screenshots/
+models/
+excel/
+unused
+*.png
 *.xls*
 *.csv
 *.pdf

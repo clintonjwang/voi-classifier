@@ -14,7 +14,7 @@ Author: Clinton Wang, E-mail: `clintonjwang@gmail.com`, Github: `https://github.
 import argparse
 import copy
 import glob
-import importlib
+from importlib import reload
 import math
 import multiprocessing
 import os
@@ -30,14 +30,11 @@ from skimage.transform import rescale, resize
 
 import config
 import dr_methods as drm
-import niftiutils.helper_fxns as hf
 import niftiutils.masks as masks
 import niftiutils.transforms as tr
-import niftiutils.visualization as vis
+import niftiutils.vis as vis
 
-importlib.reload(drm)
-importlib.reload(tr)
-importlib.reload(config)
+reload(config)
 C = config.Config()
 
 #####################################
