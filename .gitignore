@@ -4,7 +4,9 @@ data
 screenshots/
 models/
 excel/
-unused
+unused/
+imgs/
+excel2/
 *.png
 *.xls*
 *.csv

@@ -1,91 +1,80 @@
-"""
-Converts a nifti file to a numpy array.
-Accepts either a single nifti file or a folder of niftis as the input argument.
-
-Usage:
-	python voi_methods.py
-	python voi_methods.py --cls hcc
-	python voi_methods.py -v -c cyst
-	python voi_methods.py -ovc hemangioma
-
-Author: Clinton Wang, E-mail: `clintonjwang@gmail.com`, Github: `https://github.com/clintonjwang/voi-classifier`
-"""
-
-import argparse
 import copy
 import glob
-from importlib import reload
 import math
 import multiprocessing
 import os
 import random
 import time
 from os.path import *
+from functools import partial
 
 import numpy as np
 import pandas as pd
 from joblib import Parallel, delayed
 from scipy.misc import imsave
-from skimage.transform import rescale, resize
 
-import config
-import dr_methods as drm
-import niftiutils.masks as masks
-import niftiutils.transforms as tr
-import niftiutils.vis as vis
+from am.dispositio.action import Action
 
-reload(config)
-C = config.Config()
+
+def get_actions(A):
+    acts = [
+        (["show MRI"], Action(partial(plot_check(A), mode=0))),
+        (["show roughly cropped lesion", "show cropped lesion"], Action(partial(plot_check(A), mode=1))),
+        (["show tightly cropped lesion", "show non-augmented lesion"], Action(partial(plot_check(A), mode=2))),
+        (["show augmented lesion"], Action(partial(plot_check(A), mode=3))),
+    ]
+
+    return acts
 
 #####################################
 ### QC methods
 #####################################
 
-def plot_check(num, lesion_id=None, normalize=[-1,1], slice_frac=.5):
-	"""Plot the unscaled, cropped or augmented versions of a lesion.
-	Lesion selected at random from cls if lesion_id is None.
-	Either lesion_id or cls must be specified.
-	If accession number is put instead of lesion_id, picks the first lesion."""
-	if lesion_id.find('_') == -1:
-		lesion_id += '_0'
+def plot_check(A):
+	def fxn(mode, lesion_id, normalize=True):
+		"""Plot the unscaled, cropped or augmented versions of a lesion.
+		If accession number is put instead of lesion_id, picks the first lesion."""
+		if lesion_id.find('_') == -1:
+			lesion_id += '_0'
+			
+		if mode == 0:
+			accnum = lesion_id[:lesion_id.find('_')]
+			img = np.load(join(A["full img folder"], accnum + ".npy"))
+		elif mode == 1:
+			img = np.load(join(A["cropped img folder"], lesion_id + ".npy"))
+		elif mode == 2:
+			img = np.load(join(A["non-augmented img folder"], lesion_id + ".npy"))
+		elif mode == 3:
+			img = np.load(join(A["augmented img folder"], lesion_id + "_" + str(random.randint(0, A["augmentation factor"]-1)) + ".npy"))
 		
-	if num == 0:
-		img = np.load(join(C.full_img_dir, lesion_id[:lesion_id.find('_')] + ".npy"))
-	elif num == 1:
-		img = np.load(join(C.crops_dir, lesion_id + ".npy"))
-	elif num == 2:
-		img = np.load(join(C.unaug_dir, lesion_id + ".npy"))
-	elif num == 3:
-		img = np.load(join(C.aug_dir, lesion_id + "_" + str(random.randint(0,C.aug_factor-1)) + ".npy"))
-	else:
-		raise ValueError(num + " should be 0 (uncropped), 1 (gross cropping), 2 (unaugmented) or 3 (augmented)")
-	vis.draw_slices(img, normalize=normalize, slice_frac=slice_frac)
+		A("draw slices")(img, normalize=normalize, slice_frac=.5)
 
-	return img
+		return img
+	return fxn
 
 def xref_dirs_with_excel(fix_inplace=True):
 	"""Make sure the image directories have all the images expected based on the config settings
 	(aug factor and run number) and VOI spreadsheet contents.
 	If fix_inplace is True, reload any mismatched accnums."""
-	lesion_df = pd.read_csv(C.lesion_df_path)
+	lesion_df = pd.read_csv(A["lesion_df_path"])
 
 	bad_accnums = []
 
 	if hasattr(C, 'sheetnames'):
-		df = pd.concat([pd.read_excel(C.coord_xls_path, sheetname) for sheetname in C.sheetnames])
+		df = pd.concat([pd.read_excel(A["coord_xls_path"], sheetname) for sheetname in A["sheetnames"]])
 	else:
-		df = pd.read_excel(C.coord_xls_path, C.sheetname)
+		df = pd.read_excel(A["coord_xls_path"], A["sheetname"])
 		
 	lesion_df = drm.get_lesion_df()
-	xls_accnums = list(df[df['Run'] <= C.run_num]['acc #'].astype(str))
+	xls_accnums = list(df[df['Run'] <= A["run_num"]]['acc #'].astype(str))
 	unique, counts = np.unique(xls_accnums, return_counts=True)
 	xls_set = set(unique)
 	xls_cnts = dict(zip(unique, counts))
 
 	# Check for loaded images
 	for accnum in xls_set:
-		if not exists(join(C.full_img_dir, accnum+".npy")):
-			print(accnum, "is contained in the spreadsheet but has no loaded image in", C.full_img_dir)
+		if not exists(join(A["full_img_dir"], accnum+".npy")):
+			print(accnum, "is contained in the spreadsheet but has no loaded image in", A["full_img_dir"])
 
 			bad_accnums.append(accnum)
 
@@ -110,54 +99,54 @@ def xref_dirs_with_excel(fix_inplace=True):
 			bad_accnums.append(accnum)
 
 	# Check rough cropped lesions
-	accnums = [fn[:fn.find("_")] for fn in os.listdir(C.crops_dir)]
+	accnums = [fn[:fn.find("_")] for fn in os.listdir(A["crops_dir"])]
 	unique, counts = np.unique(accnums, return_counts=True)
 	diff = xls_set.difference(unique)
 	if len(diff) > 0:
-		print(diff, "are contained in the spreadsheet but not in", C.crops_dir)
+		print(diff, "are contained in the spreadsheet but not in", A["crops_dir"])
 		bad_accnums += list(diff)
 	diff = set(unique).difference(xls_set)
 	if len(diff) > 0:
-		print(diff, "are contained in", C.crops_dir, "but not the spreadsheet.")
+		print(diff, "are contained in", A["crops_dir"], "but not the spreadsheet.")
 		bad_accnums += list(diff)
 
 	overlap = xls_set.intersection(unique)
 	voi_cnts = dict(zip(unique, counts))
 	for accnum in overlap:
 		if voi_cnts[accnum] != xls_cnts[accnum]:
-			print("Mismatch in number of lesions in the spreadsheet vs", C.crops_dir, "for", accnum)
+			print("Mismatch in number of lesions in the spreadsheet vs", A["crops_dir"], "for", accnum)
 			bad_accnums.append(accnum)
 
 	# Check unaugmented lesions
-	accnums = [fn[:fn.find("_")] for fn in os.listdir(C.unaug_dir)]
+	accnums = [fn[:fn.find("_")] for fn in os.listdir(A["unaug_dir"])]
 	unique, counts = np.unique(accnums, return_counts=True)
 	diff = xls_set.difference(unique)
 	if len(diff) > 0:
-		print(diff, "are contained in the spreadsheet but not in", C.unaug_dir)
+		print(diff, "are contained in the spreadsheet but not in", A["unaug_dir"])
 		bad_accnums += list(diff)
 	diff = set(unique).difference(xls_set)
 	if len(diff) > 0:
-		print(diff, "are contained in", C.unaug_dir, "but not the spreadsheet.")
+		print(diff, "are contained in", A["unaug_dir"], "but not the spreadsheet.")
 		bad_accnums += list(diff)
 
 	overlap = xls_set.intersection(unique)
 	voi_cnts = dict(zip(unique, counts))
 	for accnum in overlap:
 		if voi_cnts[accnum] != xls_cnts[accnum]:
-			print("Mismatch in number of lesions in the spreadsheet vs", C.unaug_dir, "for", accnum)
+			print("Mismatch in number of lesions in the spreadsheet vs", A["unaug_dir"], "for", accnum)
 			bad_accnums.append(accnum)
 
 
 	# Check augmented lesions
-	lesion_ids_folder = set([fn[:fn.rfind("_")] for fn in os.listdir(C.aug_dir)])
+	lesion_ids_folder = set([fn[:fn.rfind("_")] for fn in os.listdir(A["aug_dir"])])
 	lesion_ids_df = set(lesion_df[lesion_df["cls"] == cls].index)
 	diff = lesion_ids_df.difference(lesion_ids_folder)
 	if len(diff) > 0:
-		print(diff, "are contained in lesion_df but not in", C.aug_dir)
+		print(diff, "are contained in lesion_df but not in", A["aug_dir"])
 		bad_accnums += [x[:x.find('_')] for x in diff]
 	diff = lesion_ids_folder.difference(lesion_ids_df)
 	if len(diff) > 0:
-		print(diff, "are contained in", C.aug_dir, "but not in lesion_df.")
+		print(diff, "are contained in", A["aug_dir"], "but not in lesion_df.")
 		bad_accnums += [x[:x.find('_')] for x in diff]
 
 	# Fix lesions
@@ -170,34 +159,34 @@ def remove_lesion_id(lesion_id):
 	lesion_df = drm.get_lesion_df()
 	try:
 		lesion_df.drop(lesion_id, inplace=True)
-		lesion_df.to_csv(C.lesion_df_path)
+		lesion_df.to_csv(A["lesion_df_path"])
 	except:
 		pass
-	for fn in glob.glob(join(C.crops_dir, lesion_id+"*")) + \
-				glob.glob(join(C.unaug_dir, lesion_id+"*")) + \
-				glob.glob(join(C.aug_dir, lesion_id+"*")):
+	for fn in glob.glob(join(A["crops_dir"], lesion_id+"*")) + \
+				glob.glob(join(A["unaug_dir"], lesion_id+"*")) + \
+				glob.glob(join(A["aug_dir"], lesion_id+"*")):
 		os.remove(fn)
 
 def reset_accnum(accnum):
 	"""Reset an accession number (only assumes dcm2npy has been called)"""
 	accnum = str(accnum)
 
-	for cls in C.cls_names:
-		for base_dir in [C.crops_dir, C.unaug_dir, C.aug_dir]:
+	for cls in A["cls_names"]:
+		for base_dir in [A["crops_dir"], A["unaug_dir"], A["aug_dir"]]:
 			for fn in glob.glob(join(base_dir, cls, accnum+"*")):
 				os.remove(fn)
 
 	lesion_df = drm.get_lesion_df()
 	lesion_df = drm._remove_accnums_from_vois(lesion_df, [accnum])
-	lesion_df.to_csv(C.lesion_df_path)
+	lesion_df.to_csv(A["lesion_df_path"])
 
-	for cls in C.cls_names:
+	for cls in A["cls_names"]:
 		reload_accnum(cls, accnums=[accnum], augment=True)
 
 def load_accnum(cls=None, accnums=None, augment=True):
 	#Reloads cropped, scaled and augmented images. Updates voi_dfs and small_vois accordingly.
 	#May fail if the accnum already exists - should call reset_accnum instead
-	for base_dir in [C.crops_dir, C.unaug_dir, C.aug_dir]:
+	for base_dir in [A["crops_dir"], A["unaug_dir"], A["aug_dir"]]:
 		if not exists(base_dir):
 			os.makedirs(base_dir)
 
@@ -207,7 +196,7 @@ def load_accnum(cls=None, accnums=None, augment=True):
 	if augment:
 		save_augmented_set(cls, accnums, overwrite=True)
 
-@drm.autofill_cls_arg
+
 def save_vois_as_imgs(cls=None, lesion_ids=None, save_dir=None, normalize=None, rescale_factor=3, fn_prefix="", fn_suffix=None, separate_by_cls=True):
 	"""Save all voi images as jpg."""
 	if separate_by_cls:
@@ -219,14 +208,14 @@ def save_vois_as_imgs(cls=None, lesion_ids=None, save_dir=None, normalize=None, 
 
 	lesion_df = drm.get_lesion_df()
 	if lesion_ids is not None:
-		fns = [lesion_id+".npy" for lesion_id in lesion_ids if lesion_id+".npy" in os.listdir(C.unaug_dir) \
+		fns = [lesion_id+".npy" for lesion_id in lesion_ids if lesion_id+".npy" in os.listdir(A["unaug_dir"]) \
 				and lesion_df.loc[lesion_id,"cls"] == cls]
 	else:
-		fns = [fn for fn in os.listdir(C.unaug_dir) if fn[:-4] in lesion_df.index and \
+		fns = [fn for fn in os.listdir(A["unaug_dir"]) if fn[:-4] in lesion_df.index and \
 				lesion_df.loc[fn[:-4],"cls"] == cls]
 
 	for fn in fns:
-		img = np.load(join(C.unaug_dir, fn))
+		img = np.load(join(A["unaug_dir"], fn))
 
 		img_slice = img[:,:, img.shape[2]//2].astype(float)
 		img_slice = vis.normalize_img(img_slice, normalize)
@@ -234,15 +223,15 @@ def save_vois_as_imgs(cls=None, lesion_ids=None, save_dir=None, normalize=None, 
 		ch1 = np.transpose(img_slice[:,::-1,0], (1,0))
 		ch2 = np.transpose(img_slice[:,::-1,1], (1,0))
 		
-		if C.nb_channels == 2:
-			ret = np.empty([ch1.shape[0]*C.nb_channels, ch1.shape[1]])
+		if A["nb_channels"] == 2:
+			ret = np.empty([ch1.shape[0]*A["nb_channels"], ch1.shape[1]])
 			ret[:ch1.shape[0],:] = ch1
 			ret[ch1.shape[0]:,:] = ch2
 			
-		elif C.nb_channels == 3:
+		elif A["nb_channels"] == 3:
 			ch3 = np.transpose(img_slice[:,::-1,2], (1,0))
 
-			ret = np.empty([ch1.shape[0]*C.nb_channels, ch1.shape[1]])
+			ret = np.empty([ch1.shape[0]*A["nb_channels"], ch1.shape[1]])
 			ret[:ch1.shape[0],:] = ch1
 			ret[ch1.shape[0]:ch1.shape[0]*2,:] = ch2
 			ret[ch1.shape[0]*2:,:] = ch3
@@ -254,16 +243,16 @@ def save_vois_as_imgs(cls=None, lesion_ids=None, save_dir=None, normalize=None, 
 
 		imsave(join(save_dir, "%s%s%s.png" % (fn_prefix, fn[:-4], suffix)), rescale(ret, rescale_factor, mode='constant'))
 
-@drm.autofill_cls_arg
+
 def save_imgs_with_bbox(cls=None, lesion_ids=None, save_dir=None, normalize=None, fixed_width=100, fn_prefix="", fn_suffix=None, separate_by_cls=True):
 	"""Save images of grossly cropped lesions with a bounding box around the tighter crop.
 	If fixed_width is None, the images are not scaled.
 	Otherwise, the images are made square with the given width in pixels."""
 
-	lesion_df = pd.read_csv(C.small_voi_path)
+	lesion_df = pd.read_csv(A["small_voi_path"])
 
 	if save_dir is None:
-		save_dir = C.output_img_dir
+		save_dir = A["output_img_dir"]
 	if separate_by_cls:
 		save_dir = join(save_dir, cls)
 		if fn_suffix is None:
@@ -273,13 +262,13 @@ def save_imgs_with_bbox(cls=None, lesion_ids=None, save_dir=None, normalize=None
 		os.makedirs(save_dir)
 		
 	if lesion_ids is None:
-		lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir)]
+		lesion_ids = [x[:-4] for x in os.listdir(A["crops_dir"])]
 	else:
-		lesion_ids = [lesion_id for lesion_id in lesion_ids if lesion_id+".npy" in os.listdir(C.crops_dir)]
+		lesion_ids = [lesion_id for lesion_id in lesion_ids if lesion_id+".npy" in os.listdir(A["crops_dir"])]
 
 	for lesion_id in lesion_ids:
 		#cls = lesion_df.loc.loc[lesion_id, "cls"].values[0]
-		img = np.load(join(C.crops_dir, lesion_id + ".npy"))
+		img = np.load(join(A["crops_dir"], lesion_id + ".npy"))
 		img_slice = img[:,:, img.shape[2]//2].astype(float)
 		#for ch in range(img_slice.shape[-1]):
 		#	img_slice[:, :, ch] *= 255/np.amax(img_slice[:, :, ch])
@@ -294,12 +283,12 @@ def save_imgs_with_bbox(cls=None, lesion_ids=None, save_dir=None, normalize=None
 		ch1 = np.transpose(img_slice[:,::-1,:,0], (1,0,2))
 		ch2 = np.transpose(img_slice[:,::-1,:,1], (1,0,2))
 		
-		if C.nb_channels == 2:
+		if A["nb_channels"] == 2:
 			ret = np.empty([ch1.shape[0]*2, ch1.shape[1], 3])
 			ret[:ch1.shape[0],:,:] = ch1
 			ret[ch1.shape[0]:,:,:] = ch2
 			
-		elif C.nb_channels == 3:
+		elif A["nb_channels"] == 3:
 			ch3 = np.transpose(img_slice[:,::-1,:,2], (1,0,2))
 
 			ret = np.empty([ch1.shape[0]*3, ch1.shape[1], 3])
@@ -326,8 +315,8 @@ def semiauto_label_lesions(lesion_ids=None):
 	print("3: Capsule")
 	print("4: Bad image")
 
-	if exists(C.label_lesion_df):
-		df = pd.read_csv(C.label_lesion_df, index_col=0)
+	if exists(A["label_lesion_df"]):
+		df = pd.read_csv(A["label_lesion_df"], index_col=0)
 	else:
 		df = pd.DataFrame(columns=["Arterial enhancement", "Washout", "Capsule", "Bad image"])
 
@@ -354,22 +343,22 @@ def semiauto_label_lesions(lesion_ids=None):
 			row[0] = 3
 		df.loc[lesion_id] = row
 
-	df.to_csv(C.label_lesion_df)
+	df.to_csv(A["label_lesion_df"])
 
 
 #####################################
 ### Data Creation
 #####################################
 
-@drm.autofill_cls_arg
+
 def extract_vois(cls=None, accnums=None, lesion_ids=None, overwrite=False, pad_lims=[1,50]):
 	"""Produces grossly cropped but unscaled versions of the images.
 	This intermediate step makes debugging and visualization easier, and augmentation faster.
 	Rotation, scaling, etc. for augmentation can be done directly on these images.
 	drm.load_vois_batch() must be run first to populate the lesion_df.
 	Overwrites any existing images and lesion_df entries without checking."""
-	if not exists(C.crops_dir):
-		os.makedirs(C.crops_dir)
+	if not exists(A["crops_dir"]):
+		os.makedirs(A["crops_dir"])
 
 	lesion_df = drm.get_lesion_df()
 	if lesion_ids is None:
@@ -384,7 +373,7 @@ def extract_vois(cls=None, accnums=None, lesion_ids=None, overwrite=False, pad_l
 		if not overwrite and not np.isnan(lesion_df.loc[l_id, "sm_x1"]):
 			continue
 
-		img_path = join(C.full_img_dir, lesion_df.loc[l_id, "accnum"]+".npy")
+		img_path = join(A["full_img_dir"], lesion_df.loc[l_id, "accnum"]+".npy")
 		if not exists(img_path):
 			continue
 
@@ -412,56 +401,56 @@ def extract_vois(cls=None, accnums=None, lesion_ids=None, overwrite=False, pad_l
 
 		dx = np.array([x2[ix] - x1[ix] for ix in range(3)])
 		assert np.all(np.greater(x2,x1)), str(voi["accnum"])
-		pad = np.clip(dx * .5 / C.lesion_ratio, *pad_lims).astype(int) + [10,10,-1]
+		pad = np.clip(dx * .5 / A["lesion_ratio"], *pad_lims).astype(int) + [10,10,-1]
 		x1_ = [max(x1[ix]-pad[ix], 0) for ix in range(3)]
 		x2_ = [min(x2[ix]+pad[ix], img.shape[ix]) for ix in range(3)]
 		sl = [slice(x1_[ix], x2_[ix]) for ix in range(3)]
-		lesion_df.loc[l_id, C.pad_cols] = [abs((min(x1[ix]-x1_[ix], x2_[ix]-x2[ix])) * C.lesion_ratio) for ix in range(3)]
+		lesion_df.loc[l_id, A["pad_cols"]] = [abs((min(x1[ix]-x1_[ix], x2_[ix]-x2[ix])) * A["lesion_ratio"]) for ix in range(3)]
 
-		np.save(join(C.crops_dir, l_id), img[sl])
+		np.save(join(A["crops_dir"], l_id), img[sl])
 
 		print(".", end="")
 		if cnt % 20 == 2:
-			lesion_df.to_csv(C.lesion_df_path)
+			lesion_df.to_csv(A["lesion_df_path"])
 	
-	lesion_df.to_csv(C.lesion_df_path)
+	lesion_df.to_csv(A["lesion_df_path"])
 
-@drm.autofill_cls_arg
+
 def save_unaugmented_set(cls=None, accnums=None, lesion_ids=None, lesion_ratio=None, overwrite=True):
 	"""Save unaugmented lesion images."""
 
 	lesion_df = drm.get_lesion_df()
 
-	if not exists(C.unaug_dir):
-		os.makedirs(C.unaug_dir)
+	if not exists(A["unaug_dir"]):
+		os.makedirs(A["unaug_dir"])
 
 	if lesion_ids is None:
 		if accnums is None:
-			lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir) if x[:-4] in lesion_df[lesion_df["cls"] == cls].index]
+			lesion_ids = [x[:-4] for x in os.listdir(A["crops_dir"]) if x[:-4] in lesion_df[lesion_df["cls"] == cls].index]
 		else:
-			lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir) if x[:x.find('_')] in accnums and \
+			lesion_ids = [x[:-4] for x in os.listdir(A["crops_dir"]) if x[:x.find('_')] in accnums and \
 					x[:-4] in lesion_df[lesion_df["cls"] == cls].index]
 	else:
 		lesion_ids = set(lesion_ids).intersection(lesion_df[lesion_df["cls"] == cls].index)
 
 	for ix, l_id in enumerate(lesion_ids):
-		if not overwrite and exists(join(C.unaug_dir, l_id + ".npy")):
+		if not overwrite and exists(join(A["unaug_dir"], l_id + ".npy")):
 			continue
-		pad = lesion_df.loc[l_id, C.pad_cols].values.astype(int)
+		pad = lesion_df.loc[l_id, A["pad_cols"]].values.astype(int)
 		sl = [slice(pad[ix], min(1-pad[ix],-1)) for ix in range(3)]
-		img = np.load(join(C.crops_dir, l_id + ".npy"))
+		img = np.load(join(A["crops_dir"], l_id + ".npy"))
 		if img[sl].size == 0:
 			print(sl)
 			raise ValueError(l_id)
 
-		if C.pre_scale > 0:
-			img = tr.normalize_intensity(img, max_I=1, min_I=-1, frac=C.pre_scale)
+		if A["pre_scale"] > 0:
+			img = tr.normalize_intensity(img, max_I=1, min_I=-1, frac=A["pre_scale"])
 
-		img = tr.rescale_img(img[sl], C.dims)
+		img = tr.rescale_img(img[sl], A["dims"])
 
-		np.save(join(C.unaug_dir, l_id), img)
+		np.save(join(A["unaug_dir"], l_id), img)
 
-@drm.autofill_cls_arg
+
 def save_augmented_set(cls=None, accnums=None, num_cores=None, overwrite=True):
 	"""Augment all images in cls using CPU parallelization.
 	Overwrite can be an int, in which case it will create
@@ -469,14 +458,14 @@ def save_augmented_set(cls=None, accnums=None, num_cores=None, overwrite=True):
 
 	lesion_df = drm.get_lesion_df()
 
-	if not exists(C.aug_dir):
-		os.makedirs(C.aug_dir)
+	if not exists(A["aug_dir"]):
+		os.makedirs(A["aug_dir"])
 
 	if accnums is not None:
-		lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir) if x[:x.find('_')] in accnums \
+		lesion_ids = [x[:-4] for x in os.listdir(A["crops_dir"]) if x[:x.find('_')] in accnums \
 					and x[:-4] in lesion_df[lesion_df["cls"] == cls].index]
 	else:
-		lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir) if x[:-4] in lesion_df.index]
+		lesion_ids = [x[:-4] for x in os.listdir(A["crops_dir"]) if x[:-4] in lesion_df.index]
 
 	t = time.time()
 	if num_cores is None:
@@ -486,11 +475,11 @@ def save_augmented_set(cls=None, accnums=None, num_cores=None, overwrite=True):
 			num_cores = 1
 
 	if num_cores > 1:
-		Parallel(n_jobs=num_cores)(delayed(_save_augmented_img)(lesion_id, lesion_df.loc[lesion_id, C.pad_cols],
+		Parallel(n_jobs=num_cores)(delayed(_save_augmented_img)(lesion_id, lesion_df.loc[lesion_id, A["pad_cols"]],
 			overwrite=overwrite) for lesion_id in lesion_ids)
 	else:
 		for lesion_id in lesion_ids:
-			_save_augmented_img(lesion_id, lesion_df.loc[lesion_id, C.pad_cols], overwrite=overwrite)
+			_save_augmented_img(lesion_id, lesion_df.loc[lesion_id, A["pad_cols"]], overwrite=overwrite)
 
 	print(cls, time.time()-t)
 
@@ -510,7 +499,7 @@ def padded_coords(lesion_df, lesion_id):
 def _draw_bbox(img_slice, voi):
 	"""Draw a colored box around the voi of an image slice showing how it would be cropped."""
 	
-	crop = [img_slice.shape[i] - round(C.dims[i]/C.lesion_ratio) for i in range(2)]
+	crop = [img_slice.shape[i] - round(A["dims"][i]/A["lesion_ratio"]) for i in range(2)]
 	
 	x1 = crop[0]//2
 	x2 = -crop[0]//2
@@ -539,12 +528,12 @@ def _save_augmented_img(lesion_id, padding, overwrite=True):
 	padding = padding.values.astype(int)
 	if lesion_id.find('.') != -1:
 		lesion_id = lesion_id[:-4]
-	if not overwrite and exists(join(C.aug_dir, lesion_id + "_0.npy")):
+	if not overwrite and exists(join(A["aug_dir"], lesion_id + "_0.npy")):
 		return
 
-	img = np.load(join(C.crops_dir, lesion_id + ".npy"))
-	if C.pre_scale > 0:
-		img = tr.normalize_intensity(img, max_I=1, min_I=-1, frac=C.pre_scale)
+	img = np.load(join(A["crops_dir"], lesion_id + ".npy"))
+	if A["pre_scale"] > 0:
+		img = tr.normalize_intensity(img, max_I=1, min_I=-1, frac=A["pre_scale"])
 
 	if type(overwrite) == int:
 		start=overwrite
@@ -552,7 +541,7 @@ def _save_augmented_img(lesion_id, padding, overwrite=True):
 		start=0
 	
 	aug_imgs = []
-	for img_num in range(start, C.aug_factor):
+	for img_num in range(start, A["aug_factor"]):
 		flip = [random.choice([-1, 1]) for _ in range(3)]
 		A = np.clip(np.random.multivariate_normal(padding,
 				(np.ones((3,3)) + .5*np.diag(padding))), padding*.7, padding*1.3).astype(int)
@@ -582,12 +571,12 @@ def _save_augmented_img(lesion_id, padding, overwrite=True):
 		if np.min(aug_img.shape) == 0:
 			print(sl_flip, img.shape, aug_img.shape)
 			raise ValueError()
-		aug_img = tr.rescale_img(aug_img, C.dims)
+		aug_img = tr.rescale_img(aug_img, A["dims"])
 		
 		for ix in range(3):
-			aug_img[...,ix] = aug_img[...,ix] * random.gauss(1,C.intensity_scaling[0]) + random.gauss(0,C.intensity_scaling[0]) + np.random.normal(0, C.intensity_scaling[1], C.dims)
+			aug_img[...,ix] = aug_img[...,ix] * random.gauss(1,A["intensity_scaling"][0]) + random.gauss(0,A["intensity_scaling"][0]) + np.random.normal(0, A["intensity_scaling"][1], A["dims"])
 
-		np.save(join(C.aug_dir, lesion_id + "_" + str(img_num)), aug_img)
+		np.save(join(A["aug_dir"], lesion_id + "_" + str(img_num)), aug_img)
 
 
 #####################################
@@ -595,21 +584,21 @@ def _save_augmented_img(lesion_id, padding, overwrite=True):
 #####################################
 
 """def extract_seg_vois(accnums=None):
-	if not exists(C.crops_dir):
-		os.makedirs(C.crops_dir)
+	if not exists(A["crops_dir"]):
+		os.makedirs(A["crops_dir"])
 	if accnums is None:
-		accnums = [x[:-4] for x in os.listdir(C.full_img_dir) if not x.endswith("seg.npy")]
+		accnums = [x[:-4] for x in os.listdir(A["full_img_dir"]) if not x.endswith("seg.npy")]
 
-	accnum_df = pd.read_csv(C.accnum_df_path, index_col=0)
+	accnum_df = pd.read_csv(A["accnum_df_path"], index_col=0)
 	accnum_df.index = accnum_df.index.map(str)
 
 	for accnum in accnums:
-		if not exists(join(C.full_img_dir, accnum+"_tumorseg.npy")):
+		if not exists(join(A["full_img_dir"], accnum+"_tumorseg.npy")):
 			continue
 		try:
-			D = np.product(accnum_df.loc[accnum, C.dim_cols].values)
-			I = np.load(join(C.full_img_dir, accnum+".npy"))
-			M_all = np.load(join(C.full_img_dir, accnum+"_tumorseg.npy"))
+			D = np.product(accnum_df.loc[accnum, A["dim_cols"]].values)
+			I = np.load(join(A["full_img_dir"], accnum+".npy"))
+			M_all = np.load(join(A["full_img_dir"], accnum+"_tumorseg.npy"))
 			M_all = masks.split_mask(M_all)
 			for m_ix, M in enumerate(M_all):
 				V = M.sum()*D
@@ -617,28 +606,28 @@ def _save_augmented_img(lesion_id, padding, overwrite=True):
 					continue
 				crop_img = masks.crop_vicinity(I,M, padding=.2, min_pad=10)
 				crop_img = tr.normalize_intensity(crop_img, max_intensity=1, min_intensity=-1)
-				np.save(join(C.crops_dir, accnum+"_%d.npy"%m_ix), crop_img)
+				np.save(join(A["crops_dir"], accnum+"_%d.npy"%m_ix), crop_img)
 		except:
 			print(accnum)
 
 def save_seg_set(accnums=None, overwrite=True, unaug=True, aug=True, num_cores=None):
-	if not exists(C.unaug_dir):
-		os.makedirs(C.unaug_dir)
-	if not exists(C.aug_dir):
-		os.makedirs(C.aug_dir)
+	if not exists(A["unaug_dir"]):
+		os.makedirs(A["unaug_dir"])
+	if not exists(A["aug_dir"]):
+		os.makedirs(A["aug_dir"])
 
 	if accnums is None:
-		lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir)]
+		lesion_ids = [x[:-4] for x in os.listdir(A["crops_dir"])]
 	else:
-		lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir) if x[:x.find('_')] in accnums]
+		lesion_ids = [x[:-4] for x in os.listdir(A["crops_dir"]) if x[:x.find('_')] in accnums]
 
 	if unaug:
 		for ix, lesion_id in enumerate(lesion_ids):
-			if not overwrite and exists(join(C.unaug_dir, lesion_id+".npy")):
+			if not overwrite and exists(join(A["unaug_dir"], lesion_id+".npy")):
 				continue
-			I = np.load(join(C.crops_dir, lesion_id+".npy"))
-			I = tr.rescale_img(I, C.dims)
-			np.save(join(C.unaug_dir, lesion_id), I)
+			I = np.load(join(A["crops_dir"], lesion_id+".npy"))
+			I = tr.rescale_img(I, A["dims"])
+			np.save(join(A["unaug_dir"], lesion_id), I)
 
 	if aug:
 		if num_cores is None:
@@ -649,7 +638,7 @@ def save_seg_set(accnums=None, overwrite=True, unaug=True, aug=True, num_cores=N
 			for lesion_id in lesion_ids:
 				_save_augmented_img(lesion_id, overwrite=overwrite)
 
-@drm.autofill_cls_arg
+
 def save_segs_as_imgs(cls=None, lesion_ids=None, save_dir="D:\\Etiology\\screenshots", normalize=None, rescale_factor=3, fn_prefix="", fn_suffix=None, separate_by_cls=True):
 	if separate_by_cls:
 		save_dir = join(save_dir, cls)
@@ -660,10 +649,10 @@ def save_segs_as_imgs(cls=None, lesion_ids=None, save_dir="D:\\Etiology\\screens
 			
 	src_data_df = drm.get_coords_df(cls)
 	accnums = src_data_df["acc #"].values
-	lesion_ids = [x[:-4] for x in os.listdir(C.crops_dir) if x[:x.find('_')] in accnums]
+	lesion_ids = [x[:-4] for x in os.listdir(A["crops_dir"]) if x[:x.find('_')] in accnums]
 
 	for fn in lesion_ids:
-		img = np.load(join(C.unaug_dir, fn+".npy"))
+		img = np.load(join(A["unaug_dir"], fn+".npy"))
 		img_slice = img[:,:, img.shape[2]//2].astype(float)
 		img_slice = vis.normalize_img(img_slice, normalize)
 			
@@ -671,7 +660,7 @@ def save_segs_as_imgs(cls=None, lesion_ids=None, save_dir="D:\\Etiology\\screens
 		ch2 = np.transpose(img_slice[:,:,1], (1,0))
 		ch3 = np.transpose(img_slice[:,:,2], (1,0))
 
-		ret = np.empty([ch1.shape[0]*C.nb_channels, ch1.shape[1]])
+		ret = np.empty([ch1.shape[0]*A["nb_channels"], ch1.shape[1]])
 		ret[:ch1.shape[0],:] = ch1
 		ret[ch1.shape[0]:ch1.shape[0]*2,:] = ch2
 		ret[ch1.shape[0]*2:,:] = ch3
