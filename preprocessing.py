@@ -15,9 +15,9 @@ from scipy.misc import imsave
 
 from am.dispositio.action import Action
 
-
 def get_actions(A):
     acts = [
+        (["show lesion availability"], Action(show_lesion_availability(A))),
         (["show MRI"], Action(partial(plot_check(A), mode=0))),
         (["show roughly cropped lesion", "show cropped lesion"], Action(partial(plot_check(A), mode=1))),
         (["show tightly cropped lesion", "show non-augmented lesion"], Action(partial(plot_check(A), mode=2))),
@@ -30,8 +30,30 @@ def get_actions(A):
 ### QC methods
 #####################################
 
+def show_lesion_availability(A):
+	def fxn(lesion_id):
+		accnum = lesion_id[:lesion_id.find('_')]
+		if exists(join(A["full img folder"], accnum + ".npy")):
+			print("Full image: PRESENT")
+		else:
+			print("Full image: ABSENT")
+
+		if exists(join(A["cropped img folder"], lesion_id + ".npy")):
+			print("Cropped image: PRESENT")
+		else:
+			print("Cropped image: ABSENT")
+
+		if exists(join(A["non-augmented img folder"], lesion_id + ".npy")):
+			print("Non-augmented image: PRESENT")
+		else:
+			print("Non-augmented image: ABSENT")
+
+		matches = glob.glob(join(A["augmented img folder"], lesion_id + "_*.npy"))
+		print("Augmented images: %d" % len(matches))
+	return fxn
+
 def plot_check(A):
-	def fxn(mode, lesion_id, normalize=True):
+	def fxn(lesion_id, normalize=True, mode=None):
 		"""Plot the unscaled, cropped or augmented versions of a lesion.
 		If accession number is put instead of lesion_id, picks the first lesion."""
 		if lesion_id.find('_') == -1:
@@ -45,11 +67,9 @@ def plot_check(A):
 		elif mode == 2:
 			img = np.load(join(A["non-augmented img folder"], lesion_id + ".npy"))
 		elif mode == 3:
-			img = np.load(join(A["augmented img folder"], lesion_id + "_" + str(random.randint(0, A["augmentation factor"]-1)) + ".npy"))
+			img = np.load(join(A["augmented img folder"], lesion_id + "_%d.npy" % random.randint(0, A["augmentation factor"]-1)))
 		
-		A("draw slices")(img, normalize=normalize, slice_frac=.5)
-
-		return img
+		A("draw slices")(img)
 	return fxn
 
 def xref_dirs_with_excel(fix_inplace=True):

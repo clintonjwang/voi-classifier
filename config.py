@@ -52,7 +52,7 @@ def config_A(A):
 
     # data preprocessing and augmentation
     A["image dimensions"] = [32,32,16]
-    A["augmentation factor"] = 128
+    A["augmentation factor"] = 100
 
     A["lesion ratio"] = .7 # ratio of the lesion side length to the length of the cropped image
     A["pre scale"] = .8 # normalizes images while saving augmented/unaugmented images
@@ -61,9 +61,10 @@ def config_A(A):
 
     # CNN training
     A["variable to predict"] = "lesion class"
+    A["input shape"] = (A["number of channels"], *A["image dimensions"])
     A["max number of runs"] = "infinite"
-    A["fix test accnums"] = True
-    A["fixed test accnums"] = ['E103312835_1', '12823036_0', '12569915_0', 'E102093118_0', 'E102782525_0', '12799652_0',
+    A["fix test lesions"] = True
+    A["fixed test lesion ids"] = ['E103312835_1', '12823036_0', '12569915_0', 'E102093118_0', 'E102782525_0', '12799652_0',
          'E100894274_0', '12874178_3', 'E100314676_0', '12842070_0', '13092836_2', '12239783_0',
          '12783467_0', '13092966_0', 'E100962970_0', 'E100183257_1', 'E102634440_0', 'E106182827_0',
          '12582632_0', 'E100121654_0', 'E100407633_0', 'E105310461_0', '12788616_0', 'E101225606_0',
@@ -76,7 +77,7 @@ def config_A(A):
 
     # training hyperparameters
     P = {}
-    P["batch size"] = 4
+    P["batch size"] = 24
     P["steps per epoch"] = 64 #256
     P["epochs"] = 2 #350
     P["optimizer"] = "adam"
@@ -90,3 +91,11 @@ def config_A(A):
                 if k == "TKTK":
                     print(mod)
                 A("add action")(k, action)
+
+    obj_cls = []
+    for mod in [model]:
+        obj_cls += mod.get_obj_cls(A)
+
+    props = []
+    for mod in [model]:
+        props += mod.get_props(A)

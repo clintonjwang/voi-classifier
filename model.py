@@ -1,25 +1,60 @@
-import copy
-import glob
+import functools
 import os
-from os.path import *
-import random
-
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 import numpy as np
 import pandas as pd
 from sklearn.metrics import accuracy_score, confusion_matrix, f1_score
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.utils.data as data
 
+from am.world.obj_class import create_obj_cls_f
+from am.world.obj_inst import create_obj_inst_f
+from am.world.property import create_prop_f
 from am.dispositio.action import Action
+
+# files and folders
+def get_obj_cls(A):
+    create_obj_cls = functools.partial(create_obj_cls_f, A)
+    create_noun_inst = functools.partial(create_obj_inst_f, A, cls="noun")
+
+    objs = [
+        create_obj_cls(name='LIRADS datapoint',
+                       attributes=["image path", "lesion id", "accession number", "image", "one hot label", "true class", "predicted class"],
+                       parent="datapoint"),
+    ]
+
+    return objs
+
+def get_props(A):
+    create_prop = functools.partial(create_prop_f, A)
+    def create_props(*args):
+        return [create_prop(name=x) for x in args]
+    return [
+        # dummy properties that are actually objects or collections of objects
+        *create_props("image path", "lesion id", "accession number", "image", "one hot label", "true class", "predicted class") #parent='performance measure'
+    ]
 
 def get_actions(A):
     acts = [
-        (["collect all images"], Action(collect_unaug_data(A))),
-        (["split training and test data", "split data"], Action(split_training_test(A))),
-        (["set training data generator"], Action(set_train_data_gen(A))),
-        (["build CNN"], Action(build_cnn(A))),
-        (["run CNN"], Action(run_fixed_hyperparams(A)))
+        (["construct datasets"], Action(construct_datasets(A))),
+        (["set balanced training data generator"], Action(set_bal_train_data_gen(A))), # class balancing by separate sampling from each class
+        (["build lesion classifier"], Action(build_cnn(A))),
+        (["assess lesion classifier"], Action(assess_model(A))),
+
+        # alternative to the balanced training data generator, which implements class balancing via weighted sampling
+        (["get dataset weights for class balancing"], Action(get_weights_for_balancing(A))),
+        (["dataset to dataloader"], Action(construct_dataloaders(A))),
+
+        (["get augmented image paths"], Action(get_augmented_paths(A))),
+        #(["get image for lesion id"], Action(lesion_id_to_datapoint(A))),
+        (["get class of lesion id"], Action(get_class_of_lesion_id(A))),
+        (["new datapoint"], Action(new_datapoint(A))),
+        (["datapoint from lesion id"], Action(new_datapoint_from_id(A))),
+        (["datapoint from augmented path"], Action(new_datapoint_from_aug_path(A))),
+
+        (["get_hyperparams_as_list"], Action(get_hyperparams_as_list(A))),
+        #(["get image from path"], Action(get_image_from_path(A))),
     ]
 
     return acts
@@ -28,154 +63,109 @@ def get_actions(A):
 ### Data Setup
 ####################################
 
-def collect_unaug_data(A):
-    def fxn():
-        """Return dictionary pointing to X (img data) and Z (filenames) and dictionary storing number of samples of each class."""
-        A["images by class"] = {}
-        A["datasize by class"] = {}
-        lesion_df = A("get lesion df")()
-
-        for cls in A["lesion classes"]:
-            x = np.empty((10000, *A["input shape"])) #A("instantiate collection")(cls="image")
-            z = []
-
-            lesion_ids = lesion_df[lesion_df["cls"] == cls].index
-
-            A["datasize by class"][cls] = len(lesion_ids)
-
-            for ix, lesion_id in enumerate(lesion_ids):
-                img_path = join(A["unaug_dir"], lesion_id+".npy")
-                x[ix] = np.load(img_path)
-                if A["post_scale"] > 0:
-                    x[ix] = A("normalize intensity")(x[ix], 1., -1., A["post_scale"])
-                z.append(lesion_id)
-
-            x.resize((A["datasize by class"][cls], *A["input shape"])) #shrink first dimension to fit
-            A["images by class"][cls] = [x, np.array(z)]
+def get_class_of_lesion_id(A):
+    def fxn(lesion_id):
+        if A["lesion df"] is None:
+            A("get lesion df")()
+        return A["lesion df"].loc[lesion_id, "cls"]
     return fxn
 
-def split_training_test(A):
-    def fxn():
-        A("remove state keys")("test images", "test labels", "test accnums",
-            "training images", "training labels", "training accnums")
+def lesion_id_to_datapoint(A):
+    def fxn(lesion_id):
+        return A("permute image")(A("load image")(os.path.join(A["non-augmented img folder"], lesion_id + ".npy")), (3, 0, 1, 2))
+    return fxn
 
-        if A["fix test accnums"]:
-            orders = {cls: np.where(np.isin(A["images by class"][cls][1], A["fixed test accnums"])) for cls in A["lesion classes"]}
-            for cls in A["lesion classes"]:
-                orders[cls] = list(set(range(A["datasize by class"][cls])).difference(list(orders[cls][0]))) + list(orders[cls][0])
+def new_datapoint(A):
+    def fxn(lesion_id=None, path=None, load_img=True):
+        if path is None:
+            path = os.path.join(A["non-augmented img folder"], lesion_id + ".npy")
+        if lesion_id is None:
+            fn = os.path.basename(path)
+            lesion_id = fn[:fn.rfind("_")]
+
+        kwargs = {"lesion id": lesion_id, "image path": path}
+        kwargs["accession number"] = lesion_id[:lesion_id.find("_")]
+        kwargs["true class"] = A("get class of lesion id")(lesion_id)
+        kwargs["one hot label"] = A("1-hot encode")(A["lesion classes"].index(kwargs["true class"]))
+        if load_img:
+            img = np.load(path)
+            kwargs["image"] = A("permute image")(img, (3, 0, 1, 2))
+
+        return A("instantiate")(cls="LIRADS datapoint", **kwargs)
+    return fxn
+
+def new_datapoint_from_id(A):
+    def fxn(lesion_id):
+        return A("new datapoint")(lesion_id=lesion_id, load_img=True)
+    return fxn
+
+def new_datapoint_from_aug_path(A):
+    def fxn(path):
+        return A("new datapoint")(path=path, load_img=False)
+    return fxn
+
+def get_augmented_paths(A):
+    def fxn():
+        paths = []
+        for path in A("get folder contents")(A["augmented img folder"]):
+            fn = os.path.basename(path)
+            lesion_id = fn[:fn.rfind("_")]
+            if lesion_id in A["training lesion ids"]:
+                paths.append(path)
+        return paths
+    return fxn
+
+def construct_datasets(A):
+    def fxn():
+        if A["lesion df"] is None:
+            A("get lesion df")()
+
+        A("remove state keys")("datapoints", "test lesion ids", "training lesion ids")
 
         for cls_num, cls in enumerate(A["lesion classes"]):
-            n_train = A["datasize by class"][cls] - A["test num"]
-            n_test = A["test num"]
+            df = A["lesion df"]
+            lesion_ids = df[df["cls"] == cls].index
 
-            if test_accnums is None:
-                order = np.random.permutation(list(range(A["datasize by class"][cls])))
-                test_accnums = list(A["images by class"][cls][-1][order[n_train:]])
+            if A["fix test lesions"]:
+                test_ids, train_ids = A("split list conditionally")(lambda x: x in A["fixed test lesion ids"], lesion_ids)
             else:
-                order = orders[cls]
-            train_accnums = list(A["images by class"][cls][-1][order[:n_train]])
+                test_ids, train_ids = A("random split with N in the first partition")(lesion_ids, A["test num"])
 
-            A("append to state")("training images", A["images by class"][cls][order[:n_train]])
-            A("append to state")("training labels", [cls_num] * n_train)
-            A("append to state")("training accnums", train_accnums)
-            A("append to state")("test images", A["images by class"][cls][order[n_train:]])
-            A("append to state")("test labels", [cls_num] * n_test)
-            A("append to state")("test accnums", test_accnums)
+            A("add to state var")("test lesion ids", test_ids)
+            A("add to state var")("training lesion ids", train_ids)
 
-            if verbose:
-                print("%s has %d samples for training (%d after augmentation) and %d for testing" %
-                      (cls, n_train, n_train * A["aug_factor"], A["datasize by class"][cls] - n_train))
-
-
-        A["test labels"] = np_utils.to_categorical(A["test labels"], A["number of classes"])
-        A["training labels"] = np_utils.to_categorical(A["training labels"], A["number of classes"])
-        A["test images"] = np.array(A["test images"])
-        A["training images"] = np.array(A["training images"])
-
-        A["test labels"] = np.array(A["test labels"])
-        A["training labels"] = np.array(A["training labels"])
-
-        A["test accnums"] = np.array(A["test accnums"])
-        A["training accnums"] = np.array(A["training accnums"])
-
+        A["test dataset"] = list(map(A("datapoint from lesion id"), A["test lesion ids"]))
+        #A("parallelize")("datapoint from lesion id", A["test lesion ids"])
+        A["training dataset"] = list(map(A("datapoint from augmented path"), A("get augmented image paths")()))
+        #A("parallelize")("datapoint from augmented path", A("get augmented image paths")())
     return fxn
 
-def set_train_data_gen(A):
+#def partition_dataset_by_cls(A):
+#    def fxn(dataset):
+#        A["training data by class"] = {cls:[dp for dp in A["training dataset"] if dp["true class"] == cls] for cls in A["lesion classes"]}
+#    return fxn
+
+def set_bal_train_data_gen(A):
+    def bal_data_gen():
+        A["training data by class"] = {cls:[dp for dp in A["training dataset"] if \
+                dp["true class"] == cls] for cls in A["lesion classes"]}
+
+        assert A["number of classes"] % A["batch size"] == 0
+        n = A["batch size"]//A["number of classes"]
+
+        imgs = np.empty((A["batch size"], *A["input shape"]))
+        labels = np.empty((A["batch size"], A["number of classes"]))
+
+        while True:
+            for ix,cls in enumerate(A["lesion classes"]):
+                dps = np.random.permutation(A["training data by class"][cls])[:n]
+                imgs[ix*n : (ix+1)*n] = np.array([A("load image")(dp["image path"]) for dp in dps])
+                labels[ix*n : (ix+1)*n] = np.array([dp["true class"] for dp in dps])
+
+            yield imgs, labels
+
     def fxn():
-        A["training data generator"] = _train_gen_classifier(A)
-    return fxn
-
-def _train_gen_classifier(A):
-    """n is the number of samples from each class"""
-    if accnums is None:
-        lesion_df = drm.get_lesion_df()
-        accnums = {}
-        for cls in A["lesion classes"]:
-            accnums[cls] = lesion_df.loc[(lesion_df["cls"]==cls) & \
-                (lesion_df["run_num"] <= A["run_num"]), "accnum"].values
-
-    if A["clinical_inputs"] > 0:
-        train_path = join(A["base_dir"], "excel", "clinical_data_test.xlsx")
-        clinical_df = pd.read_excel(train_path, index_col=0)
-        clinical_df.index = clinical_df.index.astype(str)
-
-    if type(accnums) == dict:
-        img_fns = {cls:[fn for fn in os.listdir(A["aug_dir"]) if fn[:fn.find('_')] in accnums[cls]] for cls in A["lesion classes"]}
-
-    x = np.empty((n*A["number of classes"], *A["input shape"]))
-    y = np.zeros((n*A["number of classes"], A["number of classes"]))
-
-    while True:
-        train_cnt = 0
-        for cls in A["lesion classes"]:
-            while n > 0:
-                img_fn = random.choice(img_fns[cls])
-                lesion_id = img_fn[:img_fn.rfind('_')]
-                if lesion_id in test_ids[cls]:
-                    continue
-
-                try:
-                    x[train_cnt] = np.load(join(A["aug_dir"], img_fn))
-                except:
-                    print(join(A["aug_dir"], img_fn))
-                if A["post_scale"] > 0:
-                    try:
-                        x[train_cnt] = tr.normalize_intensity(x[train_cnt], 1., -1., A["post_scale"])
-                    except:
-                        raise ValueError(lesion_id)
-                        #vm.reset_accnum(lesion_id[:lesion_id.find('_')])
-
-                y[train_cnt][A["lesion classes"].index(cls)] = 1
-
-                train_cnt += 1
-                if train_cnt % n == 0:
-                    break
-
-        yield np.array(x), np.array(y)
-
-def _separate_phases(A):
-    def fxn(X, clinical_inputs=False):
-        """Assumes X[0] contains imaging and X[1] contains dimension data.
-        Reformats such that X[0:2] has 3 phases and X[3] contains dimension data.
-        Image data still is 5D (nb_samples, 3D, 1 channel).
-        Handles both 2D and 3D images"""
-
-        if clinical_inputs:
-            dim_data = copy.deepcopy(X[1])
-            img_data = X[0]
-
-            axis = len(X[0].shape) - 1
-            X[1] = np.expand_dims(X[0][...,1], axis=axis)
-            X += [np.expand_dims(X[0][...,2], axis=axis)]
-            X += [dim_data]
-            X[0] = np.expand_dims(X[0][...,0], axis=axis)
-
-        else:
-            X = np.array(X)
-            axis = len(X[0].shape) - 1
-            X = [np.expand_dims(X[...,ix], axis=axis) for ix in range(3)]
-
-        return X
+        A["training data generator"] = bal_data_gen()
     return fxn
 
 ####################################
@@ -183,8 +173,8 @@ def _separate_phases(A):
 ####################################
 
 def build_cnn(A):
-    def fxn():
-        A("set input shape")(A["nb channels"], *A["dims"])
+    def fxn(model_name):
+        A("set input shape")(A["number of channels"], *A["dims"])
 
         A("make block from layers")("192conv_1", ["conv3d", "batch norm", "relu", "max pool"],
                                     **{"out channels": 192, "kernel size": (3, 3, 2)})
@@ -194,110 +184,63 @@ def build_cnn(A):
         A("make block from layers")("fc_1", ["fc", "relu"], **{"number of units": 128})
         A("make block from layers")("cls_1", ["fc", "softmax"], **{"number of units": A["number of classes"]})
 
-        A("build model")(model_name="model1", blocks=["192conv_1", "3x 128conv_1", "pool_1", "fc_1", "cls_1"])
+        A("build model")(model_name=model_name, blocks=["192conv_1", "3x 128conv_1", "pool_1", "fc_1", "cls_1"])
 
-        A("set training settings")()
+        A["active model"] = nn.DataParallel(A["active model"])
     return fxn
 
-def run_fixed_hyperparams(A):
-    def fxn(overwrite=False, max_runs=999, Z_test=None, model_name='models_', verbose=True):
+def assess_model(A):
+    def fxn():
         """Runs the CNN for max_runs times, saving performance metrics."""
-        if overwrite and exists(A["run stats path"]):
-            os.remove(A["run stats path"])
+        A["run status"] = A("instantiate")(cls="LIRADS run status")
 
-        running_acc_6 = []
+        for run in range(1,A["max runs"]+1):
+            A["run status"]["current run"] = run
+            A("construct datasets")()
+            gen = A("set balanced training data generator")()
+            CNN = A("build lesion classifier")()
+            A("set training settings")()
 
-        for _ in range(max_runs):
+            CNN, hist = A("train model")(CNN, data=gen)
+            results = A("test model")(CNN, data=)
+            optimizer = A("compile optimizer")(CNN)
 
-            X_test, Y_test, train_gen, num_samples, train_orig, Z = cbuild.get_cnn_data(n=A["T"].n,
-                    Z_test_fixed=Z_test)
-            A["Z_test"], A["Z_train_orig"] = Z
-            X_train_orig, Y_train_orig = train_orig
-
-
-            if A["aleatoric"]:
-                A["pred_model"], A["train_model"] = cbuild.build_cnn_hyperparams(A["T"])
-                val_data = [X_test, Y_test], None
-            else:
-                A["pred_model"] = cbuild.build_cnn_hyperparams(A["T"])
-                A["train_model"] = A["pred_model"]
-                val_data = [X_test, Y_test]
-
-            t = time.time()
-
-            if A["T"].steps_per_epoch > 32:
-                hist = A["train_model"].fit_generator(train_gen, A["T"].steps_per_epoch,
-                        A["T"].epochs, verbose=verbose, callbacks=[A["T"].early_stopping], validation_data=val_data)
-                loss_hist = hist.history['val_loss']
-            else:
-                A["pred_model"] = A["train_model"].layers[-2]
-                A["pred_model"].compile('adam', loss='categorical_crossentropy', metrics=['accuracy'])
-                for _ in range(5):
-                    hist = A["train_model"].fit_generator(train_gen, A["T"].steps_per_epoch,
-                            A["T"].epochs, verbose=verbose, callbacks=[A["T"].early_stopping])#, validation_data=[X_test, Y_test])
-                    print(A["pred_model"].evaluate(X_test, Y_test, verbose=False))
-                loss_hist = hist.history['loss']
-
-            Y_pred = A["pred_model"].predict(X_train_orig)
-            y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_train_orig])
-            y_pred = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_pred])
-            miscls_train = list(A["Z_train_orig"][~np.equal(y_pred, y_true)])
-
-            if A["aug pred"]:
-                x = np.empty((A["aug factor"], *A["dims"], A["nb channels"]))
-                Y_pred = []
-                for z in A["Z_test"]:
-                    x = np.stack([np.load(fn) for fn in glob.glob(join(A["aug dir"],"*")) if basename(fn).startswith(z)], 0)
-                    y = A["pred_model"].predict(x)
-                    Y_pred.append(np.median(y, 0))
-                Y_pred = np.array(Y_pred)
-            elif A["T"].mc_sampling:
-                Y_pred = []
-                for ix in range(len(A["Z_test"])):
-                    x = np.tile(X_test[ix], (256, 1,1,1,1))
-                    y = A["pred_model"].predict(x)
-                    Y_pred.append(np.median(y, 0))
-                Y_pred = np.array(Y_pred)
-            else:
-                Y_pred = A["pred_model"].predict(X_test)
-            y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_test])
-            y_pred = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_pred])
-            miscls_test = list(A["Z_test"][~np.equal(y_pred, y_true)])
-
-            cm = confusion_matrix(y_true, y_pred)
-            #f1 = f1_score(y_true, y_pred, average="weighted")
-            running_acc_6.append(accuracy_score(y_true, y_pred))
-            print("Accuracy: %d%% (avg: %d%%), time: %ds" % (running_acc_6[-1]*100, np.mean(running_acc_6)*100, time.time()-t))
-
-            """if hasattr(A["C"],'simplify_map'):
-                y_true_simp, y_pred_simp = merge_classes(y_true, y_pred, A["C"])
-                acc_3 = accuracy_score(y_true_simp, y_pred_simp)
-                row = _get_hyperparams_as_list(A["C"], A["T"]) + [num_samples[k] for k in A["cls names"]] + [running_acc_6[-1], acc_3]
-            else:"""
-            row = _get_hyperparams_as_list(A["C"], A["T"]) + [num_samples[k] for k in A["cls names"]] + [running_acc_6[-1]]
-
-            model_names = glob.glob(join(A["model dir"], model_name+"*"))
-            if len(model_names) > 0:
-                model_num = max([int(x[x.rfind('_')+1:x.find('.')]) for x in model_names]) + 1
-            else:
-                model_num = 0
-            running_stats = get_run_stats_csv(A["C"])
-            running_stats.loc[len(running_stats)] = row + [loss_hist, cm, time.time()-t, time.time(),
-                            miscls_test, miscls_train, model_name+str(model_num), y_true, str(Y_pred), list(A["Z_test"])]
-
-            running_stats.to_csv(A["run stats path"], index=False)
-            A["pred_model"].save(join(A["model dir"], model_name+'%d.hdf5' % model_num))
-            model_num += 1
+        return hist, args, epoch
     return fxn
+    y_true = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_test])
+    y_pred = np.array([max(enumerate(x), key=operator.itemgetter(1))[0] for x in Y_pred])
+    miscls_test = list(A["Z_test"][~np.equal(y_pred, y_true)])
 
-def _get_hyperparams_as_list(C, T):
-    return [A["hyperparameters"]["n"], A["hyperparameters"]["steps_per_epoch"], A["hyperparameters"]["epochs"],
-            A["test num"], A["aug factor"], A["clinical inputs"],
-            A["hyperparameters"]["kernel_size"], A["hyperparameters"]["f"], A["hyperparameters"]["padding"], A["hyperparameters"]["dropout"], A["hyperparameters"]["dense_units"],
-            A["hyperparameters"]["pool_sizes"],
-            A["hyperparameters"]["cnn_type"]+A["aleatoric"]*'-al'+A["aug pred"]*'-aug'+A["hyperparameters"]["mc_sampling"]*'-mc'+'-foc%.1f'%A["focal loss"],
-            A["ensemble num"],
-            A["hyperparameters"]["optimizer"].get_config()['lr']]
+    cm = confusion_matrix(y_true, y_pred)
+    #f1 = f1_score(y_true, y_pred, average="weighted")
+    running_acc_6.append(accuracy_score(y_true, y_pred))
+    print("Accuracy: %d%% (avg: %d%%), time: %ds" % (running_acc_6[-1]*100, np.mean(running_acc_6)*100, time.time()-t))
+
+    row = A("get_hyperparams_as_list")() + [num_samples[k] for k in A["cls names"]] + [running_acc_6[-1]]
+
+    model_names = glob.glob(join(A["model dir"], model_name+"*"))
+    if len(model_names) > 0:
+        model_num = max([int(x[x.rfind('_')+1:x.find('.')]) for x in model_names]) + 1
+    else:
+        model_num = 0
+    running_stats = get_run_stats_csv(A["C"])
+    running_stats.loc[len(running_stats)] = row + [loss_hist, cm, time.time()-t, time.time(),
+                    miscls_test, miscls_train, model_name+str(model_num), y_true, str(Y_pred), list(A["Z_test"])]
+
+    running_stats.to_csv(A["run stats path"], index=False)
+    A["pred_model"].save(join(A["model dir"], model_name+'%d.hdf5' % model_num))
+    model_num += 1
+
+def get_hyperparams_as_list(A):
+    def fxn():
+        return [A["hyperparameters"]["n"], A["hyperparameters"]["steps_per_epoch"], A["hyperparameters"]["epochs"],
+                A["test num"], A["aug factor"], A["clinical inputs"],
+                A["hyperparameters"]["kernel_size"], A["hyperparameters"]["f"], A["hyperparameters"]["padding"], A["hyperparameters"]["dropout"], A["hyperparameters"]["dense_units"],
+                A["hyperparameters"]["pool_sizes"],
+                A["hyperparameters"]["cnn_type"]+A["aleatoric"]*'-al'+A["aug pred"]*'-aug'+A["hyperparameters"]["mc_sampling"]*'-mc'+'-foc%.1f'%A["focal loss"],
+                A["ensemble num"],
+                A["hyperparameters"]["optimizer"].get_config()['lr']]
+    return fxn
 
 def get_run_stats_csv(A):
     def fxn():
@@ -325,3 +268,55 @@ def merge_classes(A):
 
         return y_true_simp, y_pred_simp
     return fxn
+
+
+### delete?
+
+def _separate_phases(A):
+    def fxn(X, clinical_inputs=False):
+        """Assumes X[0] contains imaging and X[1] contains dimension data.
+        Reformats such that X[0:2] has 3 phases and X[3] contains dimension data.
+        Image data still is 5D (nb_samples, 3D, 1 channel).
+        Handles both 2D and 3D images"""
+
+        if clinical_inputs:
+            dim_data = copy.deepcopy(X[1])
+            img_data = X[0]
+
+            axis = len(X[0].shape) - 1
+            X[1] = np.expand_dims(X[0][...,1], axis=axis)
+            X += [np.expand_dims(X[0][...,2], axis=axis)]
+            X += [dim_data]
+            X[0] = np.expand_dims(X[0][...,0], axis=axis)
+
+        else:
+            X = np.array(X)
+            axis = len(X[0].shape) - 1
+            X = [np.expand_dims(X[...,ix], axis=axis) for ix in range(3)]
+
+        return X
+    return fxn
+
+def get_weights_for_balancing(A):
+    def fxn():
+        classes = dp["true class"] for dp in A["training dataset"]
+        ordering, counts = np.unique(classes, return_counts=True)
+        A["class weights"] =
+    return fxn
+
+def construct_dataloaders(A):
+    def fxn():
+        sampler = data.WeightedRandomSampler(weights=[dp["true class"] for dp in A["training dataset"]], num_samples=A["batch size"])
+        A["training data loader"] = data.DataLoader(DS(A["training dataset"]),
+            batch_size=A["batch size"], sampler=sampler, num_workers=8, pin_memory=True)
+        class DS(data.Dataset):
+            def __init__(self, ds_inst):
+                self.ds_inst = ds_inst
+            def __getitem__(self, index):
+                path = self.ds_inst[index]["image path"]
+                return np.load(self.ds_inst[index]["image path"]), self.ds_inst[index]["image path"]
+            def __len__(self):
+                return len(self.ds
+
+
+            A["training data loader"] = data.DataLoader(self, sampler=train_sampler, batch_size=batch_size, **kwargs)

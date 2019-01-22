@@ -309,12 +309,7 @@ def predict_test_features(A):
         num_features = len(all_features)
 
         df = pd.DataFrame(columns=['true_cls', 'pred_cls'] + all_features)
-
-        lesion_ids = {}
-        for cls in A["cls names"]:
-            src_data_df = drm.get_coords_df(cls)
-            accnums = src_data_df["acc #"].values
-            lesion_ids[cls] = [x[:-4] for x in os.listdir(A["crops dir"]) if x[:x.find('_')] in accnums]
+        lesion_ids = A("get test lesion ids by class")()
 
         num_neurons = all_neurons.shape[-1]
 
@@ -678,44 +673,48 @@ def predict_features_gaussian(full_model, model_fc, all_dense, feature_dense, x_
 ###########################
 
 def collect_features(A):
-	feature_sheet = pd.read_excel(A["coord xls path"], "Descriptions")
+    def fxn():
+        feature_sheet = pd.read_excel(A["coord xls path"], "Descriptions")
 
-	features_by_cls = {}
-	for cls in A["cls names"]:
-		features_by_cls[cls] = list(feature_sheet["evidence1"+cls].dropna().values)
-		features_by_cls[cls] = features_by_cls[cls] + list(feature_sheet["evidence2"+cls].dropna().values)
+        features_by_cls = {}
+        for cls in A["cls names"]:
+            features_by_cls[cls] = list(feature_sheet["evidence1"+cls].dropna().values)
+            features_by_cls[cls] = features_by_cls[cls] + list(feature_sheet["evidence2"+cls].dropna().values)
 
-	feat_count = dict(zip(*np.unique([f for cls in features_by_cls for f in features_by_cls[cls]], return_counts=True)))
-	for cls in A["cls names"]:
-		features_by_cls[cls] = list(set(features_by_cls[cls]))
+        feat_count = dict(zip(*np.unique([f for cls in features_by_cls for f in features_by_cls[cls]], return_counts=True)))
+        for cls in A["cls names"]:
+            features_by_cls[cls] = list(set(features_by_cls[cls]))
 
-	return features_by_cls, feat_count
+        return features_by_cls, feat_count
+    return fxn
 
-def get_annotated_files(features_by_cls, num_samples=None):
-	feature_sheet = pd.read_excel(A["coord xls path"], "Descriptions")
+def get_annotated_files(A):
+    def fxn(features_by_cls, num_samples=None):
+        feature_sheet = pd.read_excel(A["coord xls path"], "Descriptions")
 
-	Z_features_by_cls = {cls: {} for cls in features_by_cls}
-	Z_features = {}
-	for cls in A["cls names"]:
-		for f in features_by_cls[cls]:
-			if f not in Z_features:
-				Z_features[f] = []
+        Z_features_by_cls = {cls: {} for cls in features_by_cls}
+        Z_features = {}
+        for cls in A["cls names"]:
+            for f in features_by_cls[cls]:
+                if f not in Z_features:
+                    Z_features[f] = []
 
-			Z_features_by_cls[cls][f] = [x for x in feature_sheet[(feature_sheet["evidence1"+cls] == f) & ~(feature_sheet["test"+cls] >= 0)][cls].values]
-			Z_features[f] += Z_features_by_cls[cls][f]
-			if feature_sheet["evidence2"+cls].dropna().size > 0:
-				X = [x for x in \
-						feature_sheet[(feature_sheet["evidence2"+cls] == f) & ~(feature_sheet["test"+cls] >= 0)][cls].values]
-				Z_features_by_cls[cls][f] += X
-				Z_features[f] += X
+                Z_features_by_cls[cls][f] = [x for x in feature_sheet[(feature_sheet["evidence1"+cls] == f) & ~(feature_sheet["test"+cls] >= 0)][cls].values]
+                Z_features[f] += Z_features_by_cls[cls][f]
+                if feature_sheet["evidence2"+cls].dropna().size > 0:
+                    X = [x for x in \
+                            feature_sheet[(feature_sheet["evidence2"+cls] == f) & ~(feature_sheet["test"+cls] >= 0)][cls].values]
+                    Z_features_by_cls[cls][f] += X
+                    Z_features[f] += X
 
-	for f in Z_features:
-		if len(Z_features[f]) < 10:
-			print(f, Z_features[f])
-		if num_samples is not None:
-			Z_features[f] = np.random.choice(Z_features[f], num_samples, replace=False)
+        for f in Z_features:
+            if len(Z_features[f]) < 10:
+                print(f, Z_features[f])
+            if num_samples is not None:
+                Z_features[f] = np.random.choice(Z_features[f], num_samples, replace=False)
 
-	return Z_features
+        return Z_features
+    return fxn
 
 def get_evidence_strength(feature_filters, pred_filters):
 	"""A good pred_filter has high values for all the key (non-zero) features of feature_filter.
